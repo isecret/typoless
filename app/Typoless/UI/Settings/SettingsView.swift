@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     let configStore: ConfigStore
+    let permissionsManager: PermissionsManager
 
     var body: some View {
         TabView {
@@ -11,7 +12,8 @@ struct SettingsView: View {
                 .tabItem { Label("LLM 配置", systemImage: "brain") }
             GeneralSettingsView(configStore: configStore)
                 .tabItem { Label("通用", systemImage: "gearshape") }
-            PlaceholderTab(title: "权限", icon: "lock.shield", description: "权限检测与引导将在 E3 中实现")
+            PermissionsSettingsView(permissionsManager: permissionsManager)
+                .tabItem { Label("权限", systemImage: "lock.shield") }
             PlaceholderTab(title: "诊断", icon: "stethoscope", description: "诊断信息将在 E9 中实现")
             PlaceholderTab(title: "最近记录", icon: "clock", description: "最近记录将在 E9 中实现")
         }
