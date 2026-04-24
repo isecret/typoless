@@ -1,0 +1,31 @@
+name: Typoless
+
+options:
+  bundleIdPrefix: com.isecret
+  deploymentTarget:
+    macOS: "14.0"
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  Typoless:
+    type: application
+    platform: macOS
+    sources:
+      - path: Typoless
+        excludes:
+          - "**/.gitkeep"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.isecret.typoless
+        CODE_SIGN_ENTITLEMENTS: Typoless/Typoless.entitlements
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Typoless
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "Typoless 需要麦克风权限来进行语音输入"
