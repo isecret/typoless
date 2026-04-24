@@ -6,8 +6,6 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 `录音 -> 腾讯云 ASR -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
 
-项目当前处于产品定义已冻结、待进入实现阶段的状态。
-
 ## 项目目标
 
 - 在 macOS 上提供全局可用的中文语音输入能力
@@ -18,18 +16,22 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 ## 首版范围
 
-### 包含
+### 已实现
 
-- 菜单栏常驻应用
-- 设置页
-- 全局快捷键
+- 菜单栏常驻应用（MenuBarExtra）
+- 设置页（ASR / LLM / 通用 / 权限 / 诊断 / 最近记录）
+- 全局快捷键（Carbon Event API）
 - 按住说话，松开处理
-- 腾讯云一句话/短音频识别
-- OpenAI 兼容 LLM 润色
-- 文本注入
+- 腾讯云一句话短音频识别（自实现 HTTP + TC3 签名）
+- OpenAI 兼容 LLM 润色（固定 Prompt，纠错 + 去赘词 + 轻度书面化 + 补标点）
+- 文本注入（AX API 主策略 + 键盘事件回退）
 - 麦克风与辅助功能权限引导
-- 最近 10 条文本记录
+- 最近 10 条文本记录（查看 / 复制 / 清空）
 - LLM 失败时自动回退 ASR 原文
+- 状态机驱动菜单栏反馈（空闲 / 录音中 / 识别中 / 润色中 / 注入中 / 完成 / 失败 / 已取消）
+- 用户可理解的错误分类与展示
+- 处理中可取消（识别中 / 润色中）
+- 诊断页（最近错误摘要 + 会话状态 + 版本信息）
 
 ### 不包含
 
@@ -53,16 +55,51 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 注入失败策略：不自动写剪贴板，结果保留在最近记录中供用户复制
 - 最近记录：仅保存 `最终文本 + 时间 + 状态`
 
-## 技术方向
+## 技术架构
 
-- 客户端：`Swift + SwiftUI + AppKit`
+### 技术栈
+
+- 客户端：`Swift 6.0 + SwiftUI + AppKit`
 - 架构：`MVVM + Service Layer`
-- 语音识别：`腾讯云 ASR`，首版采用自实现 `HTTP Provider + 签名`
+- 语音识别：`腾讯云 ASR`，自实现 `HTTP Provider + TC3-HMAC-SHA256 签名`
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
-- 文本注入：优先 `Accessibility API`，失败后回退输入事件
+- 文本注入：优先 `Accessibility API`，失败后回退键盘事件输入
 - 普通设置存储：`UserDefaults`
 - 密钥存储：`Keychain`
+- 最近记录存储：`UserDefaults`（JSON 编码）
+
+### 分层结构
+
+```
+app/Typoless/
+├── App/                    # 应用入口（TypolessApp）
+├── Domain/
+│   ├── Coordinators/       # AppCoordinator, SessionCoordinator
+│   └── Models/             # SessionState, TypolessError, RecentRecord, AppConfig 等
+├── Persistence/            # ConfigStore, KeychainHelper, RecentRecordStore
+├── Platform/               # AudioRecorder, HotkeyManager, PermissionsManager, TextInjector
+├── Providers/              # TencentASRProvider, LLMProvider
+├── Resources/              # 资源文件
+└── UI/
+    ├── MenuBar/            # MenuBarView
+    └── Settings/           # 设置页各 Tab 视图
+```
+
+### 核心对象
+
+| 对象 | 职责 |
+| --- | --- |
+| `AppCoordinator` | 应用生命周期、菜单栏入口、设置页导航 |
+| `SessionCoordinator` | 主链路状态机编排（录音→识别→润色→注入→记录） |
+| `AudioRecorder` | 音频采集与 PCM/WAV 标准化 |
+| `TencentASRProvider` | 腾讯云 ASR HTTP 调用与 TC3 签名 |
+| `LLMProvider` | OpenAI Chat Completions 调用 |
+| `TextInjector` | AX API 文本注入 + 键盘事件回退 |
+| `PermissionsManager` | 麦克风与辅助功能权限管理 |
+| `HotkeyManager` | Carbon Event 全局快捷键 |
+| `ConfigStore` | UserDefaults + Keychain 配置读写 |
+| `RecentRecordStore` | 最近记录持久化（最多 10 条） |
 
 ## 核心流程
 
@@ -85,6 +122,39 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 5. 获取原始转写文本
 6. 调用 LLM 做纠错与轻度书面化
 7. 将最终文本注入当前焦点应用
+8. 记录保存到最近记录
+
+## 状态机
+
+主状态流转：
+
+`idle -> recording -> transcribing -> polishing -> injecting -> done`
+
+异常状态：
+
+- `error`
+- `cancelled`
+
+约束：
+
+- 同一时间只允许一个 session
+- 菜单栏允许取消处理中任务（识别中 / 润色中）
+- 取消后不得继续注入文本
+- 状态变化实时反映到菜单栏图标
+
+## 错误处理
+
+| 错误类型 | 用户提示 |
+| --- | --- |
+| 麦克风权限缺失 | 麦克风权限未开启，无法录音 |
+| 辅助功能权限缺失 | 辅助功能权限未开启，无法注入文本 |
+| 腾讯云凭证无效 | 腾讯云凭证无效，请检查 SecretId 和 SecretKey |
+| 腾讯云网络失败 | 腾讯云网络连接失败，请检查网络 |
+| ASR 识别失败 | 语音识别失败，请重试 |
+| LLM 配置无效 | LLM 配置无效：具体原因 |
+| LLM 网络失败 | LLM 网络连接失败，请检查网络 |
+| LLM 空结果 | LLM 返回空结果，已使用原始识别文本 |
+| 文本注入失败 | 文本注入失败：具体原因 |
 
 ## LLM 处理边界
 
@@ -101,22 +171,18 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 扩写用户没说出的内容
 - 擅自改变语义、语气、事实
 
-## 状态机
+## 配置项
 
-主状态流转：
-
-`idle -> recording -> transcribing -> polishing -> injecting -> done`
-
-异常状态：
-
-- `error`
-- `cancelled`
-
-约束：
-
-- 同一时间只允许一个 session
-- 菜单栏允许取消处理中任务
-- 取消后不得继续注入文本
+| 配置字段 | 存储位置 |
+| --- | --- |
+| `tencent_region` | UserDefaults |
+| `openai_base_url` | UserDefaults |
+| `openai_model` | UserDefaults |
+| `global_hotkey` | UserDefaults |
+| `enable_ai_polish` | UserDefaults |
+| `tencent_secret_id` | Keychain |
+| `tencent_secret_key` | Keychain |
+| `openai_api_key` | Keychain |
 
 ## 测试策略
 
@@ -124,19 +190,25 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 端到端以手工验收主链路为主
 - 重点验证权限缺失、配置错误、LLM 回退、注入失败
 
-## 配置项
+### 手工验收清单
 
-首版公开配置字段：
-
-- `tencent_secret_id`
-- `tencent_secret_key`
-- `tencent_region`
-- `openai_base_url`
-- `openai_api_key`
-- `openai_model`
-- `global_hotkey`
-- `enable_ai_polish`
-- `source_language`
+- [ ] 首次启动自动打开设置页
+- [ ] 配置腾讯云凭证并保存成功
+- [ ] 配置 LLM 并保存成功
+- [ ] 设置全局快捷键并生效
+- [ ] 麦克风权限授权后可录音
+- [ ] 辅助功能权限授权后可注入文本
+- [ ] 完整链路：录音 → ASR → LLM → 注入（浏览器输入框、备忘录、聊天应用）
+- [ ] 关闭 AI 润色：录音 → ASR → 直接注入
+- [ ] LLM 失败自动回退 ASR 原文
+- [ ] 注入失败后文本保留在最近记录
+- [ ] 最近记录可查看、复制、清空
+- [ ] 菜单栏状态随主链路正确刷新
+- [ ] 识别中 / 润色中可从菜单取消
+- [ ] 诊断页展示最近错误摘要
+- [ ] 权限缺失场景提示清晰
+- [ ] 腾讯云凭证错误场景提示清晰
+- [ ] 应用重启后配置和记录正常恢复
 
 ## 目录说明
 
@@ -162,21 +234,21 @@ xcodegen generate
 open Typoless.xcodeproj
 ```
 
-## 开发优先级建议
+### 构建与运行
 
-1. 搭建菜单栏应用骨架与设置页
-2. 打通全局快捷键和录音链路
-3. 接入腾讯云 ASR
-4. 接入 OpenAI 兼容 LLM
-5. 实现文本注入
-6. 完成权限、错误处理和最近记录
+```bash
+cd app
+xcodegen generate
+xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'platform=macOS'
+```
+
+或在 Xcode 中打开 `Typoless.xcodeproj` 后按 `⌘R` 运行。
 
 ## 当前状态
 
 - `PRD`: 已冻结
 - `TDD`: 已冻结
-- `README`: 已建立
-- `代码实现`: E1 应用骨架与菜单栏已完成
+- `代码实现`: MVP 全部 Epic（E1-E10）已完成
 
 ## 参考
 
