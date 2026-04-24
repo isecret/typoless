@@ -6,26 +6,37 @@ import Foundation
 final class SessionCoordinator {
     private(set) var state: SessionState = .idle
     private(set) var lastRecordedAudio: Data?
+    private(set) var currentError: TypolessError?
+    private(set) var lastResult: SessionResult?
 
     private let audioRecorder = AudioRecorder()
     private let permissionsManager: PermissionsManager
-    private var timeoutTask: Task<Void, Never>?
+    private let configStore: ConfigStore
+    private let textInjector = TextInjector()
 
-    init(permissionsManager: PermissionsManager) {
+    private var timeoutTask: Task<Void, Never>?
+    private var processingTask: Task<Void, Never>?
+    private var sessionGeneration: UInt64 = 0
+
+    init(permissionsManager: PermissionsManager, configStore: ConfigStore) {
         self.permissionsManager = permissionsManager
+        self.configStore = configStore
     }
 
     /// 开始录音
     func startRecording() {
         guard state == .idle else { return }
 
+        currentError = nil
+        lastResult = nil
+        sessionGeneration &+= 1
+
         do {
             try permissionsManager.ensureMicrophoneAuthorized()
             state = .recording
             try audioRecorder.startRecording()
         } catch {
-            state = .error
-            scheduleResetToIdle()
+            handleError(mapError(error))
             return
         }
 
@@ -37,7 +48,7 @@ final class SessionCoordinator {
         }
     }
 
-    /// 结束录音
+    /// 结束录音并开始处理链路
     func finishRecording() {
         guard state == .recording else { return }
 
@@ -47,8 +58,18 @@ final class SessionCoordinator {
         let audioData = audioRecorder.stopRecording()
         lastRecordedAudio = audioData
 
-        // E5/E8 将在此处推进到 .transcribing
-        state = .idle
+        guard !audioData.isEmpty else {
+            handleError(.tencentASRFailure(code: nil, message: "录音数据为空", requestId: nil))
+            return
+        }
+
+        let gen = sessionGeneration
+        state = .transcribing
+
+        processingTask = Task { [weak self] in
+            await self?.processAudio(audioData, generation: gen)
+            self?.processingTask = nil
+        }
     }
 
     /// 取消当前任务
@@ -62,7 +83,9 @@ final class SessionCoordinator {
             state = .cancelled
             scheduleResetToIdle()
         case .transcribing, .polishing:
-            // E5/E8 将补充 ASR/LLM 取消逻辑
+            sessionGeneration &+= 1
+            processingTask?.cancel()
+            processingTask = nil
             state = .cancelled
             scheduleResetToIdle()
         default:
@@ -70,11 +93,106 @@ final class SessionCoordinator {
         }
     }
 
+    // MARK: - Processing Pipeline
+
+    private func processAudio(_ audioData: Data, generation: UInt64) async {
+        // 1. ASR 识别
+        let asrProvider = TencentASRProvider(
+            secretId: configStore.tencentSecretId,
+            secretKey: configStore.tencentSecretKey,
+            region: configStore.asrConfig.region.rawValue
+        )
+
+        let transcriptResult: TranscriptResult
+        do {
+            transcriptResult = try await asrProvider.recognize(audioData: audioData)
+        } catch {
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
+            handleError(mapError(error))
+            return
+        }
+
+        guard generation == sessionGeneration, !Task.isCancelled else { return }
+
+        // 2. LLM 润色（如果开启）
+        var finalText = transcriptResult.text
+        var polishSource: PolishResult.Source = .fallback
+
+        if configStore.generalConfig.enableAIPolish {
+            state = .polishing
+
+            let llmProvider = LLMProvider(
+                baseURL: configStore.llmConfig.baseURL,
+                apiKey: configStore.openAIAPIKey,
+                model: configStore.llmConfig.model
+            )
+
+            do {
+                let polishResult = try await llmProvider.polish(text: transcriptResult.text)
+                guard generation == sessionGeneration, !Task.isCancelled else { return }
+
+                if !polishResult.text.isEmpty {
+                    finalText = polishResult.text
+                    polishSource = .llm
+                }
+            } catch {
+                // LLM 失败：回退到 ASR 原文继续注入
+                guard generation == sessionGeneration, !Task.isCancelled else { return }
+                polishSource = .fallback
+            }
+        }
+
+        // 3. 文本注入
+        guard generation == sessionGeneration, !Task.isCancelled else { return }
+        state = .injecting
+
+        lastResult = SessionResult(text: finalText, source: polishSource)
+
+        do {
+            try textInjector.inject(text: finalText)
+        } catch {
+            guard generation == sessionGeneration else { return }
+            handleError(mapError(error))
+            return
+        }
+
+        guard generation == sessionGeneration else { return }
+        state = .done
+        scheduleResetToIdle()
+    }
+
+    // MARK: - Error Handling
+
+    private func handleError(_ error: TypolessError) {
+        currentError = error
+        state = .error
+        scheduleResetToIdle()
+    }
+
+    private func mapError(_ error: Error) -> TypolessError {
+        if let te = error as? TypolessError { return te }
+        if let pe = error as? PermissionError {
+            switch pe {
+            case .microphonePermissionDenied: return .microphonePermissionDenied
+            case .accessibilityPermissionDenied: return .accessibilityPermissionDenied
+            }
+        }
+        return .textInjectionFailure(detail: error.localizedDescription)
+    }
+
     private func scheduleResetToIdle() {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
-            guard let self, self.state == .error || self.state == .cancelled else { return }
+            guard let self else { return }
+            guard self.state == .error || self.state == .cancelled || self.state == .done else { return }
             self.state = .idle
         }
     }
+}
+
+// MARK: - Session Result
+
+struct SessionResult: Sendable {
+    let text: String
+    let source: PolishResult.Source
 }

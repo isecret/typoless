@@ -15,7 +15,7 @@ final class AppCoordinator {
         let perms = PermissionsManager()
         configStore = store
         permissionsManager = perms
-        sessionCoordinator = SessionCoordinator(permissionsManager: perms)
+        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store)
         hotkeyManager = HotkeyManager()
     }
 
