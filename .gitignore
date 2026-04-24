@@ -4,6 +4,7 @@
 # Xcode / Swift
 .build/
 DerivedData/
+*.xcodeproj/
 *.pbxuser
 !default.pbxuser
 *.mode1v3

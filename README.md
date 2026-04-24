@@ -141,12 +141,26 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 ## 目录说明
 
 - [PRD.md](./docs/PRD.md): 已冻结的产品需求文档
+- [TDD.md](./docs/TDD.md): 已冻结的技术设计文档
+- [EPICS_AND_STORIES.md](./docs/EPICS_AND_STORIES.md): Epic 和 Story 拆分
+- `app/`: macOS 客户端代码（Swift + SwiftUI + AppKit）
+- `app/project.yml`: XcodeGen 项目配置
 
-当前仓库还未进入代码实现阶段，后续建议补充以下目录：
+## 开发环境
 
-- `app/`: macOS 客户端代码
-- `docs/`: 技术设计、任务拆分、接口说明
-- `scripts/`: 本地开发和构建辅助脚本
+### 依赖
+
+- macOS 14.0+
+- Xcode 16.0+
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+
+### 生成 Xcode 工程
+
+```bash
+cd app
+xcodegen generate
+open Typoless.xcodeproj
+```
 
 ## 开发优先级建议
 
@@ -160,8 +174,9 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 ## 当前状态
 
 - `PRD`: 已冻结
+- `TDD`: 已冻结
 - `README`: 已建立
-- `代码实现`: 未开始
+- `代码实现`: E1 应用骨架与菜单栏已完成
 
 ## 参考
 
