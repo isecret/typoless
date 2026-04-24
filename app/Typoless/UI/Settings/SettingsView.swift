@@ -1,16 +1,21 @@
 import SwiftUI
 
 struct SettingsView: View {
+    let configStore: ConfigStore
+
     var body: some View {
         TabView {
-            PlaceholderTab(title: "ASR 配置", icon: "waveform", description: "腾讯云 ASR 配置将在 E2 中实现")
-            PlaceholderTab(title: "LLM 配置", icon: "brain", description: "OpenAI 兼容 LLM 配置将在 E2 中实现")
-            PlaceholderTab(title: "快捷键", icon: "keyboard", description: "全局快捷键配置将在 E2 中实现")
+            ASRSettingsView(configStore: configStore)
+                .tabItem { Label("ASR 配置", systemImage: "waveform") }
+            LLMSettingsView(configStore: configStore)
+                .tabItem { Label("LLM 配置", systemImage: "brain") }
+            GeneralSettingsView(configStore: configStore)
+                .tabItem { Label("通用", systemImage: "gearshape") }
             PlaceholderTab(title: "权限", icon: "lock.shield", description: "权限检测与引导将在 E3 中实现")
             PlaceholderTab(title: "诊断", icon: "stethoscope", description: "诊断信息将在 E9 中实现")
             PlaceholderTab(title: "最近记录", icon: "clock", description: "最近记录将在 E9 中实现")
         }
-        .frame(width: 520, height: 360)
+        .frame(width: 520, height: 400)
     }
 }
 
