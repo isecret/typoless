@@ -1,18 +1,19 @@
 import SwiftUI
 
 struct SettingsView: View {
-    let configStore: ConfigStore
-    let permissionsManager: PermissionsManager
+    let appCoordinator: AppCoordinator
 
     var body: some View {
         TabView {
-            ASRSettingsView(configStore: configStore)
+            ASRSettingsView(configStore: appCoordinator.configStore)
                 .tabItem { Label("ASR 配置", systemImage: "waveform") }
-            LLMSettingsView(configStore: configStore)
+            LLMSettingsView(configStore: appCoordinator.configStore)
                 .tabItem { Label("LLM 配置", systemImage: "brain") }
-            GeneralSettingsView(configStore: configStore)
+            GeneralSettingsView(configStore: appCoordinator.configStore, onHotkeyChanged: {
+                appCoordinator.setupHotkey()
+            })
                 .tabItem { Label("通用", systemImage: "gearshape") }
-            PermissionsSettingsView(permissionsManager: permissionsManager)
+            PermissionsSettingsView(permissionsManager: appCoordinator.permissionsManager)
                 .tabItem { Label("权限", systemImage: "lock.shield") }
             PlaceholderTab(title: "诊断", icon: "stethoscope", description: "诊断信息将在 E9 中实现")
             PlaceholderTab(title: "最近记录", icon: "clock", description: "最近记录将在 E9 中实现")

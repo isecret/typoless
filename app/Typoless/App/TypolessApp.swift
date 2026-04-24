@@ -13,10 +13,7 @@ struct TypolessApp: App {
         .menuBarExtraStyle(.menu)
 
         Settings {
-            SettingsView(
-                configStore: appCoordinator.configStore,
-                permissionsManager: appCoordinator.permissionsManager
-            )
+            SettingsView(appCoordinator: appCoordinator)
         }
     }
 

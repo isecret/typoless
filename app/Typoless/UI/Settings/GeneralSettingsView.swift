@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     let configStore: ConfigStore
+    var onHotkeyChanged: (() -> Void)?
 
     @State private var enableAIPolish: Bool = true
     @State private var hotkey: HotkeyCombo = .default
@@ -65,6 +66,7 @@ struct GeneralSettingsView: View {
         do {
             let config = GeneralConfig(hotkey: hotkey, enableAIPolish: enableAIPolish)
             try configStore.saveGeneralConfig(config)
+            onHotkeyChanged?()
             saveMessage = "已保存"
             isError = false
         } catch {
