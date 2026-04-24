@@ -1,18 +1,29 @@
 import AppKit
 import Foundation
 
-/// 应用生命周期协调器，负责菜单栏入口与设置页管理
+/// 应用生命周期协调器，负责菜单栏入口、设置页与快捷键管理
 @MainActor
 @Observable
 final class AppCoordinator {
-    let sessionCoordinator = SessionCoordinator()
-    let configStore = ConfigStore()
-    let permissionsManager = PermissionsManager()
+    let configStore: ConfigStore
+    let permissionsManager: PermissionsManager
+    let sessionCoordinator: SessionCoordinator
+    let hotkeyManager: HotkeyManager
 
-    /// 应用启动后检查是否需要自动打开设置页
+    init() {
+        let store = ConfigStore()
+        let perms = PermissionsManager()
+        configStore = store
+        permissionsManager = perms
+        sessionCoordinator = SessionCoordinator(permissionsManager: perms)
+        hotkeyManager = HotkeyManager()
+    }
+
+    /// 应用启动后注册快捷键并检查首次配置
     func handleAppLaunch() {
+        setupHotkey()
+
         guard !configStore.hasCompletedInitialSetup else { return }
-        // 延迟一帧确保窗口系统就绪
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(200))
             openSettingsWindow()
@@ -21,7 +32,6 @@ final class AppCoordinator {
 
     /// 通过 AppKit 打开设置窗口
     func openSettingsWindow() {
-        // macOS 14+ 使用 SettingsLink / showSettingsWindow
         if #available(macOS 14, *) {
             NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         } else {
@@ -33,5 +43,20 @@ final class AppCoordinator {
     /// 清空最近记录（E9 实现）
     func clearHistory() {
         // Placeholder — will be implemented in E9
+    }
+
+    // MARK: - 快捷键
+
+    /// 注册全局快捷键并绑定录音回调
+    func setupHotkey() {
+        let hotkey = configStore.generalConfig.hotkey
+        hotkeyManager.register(hotkey: hotkey)
+
+        hotkeyManager.onKeyDown = { [weak self] in
+            self?.sessionCoordinator.startRecording()
+        }
+        hotkeyManager.onKeyUp = { [weak self] in
+            self?.sessionCoordinator.finishRecording()
+        }
     }
 }
