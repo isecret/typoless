@@ -7,6 +7,7 @@ import Foundation
 final class AppCoordinator {
     let sessionCoordinator = SessionCoordinator()
     let configStore = ConfigStore()
+    let permissionsManager = PermissionsManager()
 
     /// 应用启动后检查是否需要自动打开设置页
     func handleAppLaunch() {
