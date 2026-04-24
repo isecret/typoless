@@ -12,15 +12,17 @@ final class SessionCoordinator {
     private let audioRecorder = AudioRecorder()
     private let permissionsManager: PermissionsManager
     private let configStore: ConfigStore
+    private let recentRecordStore: RecentRecordStore
     private let textInjector = TextInjector()
 
     private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
 
-    init(permissionsManager: PermissionsManager, configStore: ConfigStore) {
+    init(permissionsManager: PermissionsManager, configStore: ConfigStore, recentRecordStore: RecentRecordStore) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
+        self.recentRecordStore = recentRecordStore
     }
 
     /// 开始录音
@@ -146,17 +148,21 @@ final class SessionCoordinator {
         guard generation == sessionGeneration, !Task.isCancelled else { return }
         state = .injecting
 
-        lastResult = SessionResult(text: finalText, source: polishSource)
+        let polishAttempted = configStore.generalConfig.enableAIPolish
+        lastResult = SessionResult(text: finalText, source: polishSource, polishAttempted: polishAttempted)
 
         do {
             try textInjector.inject(text: finalText)
         } catch {
             guard generation == sessionGeneration else { return }
+            saveRecord(status: .failed)
             handleError(mapError(error))
             return
         }
 
         guard generation == sessionGeneration else { return }
+        let recordStatus: RecentRecord.RecordStatus = (polishAttempted && polishSource == .fallback) ? .fallbackSuccess : .success
+        saveRecord(status: recordStatus)
         state = .done
         scheduleResetToIdle()
     }
@@ -180,6 +186,17 @@ final class SessionCoordinator {
         return .textInjectionFailure(detail: error.localizedDescription)
     }
 
+    private func saveRecord(status: RecentRecord.RecordStatus) {
+        guard let result = lastResult else { return }
+        let record = RecentRecord(
+            id: UUID(),
+            text: result.text,
+            timestamp: Date(),
+            status: status
+        )
+        recentRecordStore.add(record)
+    }
+
     private func scheduleResetToIdle() {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
@@ -195,4 +212,5 @@ final class SessionCoordinator {
 struct SessionResult: Sendable {
     let text: String
     let source: PolishResult.Source
+    let polishAttempted: Bool
 }

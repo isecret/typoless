@@ -1,6 +1,16 @@
 import AppKit
 import Foundation
 
+/// 设置页 Tab 标识
+enum SettingsTab: Int, Hashable {
+    case asr
+    case llm
+    case general
+    case permissions
+    case diagnostics
+    case recentRecords
+}
+
 /// 应用生命周期协调器，负责菜单栏入口、设置页与快捷键管理
 @MainActor
 @Observable
@@ -8,14 +18,19 @@ final class AppCoordinator {
     let configStore: ConfigStore
     let permissionsManager: PermissionsManager
     let sessionCoordinator: SessionCoordinator
+    let recentRecordStore: RecentRecordStore
     let hotkeyManager: HotkeyManager
+
+    var selectedSettingsTab: SettingsTab = .asr
 
     init() {
         let store = ConfigStore()
         let perms = PermissionsManager()
+        let history = RecentRecordStore()
         configStore = store
         permissionsManager = perms
-        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store)
+        recentRecordStore = history
+        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store, recentRecordStore: history)
         hotkeyManager = HotkeyManager()
     }
 
@@ -40,9 +55,15 @@ final class AppCoordinator {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// 清空最近记录（E9 实现）
+    /// 打开设置窗口并跳转到指定 Tab
+    func openSettings(tab: SettingsTab) {
+        selectedSettingsTab = tab
+        openSettingsWindow()
+    }
+
+    /// 清空最近记录
     func clearHistory() {
-        // Placeholder — will be implemented in E9
+        recentRecordStore.clearAll()
     }
 
     // MARK: - 快捷键
