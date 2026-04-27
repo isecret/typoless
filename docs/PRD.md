@@ -271,8 +271,8 @@ LLM 文本处理边界如下：
 
 存储规则：
 
-- 腾讯云密钥与 LLM API Key 存储于 Keychain。
-- 普通设置存储于本地配置。
+- 全部配置（含密钥）统一存储于 `~/.typoless/config`（UTF-8 JSON）。
+- 首次升级时自动从旧存储（UserDefaults + Keychain）迁移。
 
 ## 11. 错误反馈策略
 

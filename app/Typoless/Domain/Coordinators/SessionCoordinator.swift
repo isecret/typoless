@@ -107,8 +107,6 @@ final class SessionCoordinator {
     // MARK: - Processing Pipeline
 
     private func processAudio(_ audioData: Data, generation: UInt64) async {
-        configStore.loadASRSecretsIfNeeded()
-
         // 1. ASR 识别
         let asrProvider = TencentASRProvider(
             secretId: configStore.tencentSecretId,
@@ -133,7 +131,6 @@ final class SessionCoordinator {
 
         if configStore.generalConfig.enableAIPolish {
             state = .polishing
-            configStore.loadLLMSecretIfNeeded()
 
             let llmProvider = LLMProvider(
                 baseURL: configStore.llmConfig.baseURL,
