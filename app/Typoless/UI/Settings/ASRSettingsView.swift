@@ -51,7 +51,6 @@ struct ASRSettingsView: View {
     }
 
     private func loadDraft() {
-        configStore.loadASRSecretsIfNeeded()
         secretId = configStore.tencentSecretId
         secretKey = configStore.tencentSecretKey
         region = configStore.asrConfig.region

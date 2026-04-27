@@ -65,8 +65,8 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
 - 文本注入：优先 `Accessibility API`，失败后回退键盘事件输入
-- 普通设置存储：`UserDefaults`
-- 密钥存储：`Keychain`
+- 普通设置存储：`~/.typoless/config`（UTF-8 JSON）
+- 密钥存储：`~/.typoless/config`（与普通设置统一存储）
 - 最近记录存储：`UserDefaults`（JSON 编码）
 
 ### 分层结构
@@ -98,7 +98,7 @@ app/Typoless/
 | `TextInjector` | AX API 文本注入 + 键盘事件回退 |
 | `PermissionsManager` | 麦克风与辅助功能权限管理 |
 | `HotkeyManager` | Carbon Event 全局快捷键 |
-| `ConfigStore` | UserDefaults + Keychain 配置读写 |
+| `ConfigStore` | `~/.typoless/config` 配置读写 |
 | `RecentRecordStore` | 最近记录持久化（最多 10 条） |
 
 ## 核心流程
@@ -175,14 +175,14 @@ app/Typoless/
 
 | 配置字段 | 存储位置 |
 | --- | --- |
-| `tencent_region` | UserDefaults |
-| `openai_base_url` | UserDefaults |
-| `openai_model` | UserDefaults |
-| `global_hotkey` | UserDefaults |
-| `enable_ai_polish` | UserDefaults |
-| `tencent_secret_id` | Keychain |
-| `tencent_secret_key` | Keychain |
-| `openai_api_key` | Keychain |
+| `tencent_region` | `~/.typoless/config` |
+| `openai_base_url` | `~/.typoless/config` |
+| `openai_model` | `~/.typoless/config` |
+| `global_hotkey` | `~/.typoless/config` |
+| `enable_ai_polish` | `~/.typoless/config` |
+| `tencent_secret_id` | `~/.typoless/config` |
+| `tencent_secret_key` | `~/.typoless/config` |
+| `openai_api_key` | `~/.typoless/config` |
 
 ## 测试策略
 

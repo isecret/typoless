@@ -52,8 +52,7 @@
 
 ### 3.4 本地存储
 
-- 普通设置：`UserDefaults`
-- 密钥：`Keychain`
+- 全部配置（含密钥）：`~/.typoless/config`（UTF-8 JSON，目录权限 `0700`，文件权限 `0600`）
 - 最近记录：本地持久化存储，首版可使用 `UserDefaults` 或轻量文件存储封装在 `HistoryStore` 内部
 
 ## 4. 系统架构
@@ -137,9 +136,11 @@
 
 ### 5.7 ConfigStore
 
-- 用 `UserDefaults` 读写普通设置
-- 用 `Keychain` 读写敏感密钥
-- 保存时执行轻量校验
+- 统一使用 `~/.typoless/config` 读写全部配置（含密钥）
+- 启动时直接从配置文件加载到内存
+- 若配置文件不存在，自动从旧存储（UserDefaults + Keychain）迁移
+- 若配置文件损坏，回退为空配置（首次配置状态）
+- 保存时执行轻量校验，整文件原子写回
 
 ### 5.8 HistoryStore
 
