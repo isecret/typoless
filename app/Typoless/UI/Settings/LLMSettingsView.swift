@@ -11,12 +11,18 @@ struct LLMSettingsView: View {
 
     var body: some View {
         Section {
-            TextField("Base URL", text: $baseURL)
-                .textFieldStyle(.roundedBorder)
-            SecureField("API Key", text: $apiKey)
-                .textFieldStyle(.roundedBorder)
-            TextField("Model", text: $model)
-                .textFieldStyle(.roundedBorder)
+            LabeledContent("Base URL") {
+                TextField("", text: $baseURL)
+                    .textFieldStyle(.roundedBorder)
+            }
+            LabeledContent("API Key") {
+                SecureField("", text: $apiKey)
+                    .textFieldStyle(.roundedBorder)
+            }
+            LabeledContent("Model") {
+                TextField("", text: $model)
+                    .textFieldStyle(.roundedBorder)
+            }
         } header: {
             Text("OpenAI 兼容接口")
         } footer: {
