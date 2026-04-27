@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// 主链路会话编排器，负责录音、识别、润色、注入的串行调度
@@ -8,6 +9,7 @@ final class SessionCoordinator {
     private(set) var lastRecordedAudio: Data?
     private(set) var currentError: TypolessError?
     private(set) var lastResult: SessionResult?
+    private(set) var targetApplicationPID: pid_t?
 
     private let audioRecorder = AudioRecorder()
     private let permissionsManager: PermissionsManager
@@ -31,6 +33,7 @@ final class SessionCoordinator {
 
         currentError = nil
         lastResult = nil
+        targetApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         sessionGeneration &+= 1
 
         do {
@@ -82,12 +85,14 @@ final class SessionCoordinator {
             timeoutTask = nil
             _ = audioRecorder.stopRecording()
             lastRecordedAudio = nil
+            targetApplicationPID = nil
             state = .cancelled
             scheduleResetToIdle()
         case .transcribing, .polishing:
             sessionGeneration &+= 1
             processingTask?.cancel()
             processingTask = nil
+            targetApplicationPID = nil
             state = .cancelled
             scheduleResetToIdle()
         default:
@@ -152,7 +157,7 @@ final class SessionCoordinator {
         lastResult = SessionResult(text: finalText, source: polishSource, polishAttempted: polishAttempted)
 
         do {
-            try textInjector.inject(text: finalText)
+            try textInjector.inject(text: finalText, targetPID: targetApplicationPID)
         } catch {
             guard generation == sessionGeneration else { return }
             saveRecord(status: .failed)
@@ -203,6 +208,7 @@ final class SessionCoordinator {
             guard let self else { return }
             guard self.state == .error || self.state == .cancelled || self.state == .done else { return }
             self.state = .idle
+            self.targetApplicationPID = nil
         }
     }
 }
