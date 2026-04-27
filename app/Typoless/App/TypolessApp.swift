@@ -8,7 +8,7 @@ struct TypolessApp: App {
         MenuBarExtra {
             MenuBarView(appCoordinator: appCoordinator)
         } label: {
-            Image(systemName: appCoordinator.sessionCoordinator.state.iconName)
+            Image("MenuBarIcon")
         }
         .menuBarExtraStyle(.menu)
 
