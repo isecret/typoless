@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 /// 应用生命周期协调器，负责菜单栏入口、设置页与快捷键管理
 @MainActor
@@ -12,6 +13,7 @@ final class AppCoordinator {
     let hotkeyManager: HotkeyManager
 
     private let textInjector = TextInjector()
+    private var settingsWindowController: NSWindowController?
 
     init() {
         let store = ConfigStore()
@@ -35,13 +37,21 @@ final class AppCoordinator {
         }
     }
 
-    /// 通过 AppKit 打开设置窗口
+    /// 通过 AppKit 托管单例设置窗口，避免依赖 SwiftUI 默认 selector
     func openSettingsWindow() {
-        if #available(macOS 14, *) {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        } else {
-            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        if settingsWindowController == nil {
+            let hostingController = NSHostingController(rootView: SettingsView(appCoordinator: self))
+            let window = NSWindow(contentViewController: hostingController)
+            window.title = "设置"
+            window.setContentSize(NSSize(width: 520, height: 600))
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindowController = NSWindowController(window: window)
         }
+
+        settingsWindowController?.showWindow(nil)
+        settingsWindowController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

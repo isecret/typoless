@@ -12,10 +12,6 @@ struct TypolessApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        Settings {
-            SettingsView(appCoordinator: appCoordinator)
-        }
-
         Window("关于 Typoless", id: "about") {
             AboutView()
         }
