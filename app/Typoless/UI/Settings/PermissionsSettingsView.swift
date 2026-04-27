@@ -4,40 +4,37 @@ struct PermissionsSettingsView: View {
     let permissionsManager: PermissionsManager
 
     var body: some View {
-        Form {
-            Section {
-                Text("请按顺序完成以下权限授权，确保应用正常运行。")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-
-            // MARK: - 麦克风权限
-            Section("麦克风权限") {
-                HStack(spacing: 8) {
-                    PermissionStatusBadge(granted: permissionsManager.microphoneStatus == .granted)
-                    Text(microphoneStatusText)
-                    Spacer()
-                    microphoneActionButton
-                }
-                Text("用于录制语音并发送至 ASR 服务进行识别。")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-
-            // MARK: - 辅助功能权限
-            Section("辅助功能权限") {
-                HStack(spacing: 8) {
-                    PermissionStatusBadge(granted: permissionsManager.accessibilityStatus == .granted)
-                    Text(accessibilityStatusText)
-                    Spacer()
-                    accessibilityActionButton
-                }
-                Text("用于将识别结果注入到当前焦点应用的输入框。")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
+        Section {
+            Text("请按顺序完成以下权限授权，确保应用正常运行。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
-        .formStyle(.grouped)
+
+        // MARK: - 麦克风权限
+        Section("麦克风权限") {
+            HStack(spacing: 8) {
+                PermissionStatusBadge(granted: permissionsManager.microphoneStatus == .granted)
+                Text(microphoneStatusText)
+                Spacer()
+                microphoneActionButton
+            }
+            Text("用于录制语音并发送至 ASR 服务进行识别。")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+
+        // MARK: - 辅助功能权限
+        Section("辅助功能权限") {
+            HStack(spacing: 8) {
+                PermissionStatusBadge(granted: permissionsManager.accessibilityStatus == .granted)
+                Text(accessibilityStatusText)
+                Spacer()
+                accessibilityActionButton
+            }
+            Text("用于将识别结果注入到当前焦点应用的输入框。")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
         .onAppear {
             permissionsManager.refreshAll()
         }

@@ -15,6 +15,12 @@ struct TypolessApp: App {
         Settings {
             SettingsView(appCoordinator: appCoordinator)
         }
+
+        Window("关于 Typoless", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
     }
 
     init() {
