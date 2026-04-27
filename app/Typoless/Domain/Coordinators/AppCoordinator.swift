@@ -1,16 +1,6 @@
 import AppKit
 import Foundation
 
-/// 设置页 Tab 标识
-enum SettingsTab: Int, Hashable {
-    case asr
-    case llm
-    case general
-    case permissions
-    case diagnostics
-    case recentRecords
-}
-
 /// 应用生命周期协调器，负责菜单栏入口、设置页与快捷键管理
 @MainActor
 @Observable
@@ -21,7 +11,7 @@ final class AppCoordinator {
     let recentRecordStore: RecentRecordStore
     let hotkeyManager: HotkeyManager
 
-    var selectedSettingsTab: SettingsTab = .asr
+    private let textInjector = TextInjector()
 
     init() {
         let store = ConfigStore()
@@ -55,15 +45,46 @@ final class AppCoordinator {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// 打开设置窗口并跳转到指定 Tab
-    func openSettings(tab: SettingsTab) {
-        selectedSettingsTab = tab
-        openSettingsWindow()
-    }
-
     /// 清空最近记录
     func clearHistory() {
         recentRecordStore.clearAll()
+    }
+
+    /// 重新注入文本到当前焦点应用
+    func reinjectText(_ text: String) {
+        let selfBundleID = Bundle.main.bundleIdentifier ?? "com.isecret.typoless"
+
+        Task { @MainActor in
+            // 等待菜单关闭后焦点回到前一个应用，轮询排除自身
+            var targetPID: pid_t?
+            var targetBundleID: String?
+
+            let retryIntervals: [Duration] = [.milliseconds(50), .milliseconds(100), .milliseconds(150), .milliseconds(200), .milliseconds(300)]
+            for interval in retryIntervals {
+                try? await Task.sleep(for: interval)
+
+                if let app = NSWorkspace.shared.frontmostApplication,
+                   app.bundleIdentifier != selfBundleID {
+                    targetPID = app.processIdentifier
+                    targetBundleID = app.bundleIdentifier
+                    break
+                }
+            }
+
+            // 超时后仍为自身，使用当前前台应用（最后兜底）
+            if targetPID == nil {
+                let app = NSWorkspace.shared.frontmostApplication
+                targetPID = app?.processIdentifier
+                targetBundleID = app?.bundleIdentifier
+            }
+
+            try? textInjector.inject(
+                text: text,
+                targetPID: targetPID,
+                targetBundleID: targetBundleID,
+                pasteboardPreferredBundleIDs: configStore.generalConfig.effectivePasteboardInjectionBundleIDs
+            )
+        }
     }
 
     // MARK: - 快捷键
