@@ -47,6 +47,7 @@ struct LLMSettingsView: View {
     }
 
     private func loadDraft() {
+        configStore.loadLLMSecretIfNeeded()
         baseURL = configStore.llmConfig.baseURL
         apiKey = configStore.openAIAPIKey
         model = configStore.llmConfig.model

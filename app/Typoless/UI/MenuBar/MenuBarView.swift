@@ -13,14 +13,12 @@ struct MenuBarView: View {
     }
 
     var body: some View {
-        Text("当前状态：\(state.displayText)")
-
         if let error = appCoordinator.sessionCoordinator.currentError {
             Text(error.userMessage)
                 .foregroundStyle(.secondary)
-        }
 
-        Divider()
+            Divider()
+        }
 
         if state.isCancellable {
             Button("取消当前任务") {
@@ -29,12 +27,11 @@ struct MenuBarView: View {
             Divider()
         }
 
-        Button("打开设置...") {
+        Button("设置") {
             openSettings()
         }
         .keyboardShortcut(",", modifiers: .command)
 
-        // 最近结果子菜单
         if !records.isEmpty {
             Menu("最近结果") {
                 ForEach(records.prefix(5)) { record in
@@ -47,23 +44,27 @@ struct MenuBarView: View {
                     }
                 }
                 Divider()
-                Button("查看全部记录...") {
+                Button("查看全部记录") {
                     appCoordinator.openSettings(tab: .recentRecords)
+                }
+                Button("清空最近记录") {
+                    appCoordinator.clearHistory()
                 }
             }
         } else {
-            Button("查看最近结果") {}
-                .disabled(true)
+            Menu("最近结果") {
+                Button("查看全部记录") {
+                    appCoordinator.openSettings(tab: .recentRecords)
+                }
+                Button("清空最近记录") {}
+                    .disabled(true)
+            }
+            .disabled(false)
         }
-
-        Button("清空最近记录") {
-            appCoordinator.clearHistory()
-        }
-        .disabled(records.isEmpty)
 
         Divider()
 
-        Button("退出 Typoless") {
+        Button("退出") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)

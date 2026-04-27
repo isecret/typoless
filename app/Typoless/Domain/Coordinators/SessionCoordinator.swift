@@ -10,6 +10,7 @@ final class SessionCoordinator {
     private(set) var currentError: TypolessError?
     private(set) var lastResult: SessionResult?
     private(set) var targetApplicationPID: pid_t?
+    private(set) var targetApplicationBundleID: String?
 
     private let audioRecorder = AudioRecorder()
     private let permissionsManager: PermissionsManager
@@ -34,6 +35,7 @@ final class SessionCoordinator {
         currentError = nil
         lastResult = nil
         targetApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        targetApplicationBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         sessionGeneration &+= 1
 
         do {
@@ -86,6 +88,7 @@ final class SessionCoordinator {
             _ = audioRecorder.stopRecording()
             lastRecordedAudio = nil
             targetApplicationPID = nil
+            targetApplicationBundleID = nil
             state = .cancelled
             scheduleResetToIdle()
         case .transcribing, .polishing:
@@ -93,6 +96,7 @@ final class SessionCoordinator {
             processingTask?.cancel()
             processingTask = nil
             targetApplicationPID = nil
+            targetApplicationBundleID = nil
             state = .cancelled
             scheduleResetToIdle()
         default:
@@ -103,6 +107,8 @@ final class SessionCoordinator {
     // MARK: - Processing Pipeline
 
     private func processAudio(_ audioData: Data, generation: UInt64) async {
+        configStore.loadASRSecretsIfNeeded()
+
         // 1. ASR 识别
         let asrProvider = TencentASRProvider(
             secretId: configStore.tencentSecretId,
@@ -127,6 +133,7 @@ final class SessionCoordinator {
 
         if configStore.generalConfig.enableAIPolish {
             state = .polishing
+            configStore.loadLLMSecretIfNeeded()
 
             let llmProvider = LLMProvider(
                 baseURL: configStore.llmConfig.baseURL,
@@ -157,7 +164,12 @@ final class SessionCoordinator {
         lastResult = SessionResult(text: finalText, source: polishSource, polishAttempted: polishAttempted)
 
         do {
-            try textInjector.inject(text: finalText, targetPID: targetApplicationPID)
+            try textInjector.inject(
+                text: finalText,
+                targetPID: targetApplicationPID,
+                targetBundleID: targetApplicationBundleID,
+                pasteboardPreferredBundleIDs: configStore.generalConfig.effectivePasteboardInjectionBundleIDs
+            )
         } catch {
             guard generation == sessionGeneration else { return }
             saveRecord(status: .failed)
@@ -209,6 +221,7 @@ final class SessionCoordinator {
             guard self.state == .error || self.state == .cancelled || self.state == .done else { return }
             self.state = .idle
             self.targetApplicationPID = nil
+            self.targetApplicationBundleID = nil
         }
     }
 }

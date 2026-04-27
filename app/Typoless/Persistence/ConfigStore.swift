@@ -15,12 +15,16 @@ final class ConfigStore {
     private(set) var tencentSecretId: String = ""
     private(set) var tencentSecretKey: String = ""
     private(set) var openAIAPIKey: String = ""
+    private var hasLoadedASRSecrets = false
+    private var hasLoadedLLMSecret = false
 
     // MARK: - 首次配置判断
 
     /// 必填配置是否已就绪（ASR 密钥 + Region）
     var hasCompletedInitialSetup: Bool {
-        !tencentSecretId.isEmpty && !tencentSecretKey.isEmpty
+        let defaults = UserDefaults.standard
+        return defaults.bool(forKey: DefaultsKey.hasTencentSecretId)
+            && defaults.bool(forKey: DefaultsKey.hasTencentSecretKey)
     }
 
     // MARK: - UserDefaults Keys
@@ -29,6 +33,9 @@ final class ConfigStore {
         static let asrConfig = "typoless.asr_config"
         static let llmConfig = "typoless.llm_config"
         static let generalConfig = "typoless.general_config"
+        static let hasTencentSecretId = "typoless.has_tencent_secret_id"
+        static let hasTencentSecretKey = "typoless.has_tencent_secret_key"
+        static let hasOpenAIAPIKey = "typoless.has_openai_api_key"
     }
 
     // MARK: - Keychain Accounts
@@ -63,10 +70,25 @@ final class ConfigStore {
             generalConfig = config
         }
 
-        // Keychain
+        // Keychain 改为按需加载，避免应用启动即触发钥匙串弹窗
+        tencentSecretId = ""
+        tencentSecretKey = ""
+        openAIAPIKey = ""
+        hasLoadedASRSecrets = false
+        hasLoadedLLMSecret = false
+    }
+
+    func loadASRSecretsIfNeeded() {
+        guard !hasLoadedASRSecrets else { return }
         tencentSecretId = KeychainHelper.load(for: KeychainAccount.tencentSecretId) ?? ""
         tencentSecretKey = KeychainHelper.load(for: KeychainAccount.tencentSecretKey) ?? ""
+        hasLoadedASRSecrets = true
+    }
+
+    func loadLLMSecretIfNeeded() {
+        guard !hasLoadedLLMSecret else { return }
         openAIAPIKey = KeychainHelper.load(for: KeychainAccount.openAIAPIKey) ?? ""
+        hasLoadedLLMSecret = true
     }
 
     // MARK: - ASR 配置保存
@@ -85,11 +107,14 @@ final class ConfigStore {
         // 保存密钥到 Keychain
         try KeychainHelper.save(trimmedId, for: KeychainAccount.tencentSecretId)
         try KeychainHelper.save(trimmedKey, for: KeychainAccount.tencentSecretKey)
+        UserDefaults.standard.set(!trimmedId.isEmpty, forKey: DefaultsKey.hasTencentSecretId)
+        UserDefaults.standard.set(!trimmedKey.isEmpty, forKey: DefaultsKey.hasTencentSecretKey)
 
         // 更新内存
         asrConfig = config
         tencentSecretId = trimmedId
         tencentSecretKey = trimmedKey
+        hasLoadedASRSecrets = true
     }
 
     // MARK: - LLM 配置保存
@@ -122,10 +147,12 @@ final class ConfigStore {
         if !trimmedKey.isEmpty {
             try KeychainHelper.save(trimmedKey, for: KeychainAccount.openAIAPIKey)
         }
+        UserDefaults.standard.set(!trimmedKey.isEmpty, forKey: DefaultsKey.hasOpenAIAPIKey)
 
         // 更新内存
         llmConfig = normalConfig
         openAIAPIKey = trimmedKey
+        hasLoadedLLMSecret = true
     }
 
     // MARK: - 通用配置保存
