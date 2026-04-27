@@ -2,7 +2,7 @@
 // generate_app_icon.swift
 //
 // 基于项目根目录 svg.svg 生成 macOS App Icon 全套 PNG 资源。
-// 风格：圆角底板 + 石墨灰渐变 + 居中 SVG 图形 + 内边距
+// 风格：白底卡片 + 圆角底板 + 居中 SVG 图形 + 内边距
 //
 // 用法：swift scripts/generate_app_icon.swift <svg_path> <output_dir>
 // 示例：swift scripts/generate_app_icon.swift svg.svg app/Typoless/Resources/Assets.xcassets/AppIcon.appiconset
@@ -78,38 +78,31 @@ func renderAppIcon(svgImage: NSImage, pixels: Int) throws -> Data {
     NSColor.clear.setFill()
     canvasRect.fill()
 
-    // 2. 圆角底板 —— 石墨灰渐变
+    // 2. 圆角底板 —— 白底卡片风格
     let cornerRadius = s * 0.2237 // macOS 标准圆角比例
     let iconPath = macOSIconPath(in: canvasRect, cornerRadius: cornerRadius)
 
-    // 渐变：顶部浅银灰 → 底部石墨灰
-    let topColor = NSColor(calibratedRed: 0.62, green: 0.63, blue: 0.64, alpha: 1.0)    // 银灰
-    let bottomColor = NSColor(calibratedRed: 0.28, green: 0.29, blue: 0.30, alpha: 1.0) // 石墨灰
+    // 渐变：顶部纯白 → 底部极浅灰，营造卡片质感
+    let topColor = NSColor(calibratedWhite: 1.0, alpha: 1.0)
+    let bottomColor = NSColor(calibratedWhite: 0.94, alpha: 1.0)
     let gradient = NSGradient(starting: topColor, ending: bottomColor)!
 
     NSGraphicsContext.saveGraphicsState()
     iconPath.addClip()
     gradient.draw(in: canvasRect, angle: 270) // 从上到下
 
-    // 3. 微妙内发光（顶部高光线）
-    let highlightRect = NSRect(x: s * 0.05, y: s * 0.88, width: s * 0.9, height: s * 0.06)
-    let highlightColor = NSColor(calibratedWhite: 1.0, alpha: 0.08)
-    highlightColor.setFill()
-    let highlightPath = NSBezierPath(roundedRect: highlightRect, xRadius: s * 0.03, yRadius: s * 0.03)
-    highlightPath.fill()
-
     NSGraphicsContext.restoreGraphicsState()
 
-    // 4. 底板边框（极淡）
+    // 3. 底板边框（浅灰描边，增加卡片轮廓感）
     NSGraphicsContext.saveGraphicsState()
-    let borderColor = NSColor(calibratedWhite: 0.0, alpha: 0.15)
+    let borderColor = NSColor(calibratedWhite: 0.0, alpha: 0.10)
     borderColor.setStroke()
-    iconPath.lineWidth = max(1, s * 0.005)
+    iconPath.lineWidth = max(1, s * 0.006)
     iconPath.stroke()
     NSGraphicsContext.restoreGraphicsState()
 
-    // 5. 绘制 SVG 图形，居中 + 内边距 18%
-    let padding = s * 0.18
+    // 4. 绘制 SVG 图形，居中 + 内边距 16%
+    let padding = s * 0.16
     let iconAreaSize = s - padding * 2
 
     // SVG 原始尺寸为 756x756，等比例缩放
@@ -129,11 +122,11 @@ func renderAppIcon(svgImage: NSImage, pixels: Int) throws -> Data {
     NSGraphicsContext.saveGraphicsState()
     iconPath.addClip()
 
-    // 图形投影（微弱）
+    // 5. 图形微弱投影（白底上适当加深）
     let shadow = NSShadow()
-    shadow.shadowOffset = NSSize(width: 0, height: -s * 0.008)
-    shadow.shadowBlurRadius = s * 0.02
-    shadow.shadowColor = NSColor(calibratedWhite: 0.0, alpha: 0.35)
+    shadow.shadowOffset = NSSize(width: 0, height: -s * 0.006)
+    shadow.shadowBlurRadius = s * 0.015
+    shadow.shadowColor = NSColor(calibratedWhite: 0.0, alpha: 0.20)
     shadow.set()
 
     svgImage.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0)
