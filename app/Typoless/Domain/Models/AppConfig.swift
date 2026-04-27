@@ -31,26 +31,44 @@ struct LLMConfig: Codable, Equatable, Sendable {
     var model: String = ""
 }
 
+// MARK: - 录音触发方式
+
+enum RecordingTriggerMode: String, Codable, CaseIterable, Equatable, Sendable {
+    case holdToTalk
+    case pressToToggle
+
+    var displayName: String {
+        switch self {
+        case .holdToTalk: "长按录音，松开处理"
+        case .pressToToggle: "按一次开始，再按一次结束"
+        }
+    }
+}
+
 // MARK: - 通用配置
 
 struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
     var enableAIPolish: Bool = true
+    var recordingTriggerMode: RecordingTriggerMode = .pressToToggle
     var pasteboardInjectionBundleIDs: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case hotkey
         case enableAIPolish
+        case recordingTriggerMode
         case pasteboardInjectionBundleIDs
     }
 
     init(
         hotkey: HotkeyCombo = .default,
         enableAIPolish: Bool = true,
+        recordingTriggerMode: RecordingTriggerMode = .pressToToggle,
         pasteboardInjectionBundleIDs: [String] = []
     ) {
         self.hotkey = hotkey
         self.enableAIPolish = enableAIPolish
+        self.recordingTriggerMode = recordingTriggerMode
         self.pasteboardInjectionBundleIDs = pasteboardInjectionBundleIDs
     }
 
@@ -58,6 +76,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         hotkey = try container.decodeIfPresent(HotkeyCombo.self, forKey: .hotkey) ?? .default
         enableAIPolish = try container.decodeIfPresent(Bool.self, forKey: .enableAIPolish) ?? true
+        recordingTriggerMode = try container.decodeIfPresent(RecordingTriggerMode.self, forKey: .recordingTriggerMode) ?? .pressToToggle
         pasteboardInjectionBundleIDs = try container.decodeIfPresent([String].self, forKey: .pasteboardInjectionBundleIDs) ?? []
     }
 

@@ -6,6 +6,7 @@ struct GeneralSettingsView: View {
 
     @State private var enableAIPolish: Bool = true
     @State private var hotkey: HotkeyCombo = .default
+    @State private var recordingTriggerMode: RecordingTriggerMode = .pressToToggle
     @State private var isRecordingHotkey: Bool = false
     @State private var pasteboardInjectionBundleIDs: [String] = []
     @State private var newBundleID: String = ""
@@ -18,10 +19,16 @@ struct GeneralSettingsView: View {
                 Spacer()
                 HotkeyRecorderView(hotkey: $hotkey, isRecording: $isRecordingHotkey)
             }
+
+            Picker("录音方式", selection: $recordingTriggerMode) {
+                ForEach(RecordingTriggerMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
         } header: {
             Text("快捷键")
         } footer: {
-            Text("用于触发按住说话的全局快捷键")
+            Text("触发录音的全局快捷键")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -89,12 +96,14 @@ struct GeneralSettingsView: View {
         }
         .onChange(of: enableAIPolish) { immediateSave() }
         .onChange(of: hotkey) { immediateSaveWithHotkey() }
+        .onChange(of: recordingTriggerMode) { immediateSaveWithHotkey() }
         .onChange(of: pasteboardInjectionBundleIDs) { immediateSave() }
     }
 
     private func loadDraft() {
         enableAIPolish = configStore.generalConfig.enableAIPolish
         hotkey = configStore.generalConfig.hotkey
+        recordingTriggerMode = configStore.generalConfig.recordingTriggerMode
         pasteboardInjectionBundleIDs = configStore.generalConfig.pasteboardInjectionBundleIDs.sorted()
     }
 
@@ -113,6 +122,7 @@ struct GeneralSettingsView: View {
         let config = GeneralConfig(
             hotkey: hotkey,
             enableAIPolish: enableAIPolish,
+            recordingTriggerMode: recordingTriggerMode,
             pasteboardInjectionBundleIDs: pasteboardInjectionBundleIDs.sorted()
         )
         try? configStore.saveGeneralConfig(config)
