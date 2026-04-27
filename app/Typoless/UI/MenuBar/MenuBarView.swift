@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     let appCoordinator: AppCoordinator
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     private var state: SessionState {
         appCoordinator.sessionCoordinator.state
@@ -27,39 +27,37 @@ struct MenuBarView: View {
             Divider()
         }
 
+        // MARK: - 最近记录（直接平铺）
+
+        if records.isEmpty {
+            Text("暂无记录")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(records.prefix(5)) { record in
+                let preview = record.text.count > 20
+                    ? String(record.text.prefix(20)) + "…"
+                    : record.text
+                Button(preview) {
+                    appCoordinator.reinjectText(record.text)
+                }
+            }
+        }
+
+        Divider()
+
+        Button("清空最近记录") {
+            appCoordinator.clearHistory()
+        }
+        .disabled(records.isEmpty)
+
         Button("设置") {
-            openSettings()
+            appCoordinator.openSettingsWindow()
         }
         .keyboardShortcut(",", modifiers: .command)
 
-        if !records.isEmpty {
-            Menu("最近结果") {
-                ForEach(records.prefix(5)) { record in
-                    let preview = record.text.count > 30
-                        ? String(record.text.prefix(30)) + "…"
-                        : record.text
-                    Button(preview) {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(record.text, forType: .string)
-                    }
-                }
-                Divider()
-                Button("查看全部记录") {
-                    appCoordinator.openSettings(tab: .recentRecords)
-                }
-                Button("清空最近记录") {
-                    appCoordinator.clearHistory()
-                }
-            }
-        } else {
-            Menu("最近结果") {
-                Button("查看全部记录") {
-                    appCoordinator.openSettings(tab: .recentRecords)
-                }
-                Button("清空最近记录") {}
-                    .disabled(true)
-            }
-            .disabled(false)
+        Button("关于 Typoless") {
+            openWindow(id: "about")
+            NSApp.activate(ignoringOtherApps: true)
         }
 
         Divider()
