@@ -7,7 +7,6 @@ struct GeneralSettingsView: View {
     @State private var enableAIPolish: Bool = true
     @State private var hotkey: HotkeyCombo = .default
     @State private var recordingTriggerMode: RecordingTriggerMode = .pressToToggle
-    @State private var isRecordingHotkey: Bool = false
     @State private var pasteboardInjectionBundleIDs: [String] = []
     @State private var newBundleID: String = ""
     @State private var isLoaded = false
@@ -17,7 +16,7 @@ struct GeneralSettingsView: View {
             HStack {
                 Text("全局快捷键")
                 Spacer()
-                HotkeyRecorderView(hotkey: $hotkey, isRecording: $isRecordingHotkey)
+                HotkeyRecorderView(hotkey: $hotkey)
             }
 
             Picker("录音方式", selection: $recordingTriggerMode) {

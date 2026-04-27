@@ -11,6 +11,11 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
 
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: "2.2.0"
+
 targets:
   Typoless:
     type: application
@@ -19,6 +24,8 @@ targets:
       - path: Typoless
         excludes:
           - "**/.gitkeep"
+    dependencies:
+      - package: KeyboardShortcuts
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.isecret.typoless
