@@ -2,7 +2,6 @@ import SwiftUI
 
 struct MenuBarView: View {
     let appCoordinator: AppCoordinator
-    @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
 
     private var state: SessionState {
@@ -35,8 +34,8 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
         } else {
             ForEach(records.prefix(5)) { record in
-                let preview = record.text.count > 40
-                    ? String(record.text.prefix(40)) + "…"
+                let preview = record.text.count > 20
+                    ? String(record.text.prefix(20)) + "…"
                     : record.text
                 Button(preview) {
                     appCoordinator.reinjectText(record.text)
@@ -44,15 +43,15 @@ struct MenuBarView: View {
             }
         }
 
+        Divider()
+
         Button("清空最近记录") {
             appCoordinator.clearHistory()
         }
         .disabled(records.isEmpty)
 
-        Divider()
-
         Button("设置") {
-            openSettings()
+            appCoordinator.openSettingsWindow()
         }
         .keyboardShortcut(",", modifiers: .command)
 

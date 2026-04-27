@@ -50,13 +50,15 @@ struct GeneralSettingsView: View {
 
             Divider()
 
-            HStack {
-                TextField("Bundle ID 或前缀（如 com.jetbrains.*）", text: $newBundleID)
-                    .textFieldStyle(.roundedBorder)
-                Button("添加") {
-                    addBundleID()
+            LabeledContent("添加") {
+                HStack {
+                    TextField("Bundle ID 或前缀", text: $newBundleID)
+                        .textFieldStyle(.roundedBorder)
+                    Button("添加") {
+                        addBundleID()
+                    }
+                    .disabled(newBundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-                .disabled(newBundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
             if pasteboardInjectionBundleIDs.isEmpty {

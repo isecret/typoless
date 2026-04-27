@@ -11,10 +11,14 @@ struct ASRSettingsView: View {
 
     var body: some View {
         Section {
-            TextField("SecretId", text: $secretId)
-                .textFieldStyle(.roundedBorder)
-            SecureField("SecretKey", text: $secretKey)
-                .textFieldStyle(.roundedBorder)
+            LabeledContent("SecretId") {
+                TextField("", text: $secretId)
+                    .textFieldStyle(.roundedBorder)
+            }
+            LabeledContent("SecretKey") {
+                SecureField("", text: $secretKey)
+                    .textFieldStyle(.roundedBorder)
+            }
         } header: {
             Text("腾讯云凭证")
         }
