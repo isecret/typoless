@@ -107,18 +107,8 @@ final class SessionCoordinator {
     // MARK: - Processing Pipeline
 
     private func processAudio(_ audioData: Data, generation: UInt64) async {
-        // 1. 根据配置选择 ASR Provider
-        let asrProvider: any ASRProvider
-        switch configStore.asrConfig.provider {
-        case .funasrLocal:
-            asrProvider = FunASRProvider()
-        case .tencentCloud:
-            asrProvider = TencentASRProvider(
-                secretId: configStore.tencentSecretId,
-                secretKey: configStore.tencentSecretKey,
-                region: configStore.asrConfig.region.rawValue
-            )
-        }
+        // 1. 使用本地 FunASR 识别
+        let asrProvider: any ASRProvider = FunASRProvider()
 
         let transcriptResult: TranscriptResult
         do {

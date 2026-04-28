@@ -6,10 +6,6 @@ enum TypolessError: Error, Equatable, Sendable {
     case accessibilityPermissionDenied
     // ASR 通用错误
     case asrEmptyAudio
-    // 腾讯云 ASR 错误
-    case invalidTencentCredentials(requestId: String?)
-    case tencentNetworkFailure(message: String)
-    case tencentASRFailure(code: String?, message: String?, requestId: String?)
     // FunASR 本地识别错误
     case funasrBinaryNotFound
     case funasrModelMissing
@@ -30,12 +26,6 @@ enum TypolessError: Error, Equatable, Sendable {
             "辅助功能权限未开启，无法注入文本"
         case .asrEmptyAudio:
             "录音数据为空，请重试"
-        case .invalidTencentCredentials:
-            "腾讯云凭证无效，请检查 SecretId 和 SecretKey"
-        case .tencentNetworkFailure:
-            "腾讯云网络连接失败，请检查网络"
-        case .tencentASRFailure(_, let message, _):
-            message ?? "语音识别失败，请重试"
         case .funasrBinaryNotFound:
             "本地识别引擎未就绪，请重新安装应用"
         case .funasrModelMissing:

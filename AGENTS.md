@@ -19,11 +19,10 @@
 - UI：SwiftUI
 - 系统交互：AppKit
 - 架构：MVVM + Service Layer
-- ASR：腾讯云 ASR
+- ASR：本地 FunASR
 - LLM：OpenAI Chat Completions 兼容接口
 - 音频格式：PCM/WAV 16k mono
-- 普通设置存储：UserDefaults
-- 密钥存储：Keychain
+- 配置存储：~/.typoless/config（UTF-8 JSON）
 
 ## 仓库结构
 
@@ -65,7 +64,7 @@ AGENTS.md
 - 设置页
 - 全局快捷键
 - 按住说话，松开处理
-- 腾讯云一句话/短音频识别
+- 本地 FunASR 语音识别
 - OpenAI 兼容 LLM 润色
 - 文本注入
 - 麦克风与辅助功能权限引导
@@ -98,7 +97,6 @@ AGENTS.md
 
 - 优先保持 `UI / Domain / Providers / Platform / Persistence` 分层清晰
 - `SessionCoordinator` 负责主链路编排，不要把核心流程散落到 View 层
-- ASR 必须通过自实现 `HTTP Provider + 签名` 接入，不引入重型 SDK 作为首选实现
 - LLM 首版只对齐 `Chat Completions` 兼容接口，不扩展到多协议抽象
 - 文本注入优先走 `Accessibility API`，失败后再回退输入事件
 - 配置保存时做轻量校验；严格失败在真实调用阶段处理
@@ -106,7 +104,7 @@ AGENTS.md
 
 ## 安全与隐私边界
 
-- 不得在仓库中硬编码腾讯云密钥、API Key、测试令牌或任何生产凭据
+- 不得在仓库中硬编码 API Key、测试令牌或任何生产凭据
 - 不得在日志、截图、测试数据或文档中泄露真实用户语音、文本、访问令牌或内部域名凭据
 - 不得默认保存原始音频
 - 不得在未经说明的情况下把用户输入自动复制到系统剪贴板
@@ -119,7 +117,7 @@ AGENTS.md
 以下修改必须先向用户升级确认：
 
 - 产品从“菜单栏助手”改为“系统输入法”
-- ASR Provider 变更或改为多 Provider
+- ASR 引擎变更或引入多 Provider
 - LLM 接口协议变更或开放自定义 Prompt / 高级参数
 - 文本注入策略从当前主方案切换到剪贴板主方案
 - 录音保存策略、日志保留策略、隐私边界变化
@@ -128,7 +126,7 @@ AGENTS.md
 ## 测试要求
 
 - 单元测试优先覆盖 `SessionCoordinator`
-- 单元测试优先覆盖 `TencentASRProvider`、`LLMProvider`、`TextInjector` 的关键分支
+- 单元测试优先覆盖 `FunASRProvider`、`LLMProvider`、`TextInjector` 的关键分支
 - 端到端以手工验收为主，重点验证：
   - 权限缺失
   - 配置错误

@@ -4,12 +4,12 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 首版产品形态不是系统级输入法，而是 `菜单栏常驻应用`。用户通过全局快捷键触发录音（按一次开始，再按一次结束），录音结束后自动完成：
 
-`录音 -> ASR 识别（本地 FunASR 或腾讯云） -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
+`录音 -> 本地 FunASR 识别 -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
 
 ## 项目目标
 
 - 在 macOS 上提供全局可用的中文语音输入能力
-- 默认使用本地 FunASR 完成短语音识别，同时保留腾讯云 ASR 作为可选云端方案
+- 使用本地 FunASR 完成短语音识别，无需配置云端 ASR 服务
 - 支持用户接入自有 `OpenAI 兼容` 大模型服务
 - 将口语输入整理为更适合直接发送或写入的文本
 - 在常见桌面应用中稳定注入文本
@@ -19,13 +19,10 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 ### 已实现
 
 - 菜单栏常驻应用（MenuBarExtra）
-- 设置页（ASR / LLM / 通用 / 权限 / 诊断 / 最近记录）
+- 设置页（LLM / 通用 / 权限 / 诊断 / 最近记录）
 - 全局快捷键（Carbon Event API）
 - 按一次开始录音，再按一次结束录音
-- 双 ASR Provider 支持：本地 FunASR（默认） + 腾讯云 ASR（可选）
 - 本地 FunASR 语音识别（内置子进程方式）
-- 腾讯云一句话短音频识别（自实现 HTTP + TC3 签名）
-- ASR Provider 设置页手动切换
 - OpenAI 兼容 LLM 润色（固定 Prompt，纠错 + 去赘词 + 轻度书面化 + 补标点）
 - 文本注入（AX API 主策略 + 键盘事件回退）
 - 麦克风与辅助功能权限引导
@@ -40,7 +37,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 - macOS 系统级输入法
 - 实时流式识别
-- ASR Provider 自动回退
+- 多 ASR Provider
 - 多种 LLM 协议
 - 自定义 Prompt
 - 风格模式切换
@@ -54,7 +51,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 应用形态：菜单栏常驻应用
 - 交互方式：单一全局快捷键，按一次开始录音，再按一次结束录音
 - 单次录音上限：`30 秒`
-- ASR Provider：`本地 FunASR`（默认）或 `腾讯云 ASR`（可选），手动切换
+- ASR Provider：`本地 FunASR`
 - 默认输出：`LLM 润色版`
 - LLM 失败回退：自动输出 `ASR 原文`
 - 注入失败策略：不自动写剪贴板，结果保留在最近记录中供用户复制
@@ -66,7 +63,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 - 客户端：`Swift 6.0 + SwiftUI + AppKit`
 - 架构：`MVVM + Service Layer`
-- 语音识别：`本地 FunASR`（默认，内置子进程）+ `腾讯云 ASR`（可选，自实现 `HTTP Provider + TC3-HMAC-SHA256 签名`）
+- 语音识别：`本地 FunASR`（内置子进程方式）
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
 - 文本注入：优先 `Accessibility API`，失败后回退键盘事件输入
@@ -84,7 +81,7 @@ app/Typoless/
 │   └── Models/             # SessionState, TypolessError, RecentRecord, AppConfig 等
 ├── Persistence/            # ConfigStore, KeychainHelper, RecentRecordStore
 ├── Platform/               # AudioRecorder, HotkeyManager, PermissionsManager, TextInjector
-├── Providers/              # ASRProvider, FunASRProvider, TencentASRProvider, LLMProvider
+├── Providers/              # ASRProvider, FunASRProvider, LLMProvider
 ├── Resources/              # 资源文件
 └── UI/
     ├── MenuBar/            # MenuBarView
@@ -100,7 +97,6 @@ app/Typoless/
 | `AudioRecorder` | 音频采集与 PCM/WAV 标准化 |
 | `ASRProvider` | 统一 ASR 识别协议 |
 | `FunASRProvider` | 本地 FunASR 子进程调用 |
-| `TencentASRProvider` | 腾讯云 ASR HTTP 调用与 TC3 签名 |
 | `LLMProvider` | OpenAI Chat Completions 调用 |
 | `TextInjector` | AX API 文本注入 + 键盘事件回退 |
 | `PermissionsManager` | 麦克风与辅助功能权限管理 |
@@ -113,19 +109,18 @@ app/Typoless/
 ### 首次配置
 
 1. 启动应用
-2. 若使用本地 FunASR（默认），无需 ASR 配置
-3. 若切换到腾讯云，配置 `SecretId / SecretKey / Region`
-4. 配置 LLM `Base URL / API Key / Model`
-5. 设置全局快捷键
-6. 授予麦克风权限
-7. 授予辅助功能权限
+2. 本地 FunASR 无需额外 ASR 配置
+3. 配置 LLM `Base URL / API Key / Model`
+4. 设置全局快捷键
+5. 授予麦克风权限
+6. 授予辅助功能权限
 
 ### 日常使用
 
 1. 在任意应用中聚焦输入区域
 2. 按下快捷键开始录音
 3. 再次按下快捷键结束录音（或达到 30 秒自动结束）
-4. 提交音频到当前选中的 ASR Provider
+4. 提交音频到本地 FunASR
 5. 获取原始转写文本
 6. 调用 LLM 做纠错与轻度书面化
 7. 将最终文本注入当前焦点应用
@@ -157,11 +152,6 @@ app/Typoless/
 | 辅助功能权限缺失 | 辅助功能权限未开启，无法注入文本 |
 | 录音数据为空 | 录音数据为空，请重试 |
 | 本地识别引擎未就绪 | 本地识别引擎未就绪，请重新安装应用 |
-| 本地识别模型缺失 | 本地识别模型缺失，请重新安装应用 |
-| 本地语音识别失败 | 本地语音识别失败：具体原因 |
-| 腾讯云凭证无效 | 腾讯云凭证无效，请检查 SecretId 和 SecretKey |
-| 腾讯云网络失败 | 腾讯云网络连接失败，请检查网络 |
-| ASR 识别失败 | 语音识别失败，请重试 |
 | LLM 配置无效 | LLM 配置无效：具体原因 |
 | LLM 网络失败 | LLM 网络连接失败，请检查网络 |
 | LLM 空结果 | LLM 返回空结果，已使用原始识别文本 |
@@ -186,35 +176,28 @@ app/Typoless/
 
 | 配置字段 | 存储位置 |
 | --- | --- |
-| `asr_provider` | `~/.typoless/config` |
-| `tencent_region` | `~/.typoless/config` |
 | `openai_base_url` | `~/.typoless/config` |
 | `openai_model` | `~/.typoless/config` |
 | `global_hotkey` | `~/.typoless/config` |
 | `recording_trigger_mode` | `~/.typoless/config` |
 | `enable_ai_polish` | `~/.typoless/config` |
-| `tencent_secret_id` | `~/.typoless/config` |
-| `tencent_secret_key` | `~/.typoless/config` |
 | `openai_api_key` | `~/.typoless/config` |
 
 ## 测试策略
 
-- 单元测试重点覆盖 `Provider`（FunASR + TencentASR）和 `Session Coordinator`
+- 单元测试重点覆盖 `Provider`（FunASR）和 `Session Coordinator`
 - 端到端以手工验收主链路为主
 - 重点验证权限缺失、配置错误、LLM 回退、注入失败
 
 ### 手工验收清单
 
 - [ ] 首次启动自动打开设置页
-- [ ] 配置腾讯云凭证并保存成功
 - [ ] 配置 LLM 并保存成功
 - [ ] 设置全局快捷键并生效
 - [ ] 麦克风权限授权后可录音
 - [ ] 辅助功能权限授权后可注入文本
 - [ ] 完整链路：录音 → ASR → LLM → 注入（浏览器输入框、备忘录、聊天应用）
 - [ ] FunASR 本地识别链路正常
-- [ ] 腾讯云 ASR 识别链路正常
-- [ ] 设置页切换 Provider 正常
 - [ ] 关闭 AI 润色：录音 → ASR → 直接注入
 - [ ] LLM 失败自动回退 ASR 原文
 - [ ] 注入失败后文本保留在最近记录
@@ -223,7 +206,7 @@ app/Typoless/
 - [ ] 识别中 / 润色中可从菜单取消
 - [ ] 诊断页展示最近错误摘要
 - [ ] 权限缺失场景提示清晰
-- [ ] 腾讯云凭证错误场景提示清晰
+- [ ] 本地识别失败场景提示清晰
 - [ ] 应用重启后配置和记录正常恢复
 
 ## 目录说明

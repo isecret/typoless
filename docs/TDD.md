@@ -40,8 +40,7 @@
 
 ### 3.2 外部服务
 
-- ASR：`本地 FunASR`（默认）+ `腾讯云 ASR`（可选）
-- ASR 接入方式：FunASR 通过内置子进程运行；腾讯云通过自实现 `HTTP Provider + 签名`
+- ASR：`本地 FunASR`（内置子进程方式）
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -64,7 +63,7 @@
 - `Domain`
   负责状态机、会话编排、错误模型、配置模型
 - `Providers`
-  负责腾讯云 ASR 和 OpenAI 兼容 LLM 的网络访问
+  负责本地 FunASR 语音识别和 OpenAI 兼容 LLM 的调用
 - `Platform`
   负责录音、权限、全局快捷键、文本注入
 - `Persistence`
@@ -82,8 +81,6 @@
   统一的 ASR 识别接口
 - `FunASRProvider`
   负责本地 FunASR 子进程调用
-- `TencentASRProvider`
-  负责腾讯云 ASR 调用
 - `LLMProvider`
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
@@ -110,7 +107,7 @@
 - 保证同一时间只存在一个 active session
 - 响应开始录音、结束录音、取消任务
 - 串行调度 `AudioRecorder -> ASRProvider -> LLMProvider -> TextInjector`
-- 根据当前配置选择对应 ASR Provider（FunASR 或腾讯云）
+- 统一使用本地 `FunASRProvider`
 - 负责回退逻辑与记录落盘
 
 ### 5.3 AudioRecorder
@@ -124,20 +121,13 @@
 
 统一 ASR 协议 `ASRProvider`，所有实现需遵循 `recognize(audioData:) -> TranscriptResult` 接口。
 
-#### 5.4.1 FunASRProvider（默认）
+#### 5.4.1 FunASRProvider
 
 - 调用应用内置的 FunASR 可执行文件
 - 模型资源随应用打包分发
 - 通过 `Process` 子进程执行本地离线识别
 - 支持超时控制和 Task 取消时终止进程
 - 不暴露端口、模型目录、线程数等高级参数
-
-#### 5.4.2 TencentASRProvider（可选）
-
-- 接收标准音频输入
-- 生成请求签名和 HTTP 请求
-- 发起一次性短语音识别请求
-- 把原始响应映射为统一 `TranscriptResult`
 
 ### 5.5 LLMProvider
 
@@ -158,9 +148,7 @@
 - 若配置文件不存在，自动从旧存储（UserDefaults + Keychain）迁移
 - 若配置文件损坏，标记为加载失败，使首次配置检查返回 false
 - 保存时执行轻量校验，整文件原子写回
-- `hasCompletedInitialSetup` 根据当前选中的 ASR Provider 判断：
-  - FunASR：无需额外配置即视为就绪
-  - 腾讯云：需要有效的 SecretId/SecretKey
+- `hasCompletedInitialSetup` 在配置文件正常加载后返回 true（FunASR 无需额外配置）
 
 ### 5.8 HistoryStore
 
@@ -215,7 +203,7 @@ LLM 回退路径：
 1. 启动应用
 2. `AppCoordinator` 检查首次启动标记
 3. 自动打开设置页
-4. 用户填写腾讯云、LLM、快捷键配置
+4. 用户填写 LLM、快捷键配置
 5. 设置页触发轻量校验并保存
 6. 用户完成权限授权
 
@@ -228,7 +216,7 @@ LLM 回退路径：
 5. `AudioRecorder` 开始采集音频
 6. 用户再次按下快捷键或达到 30 秒
 7. `AudioRecorder` 输出标准音频
-8. 根据当前配置选择 ASR Provider：FunASR 本地识别或腾讯云远程识别
+8. 本地 FunASR 执行语音识别
 9. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
 10. 若 LLM 失败或返回空文本，则回退 ASR 原文
 11. `TextInjector` 尝试注入最终文本
@@ -239,19 +227,14 @@ LLM 回退路径：
 
 ### 8.1 普通配置
 
-- `asr_provider`
-- `tencent_region`
 - `openai_base_url`
 - `openai_model`
 - `global_hotkey`
 - `recording_trigger_mode`
 - `enable_ai_polish`
-- `source_language`
 
 ### 8.2 敏感配置
 
-- `tencent_secret_id`
-- `tencent_secret_key`
 - `openai_api_key`
 
 ### 8.3 校验策略
@@ -274,9 +257,7 @@ LLM 回退路径：
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议，定义 `recognize(audioData:) async throws -> TranscriptResult`
-- `ASRProviderType` 枚举：`funasrLocal`（默认）、`tencentCloud`（可选）
-- `SessionCoordinator` 根据当前配置动态选择 Provider
-- 不做本地失败自动回退腾讯云
+- 使用本地 `FunASRProvider` 作为唯一实现
 
 ### 9.2 FunASR 本地识别
 
@@ -286,27 +267,20 @@ LLM 回退路径：
 - 支持超时终止和 Task 取消时清理进程
 - 解析子进程输出（JSON 或纯文本）获取识别结果
 
-### 9.3 腾讯云 ASR 接入
-
-- 不依赖腾讯云重型 SDK
-- 直接实现 HTTP 请求和签名
-- Provider 对外只暴露业务无关的统一接口
-
-### 9.4 输入输出
+### 9.3 输入输出
 
 输入：
 
 - 标准化音频数据或标准化音频临时文件
-- 用户配置中的密钥与地域
 
 输出：
 
 - `TranscriptResult`
   - `text`
-  - `requestId`（可选，仅腾讯云返回）
+  - `requestId`（可选）
   - `durationMs`
 
-### 9.5 错误映射
+### 9.4 错误映射
 
 通用错误：
 - 空音频数据 -> `asrEmptyAudio`
@@ -316,13 +290,7 @@ FunASR 错误：
 - 模型缺失 -> `funasrModelMissing`
 - 识别失败 -> `funasrProcessFailure`
 
-腾讯云错误：
-- 鉴权错误 -> `invalidCredentials`
-- 网络错误 -> `networkFailure`
-- 服务错误 -> `asrFailure`
-- 空文本结果 -> `emptyTranscript`
-
-### 9.6 超时与取消
+### 9.5 超时与取消
 
 - 超时由 Provider 内部固定控制
 - 收到取消事件后应中断请求或丢弃响应结果
@@ -451,9 +419,6 @@ FunASR 错误：
 - `funasrBinaryNotFound`
 - `funasrModelMissing`
 - `funasrProcessFailure`
-- `invalidTencentCredentials`
-- `tencentNetworkFailure`
-- `tencentASRFailure`
 - `invalidLLMConfiguration`
 - `llmNetworkFailure`
 - `llmEmptyResponse`
@@ -474,10 +439,9 @@ FunASR 错误：
 
 - `SessionCoordinator`
 - `FunASRProvider`
-- `TencentASRProvider`
 - `LLMProvider`
 - `TextInjector` 的错误分支
-- `ConfigStore` 的 Provider 切换与迁移逻辑
+- `ConfigStore` 的迁移逻辑
 
 核心测试场景：
 
@@ -498,7 +462,7 @@ FunASR 错误：
 - 聊天应用
 - 麦克风权限缺失
 - 辅助功能权限缺失
-- 腾讯云密钥错误
+- 本地识别失败
 - LLM 模型错误
 - 注入失败后从最近记录复制
 
@@ -507,7 +471,7 @@ FunASR 错误：
 1. 应用骨架、菜单栏、设置页
 2. 配置存储、权限管理、快捷键
 3. 录音与音频标准化
-4. 腾讯云 ASR Provider
+4. 本地 FunASR Provider
 5. LLM Provider 与 Prompt
 6. 文本注入
 7. SessionCoordinator 与状态机整合

@@ -1,47 +1,5 @@
 import Foundation
 
-// MARK: - ASR 配置（不含密钥）
-
-struct ASRConfig: Codable, Equatable, Sendable {
-    var provider: ASRProviderType = .funasrLocal
-    var region: TencentRegion = .guangzhou
-
-    enum CodingKeys: String, CodingKey {
-        case provider
-        case region
-    }
-
-    init(provider: ASRProviderType = .funasrLocal, region: TencentRegion = .guangzhou) {
-        self.provider = provider
-        self.region = region
-    }
-
-    /// 自定义解码：老配置缺少 provider 字段时，默认为 tencentCloud（兼容已有用户）
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        provider = try container.decodeIfPresent(ASRProviderType.self, forKey: .provider) ?? .tencentCloud
-        region = try container.decodeIfPresent(TencentRegion.self, forKey: .region) ?? .guangzhou
-    }
-}
-
-enum TencentRegion: String, Codable, CaseIterable, Sendable {
-    case guangzhou = "ap-guangzhou"
-    case shanghai = "ap-shanghai"
-    case beijing = "ap-beijing"
-    case chengdu = "ap-chengdu"
-    case chongqing = "ap-chongqing"
-
-    var displayName: String {
-        switch self {
-        case .guangzhou: "华南地区(广州)"
-        case .shanghai: "华东地区(上海)"
-        case .beijing: "华北地区(北京)"
-        case .chengdu: "西南地区(成都)"
-        case .chongqing: "西南地区(重庆)"
-        }
-    }
-}
-
 // MARK: - LLM 配置（不含密钥）
 
 struct LLMConfig: Codable, Equatable, Sendable {

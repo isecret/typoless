@@ -5,7 +5,6 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            ASRSettingsView(configStore: appCoordinator.configStore)
             LLMSettingsView(configStore: appCoordinator.configStore)
             GeneralSettingsView(configStore: appCoordinator.configStore, onHotkeyChanged: {
                 appCoordinator.setupHotkey()
