@@ -6,7 +6,7 @@ struct GeneralSettingsView: View {
 
     @State private var enableAIPolish: Bool = true
     @State private var hotkey: HotkeyCombo = .default
-    @State private var recordingTriggerMode: RecordingTriggerMode = .pressToToggle
+    @State private var recordingTriggerMode: RecordingTriggerMode = .holdToTalk
     @State private var pasteboardInjectionBundleIDs: [String] = []
     @State private var newBundleID: String = ""
     @State private var isLoaded = false
