@@ -1,42 +1,43 @@
 import Foundation
 
-/// 本地 FunASR 语音识别 Provider，通过内置子进程执行离线识别
-struct FunASRProvider: ASRProvider, Sendable {
+/// 本地 Whisper 语音识别 Provider，通过内置 whisper-cli 子进程执行离线识别
+struct WhisperProvider: ASRProvider, Sendable {
 
-    private static let timeout: TimeInterval = 30
+    private static let timeout: TimeInterval = 60
 
     // MARK: - 资源路径
 
     private static var binaryURL: URL? {
         Bundle.main.resourceURL?
-            .appendingPathComponent("funasr")
+            .appendingPathComponent("whisper")
             .appendingPathComponent("bin")
-            .appendingPathComponent("funasr-cli")
+            .appendingPathComponent("whisper-cli")
     }
 
-    private static var modelDirectory: URL? {
+    private static var modelFileURL: URL? {
         Bundle.main.resourceURL?
-            .appendingPathComponent("funasr")
+            .appendingPathComponent("whisper")
             .appendingPathComponent("models")
+            .appendingPathComponent("ggml-small.bin")
     }
-
-    /// 必须存在的模型子目录
-    private static let requiredModelSubdirs = ["paraformer", "vad", "punc"]
 
     // MARK: - ASRProvider
 
     func recognize(audioData: Data) async throws -> TranscriptResult {
         guard let binaryURL = Self.binaryURL,
               FileManager.default.fileExists(atPath: binaryURL.path) else {
-            throw TypolessError.funasrBinaryNotFound
+            throw TypolessError.asrBinaryNotFound
         }
 
-        guard let modelDir = Self.modelDirectory,
-              FileManager.default.fileExists(atPath: modelDir.path),
-              Self.requiredModelSubdirs.allSatisfy({
-                  FileManager.default.fileExists(atPath: modelDir.appendingPathComponent($0).path)
-              }) else {
-            throw TypolessError.funasrModelMissing
+        guard let modelURL = Self.modelFileURL,
+              FileManager.default.fileExists(atPath: modelURL.path) else {
+            throw TypolessError.asrModelMissing
+        }
+
+        // 校验模型文件非空
+        let attrs = try? FileManager.default.attributesOfItem(atPath: modelURL.path)
+        guard let fileSize = attrs?[.size] as? UInt64, fileSize > 0 else {
+            throw TypolessError.asrModelMissing
         }
 
         let tempFile = FileManager.default.temporaryDirectory
@@ -47,12 +48,12 @@ struct FunASRProvider: ASRProvider, Sendable {
         do {
             try audioData.write(to: tempFile)
         } catch {
-            throw TypolessError.funasrProcessFailure(message: "无法写入临时音频文件")
+            throw TypolessError.asrProcessFailure(message: "无法写入临时音频文件")
         }
 
         return try await runProcess(
             binary: binaryURL,
-            modelDir: modelDir,
+            model: modelURL,
             audioFile: tempFile
         )
     }
@@ -62,10 +63,11 @@ struct FunASRProvider: ASRProvider, Sendable {
     /// 在非主线程执行子进程，支持 Task 取消时终止进程
     private func runProcess(
         binary: URL,
-        modelDir: URL,
+        model: URL,
         audioFile: URL
     ) async throws -> TranscriptResult {
         let startTime = Date()
+        let processHolder = ProcessHolder()
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -75,12 +77,17 @@ struct FunASRProvider: ASRProvider, Sendable {
 
                 process.executableURL = binary
                 process.arguments = [
-                    "--model-dir", modelDir.path,
-                    "--wav-path", audioFile.path,
+                    "-m", model.path,
+                    "-f", audioFile.path,
+                    "-l", "zh",
+                    "-nt",
+                    "-np",
                 ]
                 process.standardOutput = outputPipe
                 process.standardError = errorPipe
                 process.qualityOfService = .userInitiated
+
+                processHolder.process = process
 
                 // 超时终止
                 let timeoutWorkItem = DispatchWorkItem { [process] in
@@ -95,13 +102,12 @@ struct FunASRProvider: ASRProvider, Sendable {
                     try process.run()
                 } catch {
                     timeoutWorkItem.cancel()
-                    continuation.resume(throwing: TypolessError.funasrProcessFailure(
+                    continuation.resume(throwing: TypolessError.asrProcessFailure(
                         message: "无法启动本地识别引擎"
                     ))
                     return
                 }
 
-                // 在后台线程等待进程结束
                 DispatchQueue.global(qos: .userInitiated).async {
                     process.waitUntilExit()
                     timeoutWorkItem.cancel()
@@ -113,26 +119,23 @@ struct FunASRProvider: ASRProvider, Sendable {
                     if exitCode != 0 {
                         let errorMessage = String(data: errorData, encoding: .utf8)?
                             .trimmingCharacters(in: .whitespacesAndNewlines)
-                        continuation.resume(throwing: TypolessError.funasrProcessFailure(
+                        continuation.resume(throwing: TypolessError.asrProcessFailure(
                             message: errorMessage?.isEmpty == false ? errorMessage! : "识别进程异常退出 (code: \(exitCode))"
                         ))
                         return
                     }
 
-                    guard let outputString = String(data: outputData, encoding: .utf8)?
-                        .trimmingCharacters(in: .whitespacesAndNewlines),
-                          !outputString.isEmpty else {
-                        continuation.resume(throwing: TypolessError.funasrProcessFailure(
+                    guard let outputString = String(data: outputData, encoding: .utf8) else {
+                        continuation.resume(throwing: TypolessError.asrProcessFailure(
                             message: "本地识别结果为空"
                         ))
                         return
                     }
 
-                    // 解析输出：FunASR CLI 输出 JSON 或纯文本
-                    let text = Self.parseOutput(outputString)
+                    let text = Self.normalizeOutput(outputString)
 
                     guard !text.isEmpty else {
-                        continuation.resume(throwing: TypolessError.funasrProcessFailure(
+                        continuation.resume(throwing: TypolessError.asrProcessFailure(
                             message: "本地识别结果为空"
                         ))
                         return
@@ -147,32 +150,39 @@ struct FunASRProvider: ASRProvider, Sendable {
                 }
             }
         } onCancel: {
-            // Task 被取消时，无法直接访问 process 引用
-            // 超时机制会兜底清理；若需更精细的取消可改用 actor 持有 process
+            processHolder.terminate()
         }
     }
 
     // MARK: - 输出解析
 
-    /// 解析 FunASR CLI 输出，支持 JSON 和纯文本两种格式
-    private static func parseOutput(_ output: String) -> String {
-        // 尝试 JSON 解析
-        if let data = output.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-            // FunASR 输出格式：[{"text": "识别结果", ...}]
-            return json.compactMap { $0["text"] as? String }
-                .joined()
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+    /// 规范化 whisper-cli 输出：拆行、去空、合并
+    private static func normalizeOutput(_ output: String) -> String {
+        output
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined()
+    }
+}
 
-        // 尝试单个 JSON 对象
-        if let data = output.data(using: .utf8),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let text = json["text"] as? String {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+// MARK: - Process Holder
 
-        // 纯文本模式：直接返回
-        return output
+/// 持有 Process 引用以支持 Task 取消时终止子进程
+private final class ProcessHolder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _process: Process?
+
+    var process: Process? {
+        get { lock.withLock { _process } }
+        set { lock.withLock { _process = newValue } }
+    }
+
+    func terminate() {
+        lock.withLock {
+            if let p = _process, p.isRunning {
+                p.terminate()
+            }
+        }
     }
 }

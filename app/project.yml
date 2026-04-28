@@ -24,9 +24,9 @@ targets:
       - path: Typoless
         excludes:
           - "**/.gitkeep"
-          - "Resources/funasr"
+          - "Resources/whisper"
     resources:
-      - path: Typoless/Resources/funasr
+      - path: Typoless/Resources/whisper
         buildPhase: resources
         optional: true
     dependencies:
@@ -42,31 +42,27 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Typoless
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Typoless 需要麦克风权限来进行语音输入"
     preBuildScripts:
-      - name: "Validate FunASR Source Resources"
+      - name: "Validate Whisper Source Resources"
         script: |
-          FUNASR_DIR="${SRCROOT}/Typoless/Resources/funasr"
-          if [ ! -f "${FUNASR_DIR}/bin/funasr-cli" ]; then
-            echo "error: FunASR binary not found. Run ./scripts/setup-funasr.sh first."
+          WHISPER_DIR="${SRCROOT}/Typoless/Resources/whisper"
+          if [ ! -f "${WHISPER_DIR}/bin/whisper-cli" ]; then
+            echo "error: Whisper CLI not found. Run ./scripts/setup-whisper.sh first."
             exit 1
           fi
-          if [ ! -d "${FUNASR_DIR}/models/paraformer" ] || [ ! -d "${FUNASR_DIR}/models/vad" ] || [ ! -d "${FUNASR_DIR}/models/punc" ]; then
-            echo "error: FunASR models incomplete. Run ./scripts/setup-funasr.sh first."
+          if [ ! -s "${WHISPER_DIR}/models/ggml-small.bin" ]; then
+            echo "error: Whisper model not found. Run ./scripts/setup-whisper.sh first."
             exit 1
           fi
     postBuildScripts:
-      - name: "Fix FunASR Binary Permissions"
+      - name: "Copy Whisper Resources and Fix Permissions"
         script: |
-          FUNASR_SRC="${SRCROOT}/Typoless/Resources/funasr"
-          FUNASR_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/funasr"
-          if [ -d "${FUNASR_SRC}" ]; then
-            mkdir -p "$(dirname "${FUNASR_DST}")"
-            ditto "${FUNASR_SRC}" "${FUNASR_DST}"
+          WHISPER_SRC="${SRCROOT}/Typoless/Resources/whisper"
+          WHISPER_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/whisper"
+          if [ -d "${WHISPER_SRC}" ]; then
+            mkdir -p "$(dirname "${WHISPER_DST}")"
+            ditto "${WHISPER_SRC}" "${WHISPER_DST}"
           fi
-          FUNASR_BIN="${FUNASR_DST}/bin/funasr-cli"
-          if [ -f "${FUNASR_BIN}" ]; then
-            chmod +x "${FUNASR_BIN}"
-          fi
-          FUNASR_OFFLINE_BIN="${FUNASR_DST}/bin/funasr-onnx-offline"
-          if [ -f "${FUNASR_OFFLINE_BIN}" ]; then
-            chmod +x "${FUNASR_OFFLINE_BIN}"
+          WHISPER_BIN="${WHISPER_DST}/bin/whisper-cli"
+          if [ -f "${WHISPER_BIN}" ]; then
+            chmod +x "${WHISPER_BIN}"
           fi

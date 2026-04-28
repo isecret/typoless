@@ -6,10 +6,10 @@ enum TypolessError: Error, Equatable, Sendable {
     case accessibilityPermissionDenied
     // ASR 通用错误
     case asrEmptyAudio
-    // FunASR 本地识别错误
-    case funasrBinaryNotFound
-    case funasrModelMissing
-    case funasrProcessFailure(message: String)
+    // 本地 ASR 识别错误
+    case asrBinaryNotFound
+    case asrModelMissing
+    case asrProcessFailure(message: String)
     // LLM 错误
     case invalidLLMConfiguration(detail: String)
     case llmNetworkFailure(message: String)
@@ -26,11 +26,11 @@ enum TypolessError: Error, Equatable, Sendable {
             "辅助功能权限未开启，无法注入文本"
         case .asrEmptyAudio:
             "录音数据为空，请重试"
-        case .funasrBinaryNotFound:
-            "本地识别引擎未安装，应用包中缺少 FunASR 组件"
-        case .funasrModelMissing:
-            "本地识别模型不完整，应用包中缺少必要的模型文件"
-        case .funasrProcessFailure(let message):
+        case .asrBinaryNotFound:
+            "本地识别引擎未就绪，请重新安装应用"
+        case .asrModelMissing:
+            "本地识别模型缺失"
+        case .asrProcessFailure(let message):
             "本地语音识别失败：\(message)"
         case .invalidLLMConfiguration(let detail):
             "LLM 配置无效：\(detail)"

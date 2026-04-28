@@ -19,7 +19,7 @@
 - UI：SwiftUI
 - 系统交互：AppKit
 - 架构：MVVM + Service Layer
-- ASR：本地 FunASR
+- ASR：本地 Whisper（基于 whisper.cpp）
 - LLM：OpenAI Chat Completions 兼容接口
 - 音频格式：PCM/WAV 16k mono
 - 配置存储：~/.typoless/config（UTF-8 JSON）
@@ -64,7 +64,7 @@ AGENTS.md
 - 设置页
 - 全局快捷键
 - 按住说话，松开处理
-- 本地 FunASR 语音识别
+- 本地 Whisper 语音识别（基于 whisper.cpp）
 - OpenAI 兼容 LLM 润色
 - 文本注入
 - 麦克风与辅助功能权限引导
@@ -126,7 +126,7 @@ AGENTS.md
 ## 测试要求
 
 - 单元测试优先覆盖 `SessionCoordinator`
-- 单元测试优先覆盖 `FunASRProvider`、`LLMProvider`、`TextInjector` 的关键分支
+- 单元测试优先覆盖 `WhisperProvider`、`LLMProvider`、`TextInjector` 的关键分支
 - 端到端以手工验收为主，重点验证：
   - 权限缺失
   - 配置错误

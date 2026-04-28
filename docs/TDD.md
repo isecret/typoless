@@ -40,7 +40,7 @@
 
 ### 3.2 外部服务
 
-- ASR：`本地 FunASR`（内置子进程方式）
+- ASR：`本地 Whisper`（基于 `whisper.cpp`，内置子进程方式）
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -63,7 +63,7 @@
 - `Domain`
   负责状态机、会话编排、错误模型、配置模型
 - `Providers`
-  负责本地 FunASR 语音识别和 OpenAI 兼容 LLM 的调用
+  负责本地 Whisper 语音识别和 OpenAI 兼容 LLM 的调用
 - `Platform`
   负责录音、权限、全局快捷键、文本注入
 - `Persistence`
@@ -79,8 +79,8 @@
   负责录音采集与音频标准化
 - `ASRProvider` (协议)
   统一的 ASR 识别接口
-- `FunASRProvider`
-  负责本地 FunASR 子进程调用
+- `WhisperProvider`
+  负责本地 Whisper 子进程调用（基于 whisper.cpp）
 - `LLMProvider`
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
@@ -107,7 +107,7 @@
 - 保证同一时间只存在一个 active session
 - 响应开始录音、结束录音、取消任务
 - 串行调度 `AudioRecorder -> ASRProvider -> LLMProvider -> TextInjector`
-- 统一使用本地 `FunASRProvider`
+- 统一使用本地 `WhisperProvider`
 - 负责回退逻辑与记录落盘
 
 ### 5.3 AudioRecorder
@@ -121,13 +121,13 @@
 
 统一 ASR 协议 `ASRProvider`，所有实现需遵循 `recognize(audioData:) -> TranscriptResult` 接口。
 
-#### 5.4.1 FunASRProvider
+#### 5.4.1 WhisperProvider
 
-- 调用应用内置的 FunASR 可执行文件
-- 模型资源随应用打包分发
+- 调用应用内置的 whisper-cli 可执行文件（基于 whisper.cpp）
+- 默认模型（ggml-small.bin）随应用打包分发
 - 通过 `Process` 子进程执行本地离线识别
 - 支持超时控制和 Task 取消时终止进程
-- 不暴露端口、模型目录、线程数等高级参数
+- 不暴露模型选择、线程数等高级参数
 
 ### 5.5 LLMProvider
 
@@ -148,7 +148,7 @@
 - 若配置文件不存在，自动从旧存储（UserDefaults + Keychain）迁移
 - 若配置文件损坏，标记为加载失败，使首次配置检查返回 false
 - 保存时执行轻量校验，整文件原子写回
-- `hasCompletedInitialSetup` 在配置文件正常加载后返回 true（FunASR 无需额外配置）
+- `hasCompletedInitialSetup` 在配置文件正常加载后返回 true（Whisper 无需额外配置）
 
 ### 5.8 HistoryStore
 
@@ -216,7 +216,7 @@ LLM 回退路径：
 5. `AudioRecorder` 开始采集音频
 6. 用户再次按下快捷键或达到 30 秒
 7. `AudioRecorder` 输出标准音频
-8. 本地 FunASR 执行语音识别
+8. 本地 Whisper 执行语音识别
 9. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
 10. 若 LLM 失败或返回空文本，则回退 ASR 原文
 11. `TextInjector` 尝试注入最终文本
@@ -257,15 +257,15 @@ LLM 回退路径：
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议，定义 `recognize(audioData:) async throws -> TranscriptResult`
-- 使用本地 `FunASRProvider` 作为唯一实现
+- 使用本地 `WhisperProvider` 作为唯一实现
 
-### 9.2 FunASR 本地识别
+### 9.2 Whisper 本地识别
 
-- FunASR 可执行文件和模型资源随应用打包
+- whisper-cli 可执行文件和模型文件（ggml-small.bin）随应用打包
 - 通过 `Process` 子进程调用，音频文件作为输入
 - 子进程在非主线程执行，避免阻塞 UI
-- 支持超时终止和 Task 取消时清理进程
-- 解析子进程输出（JSON 或纯文本）获取识别结果
+- 支持超时终止和 Task 取消时终止进程
+- 解析子进程标准输出获取识别结果
 
 ### 9.3 输入输出
 
@@ -285,10 +285,10 @@ LLM 回退路径：
 通用错误：
 - 空音频数据 -> `asrEmptyAudio`
 
-FunASR 错误：
-- 二进制文件缺失 -> `funasrBinaryNotFound`
-- 模型缺失 -> `funasrModelMissing`
-- 识别失败 -> `funasrProcessFailure`
+本地 ASR 错误：
+- 二进制文件缺失 -> `asrBinaryNotFound`
+- 模型缺失 -> `asrModelMissing`
+- 识别失败 -> `asrProcessFailure`
 
 ### 9.5 超时与取消
 
@@ -416,9 +416,9 @@ FunASR 错误：
 - `microphonePermissionDenied`
 - `accessibilityPermissionDenied`
 - `asrEmptyAudio`
-- `funasrBinaryNotFound`
-- `funasrModelMissing`
-- `funasrProcessFailure`
+- `asrBinaryNotFound`
+- `asrModelMissing`
+- `asrProcessFailure`
 - `invalidLLMConfiguration`
 - `llmNetworkFailure`
 - `llmEmptyResponse`
@@ -438,7 +438,7 @@ FunASR 错误：
 重点覆盖：
 
 - `SessionCoordinator`
-- `FunASRProvider`
+- `WhisperProvider`
 - `LLMProvider`
 - `TextInjector` 的错误分支
 - `ConfigStore` 的迁移逻辑
@@ -471,7 +471,7 @@ FunASR 错误：
 1. 应用骨架、菜单栏、设置页
 2. 配置存储、权限管理、快捷键
 3. 录音与音频标准化
-4. 本地 FunASR Provider
+4. 本地 Whisper Provider
 5. LLM Provider 与 Prompt
 6. 文本注入
 7. SessionCoordinator 与状态机整合

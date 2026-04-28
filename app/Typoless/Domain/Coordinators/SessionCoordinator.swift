@@ -107,8 +107,8 @@ final class SessionCoordinator {
     // MARK: - Processing Pipeline
 
     private func processAudio(_ audioData: Data, generation: UInt64) async {
-        // 1. 使用本地 FunASR 识别
-        let asrProvider: any ASRProvider = FunASRProvider()
+        // 1. 使用本地 Whisper 识别
+        let asrProvider: any ASRProvider = WhisperProvider()
 
         let transcriptResult: TranscriptResult
         do {

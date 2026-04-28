@@ -70,11 +70,9 @@ temp/
 dist/
 build/
 
-# FunASR resources (downloaded via scripts/setup-funasr.sh, too large for git)
-app/Typoless/Resources/funasr/bin/funasr-cli
-app/Typoless/Resources/funasr/models/paraformer/
-app/Typoless/Resources/funasr/models/vad/
-app/Typoless/Resources/funasr/models/punc/
+# Whisper resources (set up via scripts/setup-whisper.sh, too large for git)
+app/Typoless/Resources/whisper/bin/whisper-cli
+app/Typoless/Resources/whisper/models/ggml-small.bin
 
 # Keep project-local agent skills tracked, but ignore transient caches if added later
 .agents/cache/
