@@ -56,7 +56,17 @@ targets:
     postBuildScripts:
       - name: "Fix FunASR Binary Permissions"
         script: |
-          FUNASR_BIN="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/funasr/bin/funasr-cli"
+          FUNASR_SRC="${SRCROOT}/Typoless/Resources/funasr"
+          FUNASR_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/funasr"
+          if [ -d "${FUNASR_SRC}" ]; then
+            mkdir -p "$(dirname "${FUNASR_DST}")"
+            ditto "${FUNASR_SRC}" "${FUNASR_DST}"
+          fi
+          FUNASR_BIN="${FUNASR_DST}/bin/funasr-cli"
           if [ -f "${FUNASR_BIN}" ]; then
             chmod +x "${FUNASR_BIN}"
+          fi
+          FUNASR_OFFLINE_BIN="${FUNASR_DST}/bin/funasr-onnx-offline"
+          if [ -f "${FUNASR_OFFLINE_BIN}" ]; then
+            chmod +x "${FUNASR_OFFLINE_BIN}"
           fi
