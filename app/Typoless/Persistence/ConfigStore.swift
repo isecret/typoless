@@ -16,11 +16,20 @@ final class ConfigStore {
     private(set) var tencentSecretKey: String = ""
     private(set) var openAIAPIKey: String = ""
 
+    /// 配置文件加载是否失败（损坏等情况），用于区分 fresh install 与 corrupt config
+    private(set) var configLoadFailed: Bool = false
+
     // MARK: - 首次配置判断
 
-    /// 必填配置是否已就绪（ASR 密钥非空）
+    /// 必填配置是否已就绪（基于当前选中的 ASR Provider 判断）
     var hasCompletedInitialSetup: Bool {
-        !tencentSecretId.isEmpty && !tencentSecretKey.isEmpty
+        if configLoadFailed { return false }
+        switch asrConfig.provider {
+        case .funasrLocal:
+            return true
+        case .tencentCloud:
+            return !tencentSecretId.isEmpty && !tencentSecretKey.isEmpty
+        }
     }
 
     // MARK: - 配置文件路径
@@ -59,6 +68,7 @@ final class ConfigStore {
         var general: GeneralConfig = GeneralConfig()
 
         struct ASRFileConfig: Codable {
+            var provider: ASRProviderType?
             var region: TencentRegion = .guangzhou
             var secretId: String = ""
             var secretKey: String = ""
@@ -88,14 +98,17 @@ final class ConfigStore {
                 let data = try Data(contentsOf: fileURL)
                 let configFile = try JSONDecoder().decode(ConfigFile.self, from: data)
                 applyConfigFile(configFile)
+                configLoadFailed = false
             } catch {
-                // 文件损坏或解析失败：回退为空配置（首次配置状态）
+                // 文件损坏或解析失败：标记为加载失败，使 hasCompletedInitialSetup 返回 false
                 applyConfigFile(ConfigFile())
+                configLoadFailed = true
             }
         } else {
             // 配置文件不存在，尝试从旧存储迁移
             let migrated = migrateFromLegacyStorage()
             applyConfigFile(migrated)
+            configLoadFailed = false
             // 写入新配置文件（迁移落盘）
             try? writeConfigFile(migrated)
         }
@@ -106,20 +119,26 @@ final class ConfigStore {
     func saveASRConfig(_ config: ASRConfig, secretId: String, secretKey: String) throws {
         let trimmedId = secretId.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = secretKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedId.isEmpty { throw ConfigValidationError.emptyField("SecretId") }
-        if trimmedKey.isEmpty { throw ConfigValidationError.emptyField("SecretKey") }
+
+        // 仅在选择腾讯云时校验密钥
+        if config.provider == .tencentCloud {
+            if trimmedId.isEmpty { throw ConfigValidationError.emptyField("SecretId") }
+            if trimmedKey.isEmpty { throw ConfigValidationError.emptyField("SecretKey") }
+        }
 
         var configFile = buildConfigFile()
         configFile.asr = ConfigFile.ASRFileConfig(
+            provider: config.provider,
             region: config.region,
-            secretId: trimmedId,
-            secretKey: trimmedKey
+            secretId: trimmedId.isEmpty ? configFile.asr.secretId : trimmedId,
+            secretKey: trimmedKey.isEmpty ? configFile.asr.secretKey : trimmedKey
         )
         try writeConfigFile(configFile)
 
         asrConfig = config
-        tencentSecretId = trimmedId
-        tencentSecretKey = trimmedKey
+        if !trimmedId.isEmpty { tencentSecretId = trimmedId }
+        if !trimmedKey.isEmpty { tencentSecretKey = trimmedKey }
+        configLoadFailed = false
     }
 
     // MARK: - LLM 配置保存
@@ -169,7 +188,9 @@ final class ConfigStore {
 
     /// 将 ConfigFile 映射到公开属性
     private func applyConfigFile(_ configFile: ConfigFile) {
-        asrConfig = ASRConfig(region: configFile.asr.region)
+        // provider 为 nil 表示老配置，默认为 tencentCloud
+        let provider = configFile.asr.provider ?? .tencentCloud
+        asrConfig = ASRConfig(provider: provider, region: configFile.asr.region)
         tencentSecretId = configFile.asr.secretId
         tencentSecretKey = configFile.asr.secretKey
 
@@ -183,6 +204,7 @@ final class ConfigStore {
     private func buildConfigFile() -> ConfigFile {
         ConfigFile(
             asr: ConfigFile.ASRFileConfig(
+                provider: asrConfig.provider,
                 region: asrConfig.region,
                 secretId: tencentSecretId,
                 secretKey: tencentSecretKey
