@@ -186,7 +186,7 @@ LLM 回退路径：
 - 正在处理时禁止开启第二个 session
 - 超时录音自动结束后继续走主链路
 - 用户取消后必须中断后续步骤，不允许再注入文本
-- `pressToToggle` 模式下，处理中（`transcribing / polishing / injecting`）再次按键忽略
+- 处理中（`transcribing / polishing / injecting`）再次按键忽略
 
 ## 7. 主数据流
 
@@ -203,10 +203,10 @@ LLM 回退路径：
 
 1. 用户按下快捷键
 2. `HotkeyManager` 通知 `AppCoordinator`
-3. `AppCoordinator` 根据当前录音触发模式（`holdToTalk` / `pressToToggle`）决定动作
+3. `AppCoordinator` 根据当前状态决定动作（idle → 开始录音，recording → 结束录音，其他 → 忽略）
 4. `SessionCoordinator` 校验录音条件并进入 `recording`
 5. `AudioRecorder` 开始采集音频
-6. 用户松开快捷键（长按模式）或再次按下快捷键（按下切换模式），或达到 30 秒
+6. 用户再次按下快捷键或达到 30 秒
 7. `AudioRecorder` 输出标准音频
 8. `TencentASRProvider` 发起一次性识别并返回转写文本
 9. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
