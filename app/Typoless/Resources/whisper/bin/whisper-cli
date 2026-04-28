@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+BASE_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
+LIB_DIR="${BASE_DIR}/lib"
+
+export DYLD_LIBRARY_PATH="${LIB_DIR}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+
+exec "${SCRIPT_DIR}/whisper-cli-bin" "$@"

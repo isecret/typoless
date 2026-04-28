@@ -49,6 +49,14 @@ targets:
             echo "error: Whisper CLI not found. Run ./scripts/setup-whisper.sh first."
             exit 1
           fi
+          if [ ! -f "${WHISPER_DIR}/bin/whisper-cli-bin" ]; then
+            echo "error: Whisper CLI runtime binary not found. Run ./scripts/setup-whisper.sh first."
+            exit 1
+          fi
+          if [ ! -f "${WHISPER_DIR}/lib/libwhisper.1.dylib" ] || [ ! -f "${WHISPER_DIR}/lib/libggml.0.dylib" ] || [ ! -f "${WHISPER_DIR}/lib/libggml-base.0.dylib" ]; then
+            echo "error: Whisper runtime libraries not found. Run ./scripts/setup-whisper.sh first."
+            exit 1
+          fi
           if [ ! -s "${WHISPER_DIR}/models/ggml-small.bin" ]; then
             echo "error: Whisper model not found. Run ./scripts/setup-whisper.sh first."
             exit 1
@@ -65,4 +73,8 @@ targets:
           WHISPER_BIN="${WHISPER_DST}/bin/whisper-cli"
           if [ -f "${WHISPER_BIN}" ]; then
             chmod +x "${WHISPER_BIN}"
+          fi
+          WHISPER_BIN_REAL="${WHISPER_DST}/bin/whisper-cli-bin"
+          if [ -f "${WHISPER_BIN_REAL}" ]; then
+            chmod +x "${WHISPER_BIN_REAL}"
           fi

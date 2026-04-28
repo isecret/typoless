@@ -16,7 +16,9 @@ set -euo pipefail
 BUNDLE_DIR="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}"
 RESOURCES_DIR="${BUNDLE_DIR}/Resources"
 WHISPER_BIN="${RESOURCES_DIR}/whisper/bin/whisper-cli"
+WHISPER_BIN_REAL="${RESOURCES_DIR}/whisper/bin/whisper-cli-bin"
 WHISPER_MODEL="${RESOURCES_DIR}/whisper/models/ggml-small.bin"
+WHISPER_LIB_DIR="${RESOURCES_DIR}/whisper/lib"
 
 has_errors=0
 
@@ -30,6 +32,14 @@ elif [[ ! -x "${WHISPER_BIN}" ]]; then
     chmod +x "${WHISPER_BIN}"
 fi
 
+if [[ ! -f "${WHISPER_BIN_REAL}" ]]; then
+    echo "error: Whisper CLI 真正可执行文件未找到: ${WHISPER_BIN_REAL}"
+    has_errors=1
+elif [[ ! -x "${WHISPER_BIN_REAL}" ]]; then
+    echo "warning: whisper-cli-bin 不可执行，正在修复权限..."
+    chmod +x "${WHISPER_BIN_REAL}"
+fi
+
 # 校验模型文件
 if [[ ! -f "${WHISPER_MODEL}" ]]; then
     echo "error: Whisper 模型未找到: ${WHISPER_MODEL}"
@@ -39,6 +49,13 @@ elif [[ ! -s "${WHISPER_MODEL}" ]]; then
     echo "error: Whisper 模型文件为空: ${WHISPER_MODEL}"
     has_errors=1
 fi
+
+for lib in libwhisper.1.dylib libggml.0.dylib libggml-base.0.dylib; do
+    if [[ ! -f "${WHISPER_LIB_DIR}/${lib}" ]]; then
+        echo "error: Whisper 依赖动态库未找到: ${WHISPER_LIB_DIR}/${lib}"
+        has_errors=1
+    fi
+done
 
 if [[ ${has_errors} -ne 0 ]]; then
     echo "error: Whisper 资源校验失败。构建产物将无法正常运行。"

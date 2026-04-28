@@ -14,7 +14,12 @@
 # 目录约定:
 #   whisper/
 #   ├── bin/
-#   │   └── whisper-cli          # whisper.cpp CLI (macOS arm64/universal)
+#   │   ├── whisper-cli          # wrapper，注入本地动态库路径
+#   │   └── whisper-cli-bin      # whisper.cpp CLI (macOS arm64/universal)
+#   ├── lib/
+#   │   ├── libwhisper.1.dylib
+#   │   ├── libggml.0.dylib
+#   │   └── libggml-base.0.dylib
 #   └── models/
 #       └── ggml-small.bin       # Whisper small 模型 (ggml 格式)
 
@@ -25,6 +30,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 RESOURCE_DIR="${PROJECT_ROOT}/app/Typoless/Resources/whisper"
 BIN_DIR="${RESOURCE_DIR}/bin"
+LIB_DIR="${RESOURCE_DIR}/lib"
 MODEL_DIR="${RESOURCE_DIR}/models"
 
 RED='\033[0;31m'
@@ -41,54 +47,100 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 setup_directories() {
     info "创建目录结构..."
     mkdir -p "${BIN_DIR}"
+    mkdir -p "${LIB_DIR}"
     mkdir -p "${MODEL_DIR}"
 }
 
 # ── whisper-cli 二进制 ──────────────────────────────────────────────
 
 setup_binary() {
-    local target="${BIN_DIR}/whisper-cli"
+    local wrapper="${BIN_DIR}/whisper-cli"
+    local target="${BIN_DIR}/whisper-cli-bin"
 
-    if [[ -f "${target}" && -x "${target}" ]]; then
+    if [[ -f "${target}" && -x "${target}" && -f "${wrapper}" && -x "${wrapper}" ]]; then
         info "whisper-cli 二进制已存在: ${target}"
         return 0
     fi
 
-    if [[ -n "${WHISPER_CLI_PATH:-}" ]]; then
-        if [[ -f "${WHISPER_CLI_PATH}" ]]; then
-            info "从 ${WHISPER_CLI_PATH} 复制 whisper-cli..."
-            cp "${WHISPER_CLI_PATH}" "${target}"
-            chmod +x "${target}"
-            info "whisper-cli 安装完成。"
-            return 0
-        else
-            error "WHISPER_CLI_PATH 指向的文件不存在: ${WHISPER_CLI_PATH}"
-            return 1
-        fi
+    if [[ -z "${WHISPER_CLI_PATH:-}" ]]; then
+        warn "whisper-cli 二进制未找到。"
+        echo ""
+        echo "  请通过以下方式之一提供 whisper-cli:"
+        echo ""
+        echo "  1. 指定本地已编译的二进制:"
+        echo "     WHISPER_CLI_PATH=/path/to/whisper-cli ./scripts/setup-whisper.sh"
+        echo ""
+        echo "  2. 从源码编译 (whisper.cpp):"
+        echo "     git clone https://github.com/ggerganov/whisper.cpp.git"
+        echo "     cd whisper.cpp"
+        echo "     cmake -B build -DCMAKE_BUILD_TYPE=Release"
+        echo "     cmake --build build --config Release"
+        echo "     # 将 build/bin/whisper-cli 复制到: ${target}"
+        echo ""
+        echo "  3. 通过 Homebrew 安装后复制:"
+        echo "     brew install whisper-cpp"
+        echo "     WHISPER_CLI_PATH=\$(which whisper-cli) ./scripts/setup-whisper.sh"
+        echo ""
+        echo "  4. 手动放置到:"
+        echo "     ${target}"
+        echo ""
+        return 1
     fi
 
-    warn "whisper-cli 二进制未找到。"
-    echo ""
-    echo "  请通过以下方式之一提供 whisper-cli:"
-    echo ""
-    echo "  1. 指定本地已编译的二进制:"
-    echo "     WHISPER_CLI_PATH=/path/to/whisper-cli ./scripts/setup-whisper.sh"
-    echo ""
-    echo "  2. 从源码编译 (whisper.cpp):"
-    echo "     git clone https://github.com/ggerganov/whisper.cpp.git"
-    echo "     cd whisper.cpp"
-    echo "     cmake -B build -DCMAKE_BUILD_TYPE=Release"
-    echo "     cmake --build build --config Release"
-    echo "     # 将 build/bin/whisper-cli 复制到: ${target}"
-    echo ""
-    echo "  3. 通过 Homebrew 安装后复制:"
-    echo "     brew install whisper-cpp"
-    echo "     WHISPER_CLI_PATH=\$(which whisper-cpp) ./scripts/setup-whisper.sh"
-    echo ""
-    echo "  4. 手动放置到:"
-    echo "     ${target}"
-    echo ""
-    return 1
+    if [[ ! -f "${WHISPER_CLI_PATH}" ]]; then
+        error "WHISPER_CLI_PATH 指向的文件不存在: ${WHISPER_CLI_PATH}"
+        return 1
+    fi
+
+    info "从 ${WHISPER_CLI_PATH} 复制 whisper-cli..."
+    rm -f "${target}"
+    cp "${WHISPER_CLI_PATH}" "${target}"
+    chmod +x "${target}"
+
+    rm -f "${wrapper}"
+    cat > "${wrapper}" <<'EOF'
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+BASE_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
+LIB_DIR="${BASE_DIR}/lib"
+
+export DYLD_LIBRARY_PATH="${LIB_DIR}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+
+exec "${SCRIPT_DIR}/whisper-cli-bin" "$@"
+EOF
+    chmod +x "${wrapper}"
+    info "whisper-cli 安装完成。"
+}
+
+setup_libraries() {
+    local libwhisper_path="${WHISPER_LIBWHISPER_PATH:-/opt/homebrew/opt/whisper-cpp/lib/libwhisper.1.dylib}"
+    local libggml_path="${WHISPER_LIBGGML_PATH:-/opt/homebrew/opt/ggml/lib/libggml.0.dylib}"
+    local libggml_base_path="${WHISPER_LIBGGML_BASE_PATH:-/opt/homebrew/opt/ggml/lib/libggml-base.0.dylib}"
+    local has_errors=0
+
+    for spec in \
+        "${libwhisper_path}:libwhisper.1.dylib" \
+        "${libggml_path}:libggml.0.dylib" \
+        "${libggml_base_path}:libggml-base.0.dylib"; do
+        local src="${spec%%:*}"
+        local name="${spec##*:}"
+        local dst="${LIB_DIR}/${name}"
+
+        if [[ ! -f "${src}" ]]; then
+            error "动态库不存在: ${src}"
+            has_errors=1
+            continue
+        fi
+
+        info "复制动态库 ${name}..."
+        rm -f "${dst}"
+        cp "${src}" "${dst}"
+        chmod +r "${dst}"
+    done
+
+    return "${has_errors}"
 }
 
 # ── 模型文件 ────────────────────────────────────────────────────────
@@ -144,18 +196,28 @@ validate() {
     info "校验 Whisper 资源完整性..."
 
     # 校验二进制
-    local binary="${BIN_DIR}/whisper-cli"
-    if [[ -f "${binary}" ]]; then
-        if [[ -x "${binary}" ]]; then
-            info "  ✓ whisper-cli 存在且可执行"
+    local wrapper="${BIN_DIR}/whisper-cli"
+    local binary="${BIN_DIR}/whisper-cli-bin"
+    if [[ -f "${wrapper}" && -f "${binary}" ]]; then
+        if [[ -x "${wrapper}" && -x "${binary}" ]]; then
+            info "  ✓ whisper-cli wrapper 与真实二进制存在且可执行"
         else
-            error "  ✗ whisper-cli 存在但不可执行"
+            error "  ✗ whisper-cli wrapper 或真实二进制不可执行"
             has_errors=1
         fi
     else
-        error "  ✗ whisper-cli 不存在"
+        error "  ✗ whisper-cli wrapper 或真实二进制不存在"
         has_errors=1
     fi
+
+    for lib in libwhisper.1.dylib libggml.0.dylib libggml-base.0.dylib; do
+        if [[ -f "${LIB_DIR}/${lib}" ]]; then
+            info "  ✓ ${lib} 已就绪"
+        else
+            error "  ✗ ${lib} 不存在"
+            has_errors=1
+        fi
+    done
 
     # 校验模型文件
     local model="${MODEL_DIR}/ggml-small.bin"
@@ -188,6 +250,7 @@ main() {
 
     local binary_ok=true
     setup_binary || binary_ok=false
+    setup_libraries || binary_ok=false
 
     local model_ok=true
     setup_model || model_ok=false
