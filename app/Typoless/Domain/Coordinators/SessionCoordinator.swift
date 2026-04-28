@@ -12,6 +12,14 @@ final class SessionCoordinator {
     private(set) var targetApplicationPID: pid_t?
     private(set) var targetApplicationBundleID: String?
 
+    /// 反馈事件回调，由 HUDFeedbackController 设置
+    var onFeedbackEvent: (@MainActor @Sendable (SessionFeedbackEvent) -> Void)?
+
+    /// 返回当前音频录制电平（0-1），供 HUD 声波动画使用
+    func currentAudioLevel() -> Float {
+        audioRecorder.currentLevel()
+    }
+
     private let audioRecorder = AudioRecorder()
     private let permissionsManager: PermissionsManager
     private let configStore: ConfigStore
@@ -42,6 +50,7 @@ final class SessionCoordinator {
             try permissionsManager.ensureMicrophoneAuthorized()
             state = .recording
             try audioRecorder.startRecording()
+            onFeedbackEvent?(.recordingStarted)
         } catch {
             handleError(mapError(error))
             return
@@ -64,6 +73,7 @@ final class SessionCoordinator {
 
         let audioData = audioRecorder.stopRecording()
         lastRecordedAudio = audioData
+        onFeedbackEvent?(.recordingStopped)
 
         guard !audioData.isEmpty else {
             handleError(.asrEmptyAudio)
@@ -90,6 +100,7 @@ final class SessionCoordinator {
             targetApplicationPID = nil
             targetApplicationBundleID = nil
             state = .cancelled
+            onFeedbackEvent?(.processingCancelled)
             scheduleResetToIdle()
         case .transcribing, .polishing:
             sessionGeneration &+= 1
@@ -98,6 +109,7 @@ final class SessionCoordinator {
             targetApplicationPID = nil
             targetApplicationBundleID = nil
             state = .cancelled
+            onFeedbackEvent?(.processingCancelled)
             scheduleResetToIdle()
         default:
             break
@@ -174,6 +186,7 @@ final class SessionCoordinator {
         let recordStatus: RecentRecord.RecordStatus = (polishAttempted && polishSource == .fallback) ? .fallbackSuccess : .success
         saveRecord(status: recordStatus)
         state = .done
+        onFeedbackEvent?(.processingFinished)
         scheduleResetToIdle()
     }
 
@@ -182,6 +195,7 @@ final class SessionCoordinator {
     private func handleError(_ error: TypolessError) {
         currentError = error
         state = .error
+        onFeedbackEvent?(.processingFailed)
         scheduleResetToIdle()
     }
 

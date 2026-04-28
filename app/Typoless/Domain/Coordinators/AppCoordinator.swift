@@ -11,6 +11,7 @@ final class AppCoordinator {
     let sessionCoordinator: SessionCoordinator
     let recentRecordStore: RecentRecordStore
     let hotkeyManager: HotkeyManager
+    let hudFeedbackController: HUDFeedbackController
 
     private let textInjector = TextInjector()
     private var settingsWindowController: NSWindowController?
@@ -24,6 +25,21 @@ final class AppCoordinator {
         recentRecordStore = history
         sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store, recentRecordStore: history)
         hotkeyManager = HotkeyManager()
+
+        let hud = HUDFeedbackController()
+        hudFeedbackController = hud
+        sessionCoordinator.onFeedbackEvent = { [weak hud] event in
+            hud?.handleEvent(event)
+        }
+        hud.audioLevelProvider = { [weak sessionCoordinator] in
+            sessionCoordinator?.currentAudioLevel() ?? 0
+        }
+        hud.onCancelRecording = { [weak sessionCoordinator] in
+            sessionCoordinator?.cancel()
+        }
+        hud.onConfirmRecording = { [weak sessionCoordinator] in
+            sessionCoordinator?.finishRecording()
+        }
     }
 
     /// 应用启动后注册快捷键并检查首次配置

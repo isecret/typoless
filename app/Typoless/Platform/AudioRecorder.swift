@@ -35,7 +35,7 @@ final class AudioRecorder: @unchecked Sendable {
 
         do {
             let recorder = try AVAudioRecorder(url: url, settings: settings)
-            recorder.isMeteringEnabled = false
+            recorder.isMeteringEnabled = true
             recorder.prepareToRecord()
 
             guard recorder.record() else {
@@ -50,6 +50,20 @@ final class AudioRecorder: @unchecked Sendable {
         } catch {
             throw AudioRecorderError.recorderCreationFailed(underlying: error.localizedDescription)
         }
+    }
+
+    /// 返回当前录音电平（0-1 归一化），用于驱动 HUD 声波动画
+    @MainActor
+    func currentLevel() -> Float {
+        guard recording, let recorder else { return 0 }
+        recorder.updateMeters()
+        let power = recorder.averagePower(forChannel: 0)
+        // dB → 线性振幅，再用 gamma 曲线增强低音量感知
+        let minDb: Float = -50
+        let clamped = max(minDb, min(0, power))
+        let linear = powf(10, clamped / 20) // 0…1
+        let gamma: Float = 0.6
+        return powf(linear, gamma)
     }
 
     /// 停止录音并返回 WAV 数据（MainActor 调用）

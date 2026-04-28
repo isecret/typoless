@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Typoless HUD Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0d;
+      --panel: rgba(255, 255, 255, 0.05);
+      --panel-border: rgba(255, 255, 255, 0.12);
+      --panel-shadow: rgba(0, 0, 0, 0.45);
+      --text: rgba(255, 255, 255, 0.94);
+      --text-dim: rgba(255, 255, 255, 0.54);
+      --button: rgba(255, 255, 255, 0.08);
+      --button-hover: rgba(255, 255, 255, 0.14);
+      --button-active: rgba(255, 255, 255, 0.2);
+      --line: rgba(255, 255, 255, 0.2);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "SF Pro Display", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.08), transparent 26%),
+        linear-gradient(180deg, #131316 0%, var(--bg) 58%);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .playground {
+      position: relative;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .controls {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      width: 320px;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--panel-border);
+      box-shadow: 0 22px 50px var(--panel-shadow);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+    }
+
+    .controls h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .controls p {
+      margin: 0 0 16px;
+      color: var(--text-dim);
+      line-height: 1.4;
+      font-size: 13px;
+    }
+
+    .control-group + .control-group {
+      margin-top: 18px;
+    }
+
+    .control-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-dim);
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+
+    .segmented button,
+    .secondary-row button {
+      appearance: none;
+      border: 0;
+      color: var(--text);
+      background: var(--button);
+      border-radius: 14px;
+      padding: 10px 12px;
+      font: inherit;
+      cursor: pointer;
+      transition: background 140ms ease, transform 140ms ease, color 140ms ease;
+    }
+
+    .segmented button:hover,
+    .secondary-row button:hover {
+      background: var(--button-hover);
+    }
+
+    .segmented button:active,
+    .secondary-row button:active {
+      background: var(--button-active);
+      transform: scale(0.98);
+    }
+
+    .segmented button.active,
+    .secondary-row button.active {
+      background: rgba(255, 255, 255, 0.92);
+      color: #0d0d0f;
+      font-weight: 600;
+    }
+
+    .secondary-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #fff;
+    }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.45;
+    }
+
+    .stage {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 40px;
+    }
+
+    .hud {
+      pointer-events: auto;
+      min-width: 96px;
+      height: 24px;
+      padding: 3px 6px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06)),
+        rgba(11, 11, 13, 0.84);
+      outline: 0.5px solid rgba(255, 255, 255, 0.06);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transform-origin: center bottom;
+      transition:
+        width 220ms ease,
+        opacity 220ms ease,
+        transform 220ms ease;
+    }
+
+    .hud.compact {
+      min-width: 88px;
+    }
+
+    .hud.result {
+      min-width: 72px;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .hud.recording {
+      width: 88px;
+      min-width: 88px;
+      padding-left: 5px;
+      padding-right: 5px;
+    }
+
+    .hud-btn {
+      width: 17px;
+      height: 17px;
+      flex: 0 0 17px;
+      border-radius: 8.5px;
+      border: 0;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: pointer;
+      transition: background 140ms ease, transform 140ms ease;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+
+    .hud-btn:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .hud-btn:active {
+      transform: scale(0.96);
+    }
+
+    .hud-btn svg {
+      width: 14px;
+      height: 14px;
+      stroke-width: 1.2;
+      transform-origin: center;
+      overflow: visible;
+    }
+
+    .hud-btn.confirm {
+      background: rgba(255, 255, 255, 0.96);
+      color: #0b0b0d;
+      box-shadow: none;
+    }
+
+    .hud-btn.confirm:hover {
+      background: rgba(255, 255, 255, 1);
+    }
+
+    .hud.recording .hud-btn:first-child {
+      transform: translateX(-2px);
+    }
+
+    .hud.recording .hud-btn.confirm {
+      transform: translateX(2px);
+    }
+
+    .wave {
+      flex: 0 0 34px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1px;
+      height: 100%;
+      padding: 0 1px;
+    }
+
+    .hud.recording .wave {
+      flex-basis: 30px;
+    }
+
+    .bar {
+      width: 2px;
+      min-height: 1px;
+      height: 1px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0.34));
+      transition: height 90ms linear, opacity 90ms linear;
+      opacity: 0.9;
+    }
+
+    .thinking {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    .thinking-base,
+    .thinking-shine {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    .thinking-base {
+      color: rgba(255, 255, 255, 0.18);
+    }
+
+    .thinking-shine {
+      position: absolute;
+      inset: 50% auto auto 50%;
+      transform: translate(-50%, -50%);
+      color: transparent;
+      background: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.12) 28%,
+        rgba(255, 255, 255, 0.92) 46%,
+        rgba(255, 255, 255, 0.98) 50%,
+        rgba(255, 255, 255, 0.92) 54%,
+        rgba(255, 255, 255, 0.12) 72%,
+        rgba(255, 255, 255, 0) 100%
+      );
+      background-size: 260% 100%;
+      background-repeat: no-repeat;
+      -webkit-background-clip: text;
+      background-clip: text;
+      animation: shimmer 1.55s linear infinite;
+      pointer-events: none;
+    }
+
+    .result-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.92);
+    }
+
+    .result-icon svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 1.2;
+      overflow: visible;
+    }
+
+    .result-text {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: 140% 0;
+      }
+      100% {
+        background-position: -40% 0;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .controls {
+        right: 16px;
+        left: 16px;
+        width: auto;
+      }
+
+      .segmented {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .stage {
+        padding: 0 16px 40px;
+      }
+
+      .hud,
+      .hud.compact {
+        width: 100%;
+        min-width: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="playground">
+    <section class="controls">
+      <h1>HUD Prototype</h1>
+      <p>用于验证 Typoless 录音 HUD 的视觉和交互节奏。录音态是 `X + 声波 + ✓`，处理态只保留黑白灰 `Thinking` 动画。</p>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>状态</span>
+          <span id="stateLabel">Recording</span>
+        </div>
+        <div class="segmented" id="stateSwitch">
+          <button data-state="recording" class="active">录音</button>
+          <button data-state="thinking">Thinking</button>
+          <button data-state="success">完成</button>
+          <button data-state="failure">失败</button>
+          <button data-state="cancelled">取消</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>声波强度</span>
+          <span id="levelValue">68%</span>
+        </div>
+        <input id="levelRange" type="range" min="0" max="100" value="68">
+        <div class="hint">拖动这个滑块，模拟用户说话强弱。录音态会用它驱动中间声波。</div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>动画方式</span>
+          <span>波形测试</span>
+        </div>
+        <div class="secondary-row" id="modeSwitch">
+          <button data-mode="manual" class="active">手动</button>
+          <button data-mode="auto">自动起伏</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="stage">
+      <div class="hud" id="hudRoot" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script>
+    const hudRoot = document.getElementById("hudRoot");
+    const stateLabel = document.getElementById("stateLabel");
+    const levelRange = document.getElementById("levelRange");
+    const levelValue = document.getElementById("levelValue");
+    const stateSwitch = document.getElementById("stateSwitch");
+    const modeSwitch = document.getElementById("modeSwitch");
+
+    const barsCount = 11;
+    let state = "recording";
+    let mode = "manual";
+    let level = Number(levelRange.value) / 100;
+    let bars = [];
+    let tickId = null;
+    let thinkingTimeoutId = null;
+
+    function icon(type) {
+      if (type === "x") {
+        return `
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3.5 3.5L16.5 16.5M16.5 3.5L3.5 16.5" />
+          </svg>
+        `;
+      }
+      if (type === "check") {
+        return `
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2.8 10.6L7.6 15.4L17.4 5.2" />
+          </svg>
+        `;
+      }
+      if (type === "warn") {
+        return `
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M10 4V12.2M10 15.8h0.01" />
+            <circle cx="10" cy="15.95" r="0.78" fill="currentColor" stroke="none" />
+          </svg>
+        `;
+      }
+      return `
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2.8 10.6L7.6 15.4L17.4 5.2" />
+        </svg>
+      `;
+    }
+
+    function render() {
+      hudRoot.className = "hud";
+
+      if (state === "recording") {
+        hudRoot.classList.add("recording");
+        hudRoot.innerHTML = `
+          <button class="hud-btn" id="cancelBtn" aria-label="取消录音">${icon("x")}</button>
+          <div class="wave" id="wave"></div>
+          <button class="hud-btn confirm" id="confirmBtn" aria-label="完成录音">${icon("check")}</button>
+        `;
+        const wave = document.getElementById("wave");
+        wave.innerHTML = Array.from({ length: barsCount }).map(() => '<span class="bar"></span>').join("");
+        bars = Array.from(wave.querySelectorAll(".bar"));
+        document.getElementById("cancelBtn").addEventListener("click", cancelRecording);
+        document.getElementById("confirmBtn").addEventListener("click", finishRecording);
+        startWaveAnimation();
+      } else if (state === "thinking") {
+        hudRoot.classList.add("compact");
+        hudRoot.innerHTML = `
+          <div class="thinking">
+            <span class="thinking-base">Thinking</span>
+            <span class="thinking-shine">Thinking</span>
+          </div>
+        `;
+        stopWaveAnimation();
+      } else {
+        hudRoot.classList.add("result");
+        const meta = {
+          success: ["完成", "check"],
+          failure: ["失败", "warn"],
+          cancelled: ["已取消", "x"]
+        }[state];
+        hudRoot.innerHTML = `
+          <div class="result-icon">${icon(meta[1])}</div>
+          <div class="result-text">${meta[0]}</div>
+        `;
+        stopWaveAnimation();
+      }
+
+      stateLabel.textContent = {
+        recording: "Recording",
+        thinking: "Thinking",
+        success: "Success",
+        failure: "Failure",
+        cancelled: "Cancelled"
+      }[state];
+
+      Array.from(stateSwitch.querySelectorAll("button")).forEach((button) => {
+        button.classList.toggle("active", button.dataset.state === state);
+      });
+    }
+
+    function setState(nextState) {
+      clearThinkingTimeout();
+      state = nextState;
+      render();
+    }
+
+    function clearThinkingTimeout() {
+      if (thinkingTimeoutId) {
+        window.clearTimeout(thinkingTimeoutId);
+        thinkingTimeoutId = null;
+      }
+    }
+
+    function finishRecording() {
+      if (state !== "recording") return;
+      state = "thinking";
+      render();
+      thinkingTimeoutId = window.setTimeout(() => {
+        thinkingTimeoutId = null;
+        if (state === "thinking") {
+          setState("success");
+        }
+      }, 1400);
+    }
+
+    function cancelRecording() {
+      if (state !== "recording") return;
+      setState("cancelled");
+    }
+
+    function startWaveAnimation() {
+      stopWaveAnimation();
+      const animate = () => {
+        if (state !== "recording" || bars.length === 0) {
+          return;
+        }
+
+        let target = level;
+        if (mode === "auto") {
+          const time = performance.now() / 900;
+          target = 0.24 + 0.42 * (0.5 + 0.5 * Math.sin(time * 1.2)) + Math.random() * 0.12;
+          target = Math.max(0.08, Math.min(1, target));
+          levelRange.value = Math.round(target * 100);
+          levelValue.textContent = `${Math.round(target * 100)}%`;
+        }
+
+        bars.forEach((bar, index) => {
+          const centerWeight = 1 - Math.abs(index - (bars.length - 1) / 2) / ((bars.length - 1) / 2);
+          const noise = 0.65 + Math.random() * 0.45;
+          const eased = 0.18 + target * (0.38 + centerWeight * 0.62) * noise;
+          const maxHeight = Math.round(24 * 0.5);
+          const minHeight = 1;
+          const height = minHeight + eased * (maxHeight - minHeight);
+          const opacity = 0.28 + Math.min(0.72, eased);
+          bar.style.height = `${Math.round(height)}px`;
+          bar.style.opacity = opacity.toFixed(2);
+        });
+
+        tickId = requestAnimationFrame(animate);
+      };
+      animate();
+    }
+
+    function stopWaveAnimation() {
+      if (tickId) {
+        cancelAnimationFrame(tickId);
+        tickId = null;
+      }
+    }
+
+    stateSwitch.addEventListener("click", (event) => {
+      const target = event.target.closest("button[data-state]");
+      if (!target) return;
+      setState(target.dataset.state);
+    });
+
+    modeSwitch.addEventListener("click", (event) => {
+      const target = event.target.closest("button[data-mode]");
+      if (!target) return;
+      mode = target.dataset.mode;
+      Array.from(modeSwitch.querySelectorAll("button")).forEach((button) => {
+        button.classList.toggle("active", button.dataset.mode === mode);
+      });
+    });
+
+    levelRange.addEventListener("input", () => {
+      level = Number(levelRange.value) / 100;
+      levelValue.textContent = `${levelRange.value}%`;
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (state !== "recording") return;
+      event.preventDefault();
+      cancelRecording();
+    });
+
+    render();
+  </script>
+</body>
+</html>
