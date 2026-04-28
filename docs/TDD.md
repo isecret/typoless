@@ -121,7 +121,8 @@
 ### 5.3 AudioRecorder
 
 - 处理开始录音、停止录音
-- 限制录音上限为 30 秒
+- 限制录音上限为 60 秒
+- 记录录音开始/结束时间，低于 500ms 的录音视为误触并静默取消
 - 输出标准化音频数据或临时文件引用
 - 不负责上传和业务状态流转
 
@@ -222,6 +223,7 @@ LLM 回退路径：
 
 - 正在处理时禁止开启第二个 session
 - 超时录音自动结束后继续走主链路
+- 低于 500ms 的短录音静默取消，不进入降噪、ASR、LLM 或文本注入
 - 用户取消后必须中断后续步骤，不允许再注入文本
 - 处理中（`transcribing / polishing / injecting`）再次按键忽略
 
@@ -243,15 +245,16 @@ LLM 回退路径：
 3. `AppCoordinator` 根据当前状态决定动作（idle → 开始录音，recording → 结束录音，其他 → 忽略）
 4. `SessionCoordinator` 校验录音条件并进入 `recording`
 5. `AudioRecorder` 开始采集音频，`StreamingASRProvider` 可接收音频流并产生内部 partial
-6. 用户再次按下快捷键或达到 30 秒
+6. 用户再次按下快捷键或达到 60 秒
 7. `AudioRecorder` 输出标准音频
-8. `AudioPreprocessor` 执行 RNNoise 降噪
-9. `StreamingASRProvider` 产出 final 转写文本
-10. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
-11. 若 LLM 失败或返回空文本，则回退 ASR 原文
-12. `TextInjector` 尝试注入最终文本
-13. `DiagnosticsLogger` 输出本次会话耗时与结果摘要
-14. 状态返回 `idle`
+8. 若录音时长低于 500ms，则静默取消并通过 `DiagnosticsLogger` 记录 `short_recording_cancelled`
+9. `AudioPreprocessor` 执行 RNNoise 降噪
+10. `StreamingASRProvider` 产出 final 转写文本
+11. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
+12. 若 LLM 失败或返回空文本，则回退 ASR 原文
+13. `TextInjector` 尝试注入最终文本
+14. `DiagnosticsLogger` 输出本次会话耗时与结果摘要
+15. 状态返回 `idle`
 
 ## 8. 配置模型
 
@@ -497,6 +500,7 @@ LLM 回退路径：
 - 关闭 AI 润色
 - LLM 失败回退
 - 用户取消
+- 低于 500ms 的短录音静默取消
 - 超时
 - 并发 session 拒绝
 - 配置错误映射
