@@ -39,8 +39,8 @@ enum RecordingTriggerMode: String, Codable, CaseIterable, Equatable, Sendable {
 
     var displayName: String {
         switch self {
-        case .holdToTalk: "长按录音，松开处理"
-        case .pressToToggle: "按一次开始，再按一次结束"
+        case .holdToTalk: "长按"
+        case .pressToToggle: "按下切换"
         }
     }
 }
@@ -50,7 +50,7 @@ enum RecordingTriggerMode: String, Codable, CaseIterable, Equatable, Sendable {
 struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
     var enableAIPolish: Bool = true
-    var recordingTriggerMode: RecordingTriggerMode = .pressToToggle
+    var recordingTriggerMode: RecordingTriggerMode = .holdToTalk
     var pasteboardInjectionBundleIDs: [String] = []
 
     enum CodingKeys: String, CodingKey {
@@ -63,7 +63,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     init(
         hotkey: HotkeyCombo = .default,
         enableAIPolish: Bool = true,
-        recordingTriggerMode: RecordingTriggerMode = .pressToToggle,
+        recordingTriggerMode: RecordingTriggerMode = .holdToTalk,
         pasteboardInjectionBundleIDs: [String] = []
     ) {
         self.hotkey = hotkey
@@ -76,7 +76,7 @@ struct GeneralConfig: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         hotkey = try container.decodeIfPresent(HotkeyCombo.self, forKey: .hotkey) ?? .default
         enableAIPolish = try container.decodeIfPresent(Bool.self, forKey: .enableAIPolish) ?? true
-        recordingTriggerMode = try container.decodeIfPresent(RecordingTriggerMode.self, forKey: .recordingTriggerMode) ?? .pressToToggle
+        recordingTriggerMode = try container.decodeIfPresent(RecordingTriggerMode.self, forKey: .recordingTriggerMode) ?? .holdToTalk
         pasteboardInjectionBundleIDs = try container.decodeIfPresent([String].self, forKey: .pasteboardInjectionBundleIDs) ?? []
     }
 
