@@ -4,12 +4,13 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 首版产品形态不是系统级输入法，而是 `菜单栏常驻应用`。用户通过全局快捷键触发录音（按一次开始，再按一次结束），录音结束后自动完成：
 
-`录音 -> 本地 Whisper 识别 -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
+`录音 -> RNNoise 本地降噪 -> sherpa-onnx 流式识别 -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
 
 ## 项目目标
 
 - 在 macOS 上提供全局可用的中文语音输入能力
-- 使用本地 Whisper（基于 `whisper.cpp` 子进程）完成短语音识别，无需配置云端 ASR 服务
+- 使用本地 `sherpa-onnx` 流式 ASR 完成短语音识别，无需配置云端 ASR 服务
+- 使用 RNNoise 本地降噪和个人词典提升中文短语音识别质量
 - 支持用户接入自有 `OpenAI 兼容` 大模型服务
 - 将口语输入整理为更适合直接发送或写入的文本
 - 在常见桌面应用中稳定注入文本
@@ -22,7 +23,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 设置页（LLM / 通用 / 权限 / 诊断）
 - 全局快捷键（Carbon Event API）
 - 按一次开始录音，再按一次结束录音
-- 本地 Whisper 语音识别（基于 `whisper.cpp`，内置子进程方式）
+- 本地 Whisper 语音识别（基于 `whisper.cpp`，内置子进程方式，旧链路）
 - OpenAI 兼容 LLM 润色（固定 Prompt，纠错 + 去赘词 + 轻度书面化 + 补标点）
 - 文本注入（AX API 主策略 + 键盘事件回退）
 - 麦克风与辅助功能权限引导
@@ -33,16 +34,24 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 处理中可取消（识别中 / 润色中）
 - 诊断页（最近错误摘要 + 会话状态 + 版本信息）
 
+### 规划中 / 待实现
+
+- 诊断耗时 Debug 日志
+- Debug 构建 ASR/LLM 明文对照日志，Release 构建脱敏日志
+- RNNoise 本地降噪
+- `sherpa-onnx` 本地流式 ASR 默认链路
+- Prompt 优化（同音词/错别字修正 + 个人词典术语保留）
+- 个人词典（ASR hotwords + LLM 术语参考）
+
 ### 不包含
 
 - macOS 系统级输入法
-- 实时流式识别
-- 多 ASR Provider
+- 云端 ASR 回退
 - 多种 LLM 协议
 - 自定义 Prompt
 - 风格模式切换
 - temperature / max tokens 等高级参数
-- Whisper 高级运行参数
+- ASR 高级运行参数
 - 音频历史保存
 - Agent 工作流
 
@@ -51,7 +60,8 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 应用形态：菜单栏常驻应用
 - 交互方式：单一全局快捷键，按一次开始录音，再按一次结束录音
 - 单次录音上限：`30 秒`
-- ASR Provider：`本地 Whisper（whisper.cpp）`
+- ASR Provider：默认 `sherpa-onnx` 本地流式识别
+- 音频预处理：默认 RNNoise 本地降噪
 - 默认输出：`LLM 润色版`
 - LLM 失败回退：自动输出 `ASR 原文`
 - 注入失败策略：不自动写剪贴板，菜单栏显示失败文本截断预览，点击可复制到剪贴板，仅当前运行期有效
@@ -62,7 +72,8 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 - 客户端：`Swift 6.0 + SwiftUI + AppKit`
 - 架构：`MVVM + Service Layer`
-- 语音识别：`本地 Whisper`（基于 `whisper.cpp`，内置子进程方式）
+- 语音识别：`sherpa-onnx` 本地流式 ASR
+- 音频降噪：`RNNoise`
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
 - 文本注入：优先 `Accessibility API`，失败后回退键盘事件输入
@@ -78,7 +89,7 @@ app/Typoless/
 │   └── Models/             # SessionState, TypolessError, AppConfig 等
 ├── Persistence/            # ConfigStore, KeychainHelper
 ├── Platform/               # AudioRecorder, HotkeyManager, PermissionsManager, TextInjector
-├── Providers/              # ASRProvider, WhisperProvider, LLMProvider
+├── Providers/              # ASRProvider, StreamingASRProvider, WhisperProvider, LLMProvider
 ├── Resources/              # 资源文件
 └── UI/
     ├── MenuBar/            # MenuBarView
@@ -92,8 +103,10 @@ app/Typoless/
 | `AppCoordinator` | 应用生命周期、菜单栏入口、设置页导航 |
 | `SessionCoordinator` | 主链路状态机编排（录音→识别→润色→注入） |
 | `AudioRecorder` | 音频采集与 PCM/WAV 标准化 |
+| `AudioPreprocessor` | RNNoise 本地降噪 |
 | `ASRProvider` | 统一 ASR 识别协议 |
-| `WhisperProvider` | 本地 Whisper 子进程调用（基于 whisper.cpp） |
+| `StreamingASRProvider` | sherpa-onnx 流式识别 |
+| `WhisperProvider` | 本地 Whisper 子进程调用（旧链路） |
 | `LLMProvider` | OpenAI Chat Completions 调用 |
 | `TextInjector` | AX API 文本注入 + 键盘事件回退 |
 | `PermissionsManager` | 麦克风与辅助功能权限管理 |
@@ -105,7 +118,7 @@ app/Typoless/
 ### 首次配置
 
 1. 启动应用
-2. 本地 Whisper 无需额外 ASR 配置
+2. 通过脚本准备 RNNoise 与 sherpa-onnx 本地资源
 3. 配置 LLM `Base URL / API Key / Model`
 4. 设置全局快捷键
 5. 授予麦克风权限
@@ -116,10 +129,10 @@ app/Typoless/
 1. 在任意应用中聚焦输入区域
 2. 按下快捷键开始录音
 3. 再次按下快捷键结束录音（或达到 30 秒自动结束）
-4. 提交音频到本地 Whisper
-5. 获取原始转写文本
+4. 对音频进行本地降噪
+5. 使用 sherpa-onnx 进行本地流式识别，录音结束后获取 final 文本
 6. 调用 LLM 做纠错与轻度书面化
-7. 将最终文本注入当前焦点应用
+7. 将最终文本一次性注入当前焦点应用
 
 ## 状态机
 
@@ -157,9 +170,11 @@ app/Typoless/
 首版 LLM 只做以下事情：
 
 - 修正 ASR 识别错误
+- 修正常见同音词和错别字
 - 去掉明显口语赘词
 - 轻度书面化表达
 - 自动补自然中文标点
+- 保留个人词典中的专有名词
 
 首版 LLM 不做以下事情：
 
@@ -177,10 +192,13 @@ app/Typoless/
 | `recording_trigger_mode` | `~/.typoless/config` |
 | `enable_ai_polish` | `~/.typoless/config` |
 | `openai_api_key` | `~/.typoless/config` |
+| `asr_mode` | `~/.typoless/config` |
+| `enable_noise_reduction` | `~/.typoless/config` |
+| 个人词典 | `~/.typoless/dictionary.json` |
 
 ## 测试策略
 
-- 单元测试重点覆盖 `Provider`（Whisper）和 `Session Coordinator`
+- 单元测试重点覆盖 `Provider`（sherpa/Whisper）、`AudioPreprocessor`、`PersonalDictionaryStore` 和 `Session Coordinator`
 - 端到端以手工验收主链路为主
 - 重点验证权限缺失、配置错误、LLM 回退、注入失败
 
@@ -191,8 +209,12 @@ app/Typoless/
 - [ ] 设置全局快捷键并生效
 - [ ] 麦克风权限授权后可录音
 - [ ] 辅助功能权限授权后可注入文本
-- [ ] 完整链路：录音 → ASR → LLM → 注入（浏览器输入框、备忘录、聊天应用）
-- [ ] 本地 Whisper 识别链路正常
+- [ ] 完整链路：录音 → 降噪 → ASR → LLM → 注入（浏览器输入框、备忘录、聊天应用）
+- [ ] RNNoise 降噪链路正常
+- [ ] sherpa-onnx 流式识别链路正常
+- [ ] Debug 日志可查看耗时和 ASR/LLM 明文对照
+- [ ] Release 日志不泄露 ASR/LLM 明文
+- [ ] 个人词典可改善专有名词识别与润色
 - [ ] 关闭 AI 润色：录音 → ASR → 直接注入
 - [ ] LLM 失败自动回退 ASR 原文
 - [ ] 注入失败后菜单栏显示失败文本预览，点击可复制
@@ -206,8 +228,8 @@ app/Typoless/
 
 ## 目录说明
 
-- [PRD.md](./docs/PRD.md): 已冻结的产品需求文档
-- [TDD.md](./docs/TDD.md): 已冻结的技术设计文档
+- [PRD.md](./docs/PRD.md): 已更新的产品需求文档
+- [TDD.md](./docs/TDD.md): 已更新的技术设计文档
 - [EPICS_AND_STORIES.md](./docs/EPICS_AND_STORIES.md): Epic 和 Story 拆分
 - `app/`: macOS 客户端代码（Swift + SwiftUI + AppKit）
 - `app/project.yml`: XcodeGen 项目配置
@@ -219,6 +241,15 @@ app/Typoless/
 - macOS 14.0+
 - Xcode 16.0+
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+
+### 准备本地语音资源
+
+当前仓库通过脚本准备本地 ASR 与降噪资源，不提交大模型文件。
+
+```bash
+./scripts/setup-whisper.sh
+# 后续将扩展脚本准备 RNNoise 与 sherpa-onnx 资源
+```
 
 ### 生成 Xcode 工程
 
@@ -240,9 +271,9 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 
 ## 当前状态
 
-- `PRD`: 已冻结
-- `TDD`: 已冻结
-- `代码实现`: MVP 全部 Epic（E1-E10）已完成
+- `PRD`: 已更新至 v1.1
+- `TDD`: 已更新至 v1.1
+- `代码实现`: Whisper 旧链路 MVP 已完成；RNNoise、sherpa-onnx、个人词典与诊断日志为下一阶段规划
 
 ## 参考
 
