@@ -6,7 +6,6 @@ struct GeneralSettingsView: View {
 
     @State private var enableAIPolish: Bool = true
     @State private var hotkey: HotkeyCombo = .default
-    @State private var recordingTriggerMode: RecordingTriggerMode = .holdToTalk
     @State private var pasteboardInjectionBundleIDs: [String] = []
     @State private var newBundleID: String = ""
     @State private var isLoaded = false
@@ -17,12 +16,6 @@ struct GeneralSettingsView: View {
                 Text("全局快捷键")
                 Spacer()
                 HotkeyRecorderView(hotkey: $hotkey)
-            }
-
-            Picker("录音方式", selection: $recordingTriggerMode) {
-                ForEach(RecordingTriggerMode.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
             }
         } header: {
             Text("快捷键")
@@ -95,14 +88,12 @@ struct GeneralSettingsView: View {
         }
         .onChange(of: enableAIPolish) { immediateSave() }
         .onChange(of: hotkey) { immediateSaveWithHotkey() }
-        .onChange(of: recordingTriggerMode) { immediateSaveWithHotkey() }
         .onChange(of: pasteboardInjectionBundleIDs) { immediateSave() }
     }
 
     private func loadDraft() {
         enableAIPolish = configStore.generalConfig.enableAIPolish
         hotkey = configStore.generalConfig.hotkey
-        recordingTriggerMode = configStore.generalConfig.recordingTriggerMode
         pasteboardInjectionBundleIDs = configStore.generalConfig.pasteboardInjectionBundleIDs.sorted()
     }
 
@@ -121,7 +112,6 @@ struct GeneralSettingsView: View {
         let config = GeneralConfig(
             hotkey: hotkey,
             enableAIPolish: enableAIPolish,
-            recordingTriggerMode: recordingTriggerMode,
             pasteboardInjectionBundleIDs: pasteboardInjectionBundleIDs.sorted()
         )
         try? configStore.saveGeneralConfig(config)

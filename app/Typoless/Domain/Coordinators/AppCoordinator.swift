@@ -99,32 +99,22 @@ final class AppCoordinator {
 
     // MARK: - 快捷键
 
-    /// 注册全局快捷键并根据录音触发模式绑定回调
+    /// 注册全局快捷键并绑定按下切换回调
     func setupHotkey() {
         let hotkey = configStore.generalConfig.hotkey
         hotkeyManager.register(hotkey: hotkey)
 
-        switch configStore.generalConfig.recordingTriggerMode {
-        case .holdToTalk:
-            hotkeyManager.onKeyDown = { [weak self] in
-                self?.sessionCoordinator.startRecording()
+        hotkeyManager.onKeyDown = { [weak self] in
+            guard let self else { return }
+            switch self.sessionCoordinator.state {
+            case .idle:
+                self.sessionCoordinator.startRecording()
+            case .recording:
+                self.sessionCoordinator.finishRecording()
+            default:
+                break
             }
-            hotkeyManager.onKeyUp = { [weak self] in
-                self?.sessionCoordinator.finishRecording()
-            }
-        case .pressToToggle:
-            hotkeyManager.onKeyDown = { [weak self] in
-                guard let self else { return }
-                switch self.sessionCoordinator.state {
-                case .idle:
-                    self.sessionCoordinator.startRecording()
-                case .recording:
-                    self.sessionCoordinator.finishRecording()
-                default:
-                    break
-                }
-            }
-            hotkeyManager.onKeyUp = nil
         }
+        hotkeyManager.onKeyUp = nil
     }
 }
