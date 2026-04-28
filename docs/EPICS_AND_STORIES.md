@@ -179,7 +179,7 @@
 
 ### 目标
 
-打通首版录音能力，支持可配置的录音触发方式：长按录音和按下切换。
+打通首版录音能力，支持可配置的录音触发方式：长按和按下切换。
 
 ### Stories
 
@@ -228,14 +228,14 @@
 
 验收标准：
 
-- 支持两种录音触发方式：`长按录音`（holdToTalk）和 `按下切换`（pressToToggle）
-- 默认值为 `pressToToggle`
+- 支持两种录音触发方式：`长按`（holdToTalk）和 `按下切换`（pressToToggle）
+- 默认值为 `holdToTalk`
 - 在通用设置页可切换，修改后立即生效
 - `holdToTalk`：按住快捷键开始录音，松开结束录音
 - `pressToToggle`：按一次快捷键开始录音，再按一次结束录音
 - 两种模式均受 30 秒上限控制
 - 处理中（`transcribing / polishing / injecting`）再次按快捷键忽略
-- 旧配置缺少该字段时默认采用 `pressToToggle`
+- 旧配置缺少该字段时默认采用 `holdToTalk`
 
 依赖：
 
