@@ -9,21 +9,17 @@ final class AppCoordinator {
     let configStore: ConfigStore
     let permissionsManager: PermissionsManager
     let sessionCoordinator: SessionCoordinator
-    let recentRecordStore: RecentRecordStore
     let hotkeyManager: HotkeyManager
     let hudFeedbackController: HUDFeedbackController
 
-    private let textInjector = TextInjector()
     private var settingsWindowController: NSWindowController?
 
     init() {
         let store = ConfigStore()
         let perms = PermissionsManager()
-        let history = RecentRecordStore()
         configStore = store
         permissionsManager = perms
-        recentRecordStore = history
-        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store, recentRecordStore: history)
+        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store)
         hotkeyManager = HotkeyManager()
 
         let hud = HUDFeedbackController()
@@ -71,46 +67,11 @@ final class AppCoordinator {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// 清空最近记录
-    func clearHistory() {
-        recentRecordStore.clearAll()
-    }
-
-    /// 重新注入文本到当前焦点应用
-    func reinjectText(_ text: String) {
-        let selfBundleID = Bundle.main.bundleIdentifier ?? "com.isecret.typoless"
-
-        Task { @MainActor in
-            // 等待菜单关闭后焦点回到前一个应用，轮询排除自身
-            var targetPID: pid_t?
-            var targetBundleID: String?
-
-            let retryIntervals: [Duration] = [.milliseconds(50), .milliseconds(100), .milliseconds(150), .milliseconds(200), .milliseconds(300)]
-            for interval in retryIntervals {
-                try? await Task.sleep(for: interval)
-
-                if let app = NSWorkspace.shared.frontmostApplication,
-                   app.bundleIdentifier != selfBundleID {
-                    targetPID = app.processIdentifier
-                    targetBundleID = app.bundleIdentifier
-                    break
-                }
-            }
-
-            // 超时后仍为自身，使用当前前台应用（最后兜底）
-            if targetPID == nil {
-                let app = NSWorkspace.shared.frontmostApplication
-                targetPID = app?.processIdentifier
-                targetBundleID = app?.bundleIdentifier
-            }
-
-            try? textInjector.inject(
-                text: text,
-                targetPID: targetPID,
-                targetBundleID: targetBundleID,
-                pasteboardPreferredBundleIDs: configStore.generalConfig.effectivePasteboardInjectionBundleIDs
-            )
-        }
+    /// 将最近一次注入失败文本复制到系统剪贴板
+    func copyLastFailureTextToClipboard() {
+        guard let text = sessionCoordinator.lastInjectionFailureText else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     // MARK: - 快捷键

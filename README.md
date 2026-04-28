@@ -19,14 +19,14 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 ### 已实现
 
 - 菜单栏常驻应用（MenuBarExtra）
-- 设置页（LLM / 通用 / 权限 / 诊断 / 最近记录）
+- 设置页（LLM / 通用 / 权限 / 诊断）
 - 全局快捷键（Carbon Event API）
 - 按一次开始录音，再按一次结束录音
 - 本地 Whisper 语音识别（基于 `whisper.cpp`，内置子进程方式）
 - OpenAI 兼容 LLM 润色（固定 Prompt，纠错 + 去赘词 + 轻度书面化 + 补标点）
 - 文本注入（AX API 主策略 + 键盘事件回退）
 - 麦克风与辅助功能权限引导
-- 最近 10 条文本记录（查看 / 复制 / 清空）
+- 注入失败文本临时复制入口（菜单栏内显示截断预览，点击复制到剪贴板，仅当前运行期有效）
 - LLM 失败时自动回退 ASR 原文
 - 状态机驱动菜单栏反馈（空闲 / 录音中 / 识别中 / 润色中 / 注入中 / 完成 / 失败 / 已取消）
 - 用户可理解的错误分类与展示
@@ -54,8 +54,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - ASR Provider：`本地 Whisper（whisper.cpp）`
 - 默认输出：`LLM 润色版`
 - LLM 失败回退：自动输出 `ASR 原文`
-- 注入失败策略：不自动写剪贴板，结果保留在最近记录中供用户复制
-- 最近记录：仅保存 `最终文本 + 时间 + 状态`
+- 注入失败策略：不自动写剪贴板，菜单栏显示失败文本截断预览，点击可复制到剪贴板，仅当前运行期有效
 
 ## 技术架构
 
@@ -67,9 +66,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
 - 文本注入：优先 `Accessibility API`，失败后回退键盘事件输入
-- 普通设置存储：`~/.typoless/config`（UTF-8 JSON）
-- 密钥存储：`~/.typoless/config`（与普通设置统一存储）
-- 最近记录存储：`UserDefaults`（JSON 编码）
+- 配置存储：`~/.typoless/config`（UTF-8 JSON）
 
 ### 分层结构
 
@@ -78,8 +75,8 @@ app/Typoless/
 ├── App/                    # 应用入口（TypolessApp）
 ├── Domain/
 │   ├── Coordinators/       # AppCoordinator, SessionCoordinator
-│   └── Models/             # SessionState, TypolessError, RecentRecord, AppConfig 等
-├── Persistence/            # ConfigStore, KeychainHelper, RecentRecordStore
+│   └── Models/             # SessionState, TypolessError, AppConfig 等
+├── Persistence/            # ConfigStore, KeychainHelper
 ├── Platform/               # AudioRecorder, HotkeyManager, PermissionsManager, TextInjector
 ├── Providers/              # ASRProvider, WhisperProvider, LLMProvider
 ├── Resources/              # 资源文件
@@ -93,7 +90,7 @@ app/Typoless/
 | 对象 | 职责 |
 | --- | --- |
 | `AppCoordinator` | 应用生命周期、菜单栏入口、设置页导航 |
-| `SessionCoordinator` | 主链路状态机编排（录音→识别→润色→注入→记录） |
+| `SessionCoordinator` | 主链路状态机编排（录音→识别→润色→注入） |
 | `AudioRecorder` | 音频采集与 PCM/WAV 标准化 |
 | `ASRProvider` | 统一 ASR 识别协议 |
 | `WhisperProvider` | 本地 Whisper 子进程调用（基于 whisper.cpp） |
@@ -102,7 +99,6 @@ app/Typoless/
 | `PermissionsManager` | 麦克风与辅助功能权限管理 |
 | `HotkeyManager` | Carbon Event 全局快捷键 |
 | `ConfigStore` | `~/.typoless/config` 配置读写 |
-| `RecentRecordStore` | 最近记录持久化（最多 10 条） |
 
 ## 核心流程
 
@@ -124,7 +120,6 @@ app/Typoless/
 5. 获取原始转写文本
 6. 调用 LLM 做纠错与轻度书面化
 7. 将最终文本注入当前焦点应用
-8. 记录保存到最近记录
 
 ## 状态机
 
@@ -200,14 +195,14 @@ app/Typoless/
 - [ ] 本地 Whisper 识别链路正常
 - [ ] 关闭 AI 润色：录音 → ASR → 直接注入
 - [ ] LLM 失败自动回退 ASR 原文
-- [ ] 注入失败后文本保留在最近记录
-- [ ] 最近记录可查看、复制、清空
+- [ ] 注入失败后菜单栏显示失败文本预览，点击可复制
+- [ ] 成功注入后失败文本预览消失
 - [ ] 菜单栏状态随主链路正确刷新
 - [ ] 识别中 / 润色中可从菜单取消
 - [ ] 诊断页展示最近错误摘要
 - [ ] 权限缺失场景提示清晰
 - [ ] 本地识别失败场景提示清晰
-- [ ] 应用重启后配置和记录正常恢复
+- [ ] 应用重启后配置正常恢复，无历史文本残留
 
 ## 目录说明
 

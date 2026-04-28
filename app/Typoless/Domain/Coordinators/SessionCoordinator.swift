@@ -12,6 +12,9 @@ final class SessionCoordinator {
     private(set) var targetApplicationPID: pid_t?
     private(set) var targetApplicationBundleID: String?
 
+    /// 最近一次注入失败的文本，仅内存态，供菜单栏复制使用
+    private(set) var lastInjectionFailureText: String?
+
     /// 反馈事件回调，由 HUDFeedbackController 设置
     var onFeedbackEvent: (@MainActor @Sendable (SessionFeedbackEvent) -> Void)?
 
@@ -23,17 +26,15 @@ final class SessionCoordinator {
     private let audioRecorder = AudioRecorder()
     private let permissionsManager: PermissionsManager
     private let configStore: ConfigStore
-    private let recentRecordStore: RecentRecordStore
     private let textInjector = TextInjector()
 
     private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
 
-    init(permissionsManager: PermissionsManager, configStore: ConfigStore, recentRecordStore: RecentRecordStore) {
+    init(permissionsManager: PermissionsManager, configStore: ConfigStore) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
-        self.recentRecordStore = recentRecordStore
     }
 
     /// 开始录音
@@ -177,14 +178,13 @@ final class SessionCoordinator {
             )
         } catch {
             guard generation == sessionGeneration else { return }
-            saveRecord(status: .failed)
+            lastInjectionFailureText = finalText
             handleError(mapError(error))
             return
         }
 
         guard generation == sessionGeneration else { return }
-        let recordStatus: RecentRecord.RecordStatus = (polishAttempted && polishSource == .fallback) ? .fallbackSuccess : .success
-        saveRecord(status: recordStatus)
+        lastInjectionFailureText = nil
         state = .done
         onFeedbackEvent?(.processingFinished)
         scheduleResetToIdle()
@@ -208,17 +208,6 @@ final class SessionCoordinator {
             }
         }
         return .textInjectionFailure(detail: error.localizedDescription)
-    }
-
-    private func saveRecord(status: RecentRecord.RecordStatus) {
-        guard let result = lastResult else { return }
-        let record = RecentRecord(
-            id: UUID(),
-            text: result.text,
-            timestamp: Date(),
-            status: status
-        )
-        recentRecordStore.add(record)
     }
 
     private func scheduleResetToIdle() {

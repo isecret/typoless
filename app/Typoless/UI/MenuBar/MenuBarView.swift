@@ -8,8 +8,8 @@ struct MenuBarView: View {
         appCoordinator.sessionCoordinator.state
     }
 
-    private var records: [RecentRecord] {
-        appCoordinator.recentRecordStore.records
+    private var lastInjectionFailureText: String? {
+        appCoordinator.sessionCoordinator.lastInjectionFailureText
     }
 
     var body: some View {
@@ -20,35 +20,23 @@ struct MenuBarView: View {
             Divider()
         }
 
+        if let failureText = lastInjectionFailureText {
+            let preview = failureText.count > 20
+                ? String(failureText.prefix(20)) + "…"
+                : failureText
+            Button(preview) {
+                appCoordinator.copyLastFailureTextToClipboard()
+            }
+
+            Divider()
+        }
+
         if state.isCancellable {
             Button("取消当前任务") {
                 appCoordinator.sessionCoordinator.cancel()
             }
             Divider()
         }
-
-        // MARK: - 最近记录（直接平铺）
-
-        if records.isEmpty {
-            Text("暂无记录")
-                .foregroundStyle(.secondary)
-        } else {
-            ForEach(records.prefix(5)) { record in
-                let preview = record.text.count > 20
-                    ? String(record.text.prefix(20)) + "…"
-                    : record.text
-                Button(preview) {
-                    appCoordinator.reinjectText(record.text)
-                }
-            }
-        }
-
-        Divider()
-
-        Button("清空最近记录") {
-            appCoordinator.clearHistory()
-        }
-        .disabled(records.isEmpty)
 
         Button("设置") {
             appCoordinator.openSettingsWindow()
