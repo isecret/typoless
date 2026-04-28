@@ -27,9 +27,9 @@ enum TypolessError: Error, Equatable, Sendable {
         case .asrEmptyAudio:
             "录音数据为空，请重试"
         case .funasrBinaryNotFound:
-            "本地识别引擎未就绪，请重新安装应用"
+            "本地识别引擎未安装，应用包中缺少 FunASR 组件"
         case .funasrModelMissing:
-            "本地识别模型缺失，请重新安装应用"
+            "本地识别模型不完整，应用包中缺少必要的模型文件"
         case .funasrProcessFailure(let message):
             "本地语音识别失败：\(message)"
         case .invalidLLMConfiguration(let detail):

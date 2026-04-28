@@ -24,6 +24,11 @@ targets:
       - path: Typoless
         excludes:
           - "**/.gitkeep"
+          - "Resources/funasr"
+    resources:
+      - path: Typoless/Resources/funasr
+        buildPhase: resources
+        optional: true
     dependencies:
       - package: KeyboardShortcuts
     settings:
@@ -36,3 +41,22 @@ targets:
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_CFBundleDisplayName: Typoless
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Typoless 需要麦克风权限来进行语音输入"
+    preBuildScripts:
+      - name: "Validate FunASR Source Resources"
+        script: |
+          FUNASR_DIR="${SRCROOT}/Typoless/Resources/funasr"
+          if [ ! -f "${FUNASR_DIR}/bin/funasr-cli" ]; then
+            echo "error: FunASR binary not found. Run ./scripts/setup-funasr.sh first."
+            exit 1
+          fi
+          if [ ! -d "${FUNASR_DIR}/models/paraformer" ] || [ ! -d "${FUNASR_DIR}/models/vad" ] || [ ! -d "${FUNASR_DIR}/models/punc" ]; then
+            echo "error: FunASR models incomplete. Run ./scripts/setup-funasr.sh first."
+            exit 1
+          fi
+    postBuildScripts:
+      - name: "Fix FunASR Binary Permissions"
+        script: |
+          FUNASR_BIN="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/funasr/bin/funasr-cli"
+          if [ -f "${FUNASR_BIN}" ]; then
+            chmod +x "${FUNASR_BIN}"
+          fi

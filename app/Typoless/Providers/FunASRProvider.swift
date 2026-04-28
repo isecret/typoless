@@ -20,6 +20,9 @@ struct FunASRProvider: ASRProvider, Sendable {
             .appendingPathComponent("models")
     }
 
+    /// 必须存在的模型子目录
+    private static let requiredModelSubdirs = ["paraformer", "vad", "punc"]
+
     // MARK: - ASRProvider
 
     func recognize(audioData: Data) async throws -> TranscriptResult {
@@ -29,7 +32,10 @@ struct FunASRProvider: ASRProvider, Sendable {
         }
 
         guard let modelDir = Self.modelDirectory,
-              FileManager.default.fileExists(atPath: modelDir.path) else {
+              FileManager.default.fileExists(atPath: modelDir.path),
+              Self.requiredModelSubdirs.allSatisfy({
+                  FileManager.default.fileExists(atPath: modelDir.appendingPathComponent($0).path)
+              }) else {
             throw TypolessError.funasrModelMissing
         }
 

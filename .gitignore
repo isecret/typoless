@@ -70,5 +70,11 @@ temp/
 dist/
 build/
 
+# FunASR resources (downloaded via scripts/setup-funasr.sh, too large for git)
+app/Typoless/Resources/funasr/bin/funasr-cli
+app/Typoless/Resources/funasr/models/paraformer/
+app/Typoless/Resources/funasr/models/vad/
+app/Typoless/Resources/funasr/models/punc/
+
 # Keep project-local agent skills tracked, but ignore transient caches if added later
 .agents/cache/
