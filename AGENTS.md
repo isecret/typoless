@@ -159,12 +159,12 @@ AGENTS.md
 
 ## 提交信息约定
 
-使用 `[#AI]` 标记 AI 辅助提交。
+不需要使用 AI 标记前缀。
 
 格式：
 
 ```text
-[#AI] <type>(<scope>): <description>
+<type>(<scope>): <description>
 ```
 
 建议的 `type`：
@@ -179,7 +179,7 @@ AGENTS.md
 示例：
 
 ```text
-[#AI] docs(tdd): add technical design constraints
+docs(tdd): add technical design constraints
 ```
 
 ## 分支与变更原则
