@@ -66,7 +66,7 @@ final class SessionCoordinator {
         lastRecordedAudio = audioData
 
         guard !audioData.isEmpty else {
-            handleError(.tencentASRFailure(code: nil, message: "录音数据为空", requestId: nil))
+            handleError(.asrEmptyAudio)
             return
         }
 
@@ -107,12 +107,18 @@ final class SessionCoordinator {
     // MARK: - Processing Pipeline
 
     private func processAudio(_ audioData: Data, generation: UInt64) async {
-        // 1. ASR 识别
-        let asrProvider = TencentASRProvider(
-            secretId: configStore.tencentSecretId,
-            secretKey: configStore.tencentSecretKey,
-            region: configStore.asrConfig.region.rawValue
-        )
+        // 1. 根据配置选择 ASR Provider
+        let asrProvider: any ASRProvider
+        switch configStore.asrConfig.provider {
+        case .funasrLocal:
+            asrProvider = FunASRProvider()
+        case .tencentCloud:
+            asrProvider = TencentASRProvider(
+                secretId: configStore.tencentSecretId,
+                secretKey: configStore.tencentSecretKey,
+                region: configStore.asrConfig.region.rawValue
+            )
+        }
 
         let transcriptResult: TranscriptResult
         do {

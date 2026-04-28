@@ -2,7 +2,7 @@ import CommonCrypto
 import Foundation
 
 /// 腾讯云 ASR 一句话识别 Provider，自实现 HTTP + TC3-HMAC-SHA256 签名
-struct TencentASRProvider: Sendable {
+struct TencentASRProvider: ASRProvider, Sendable {
 
     private static let host = "asr.tencentcloudapi.com"
     private static let service = "asr"

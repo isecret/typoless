@@ -27,7 +27,7 @@
 - 新产品需求扩展
 - 系统级输入法实现
 - 实时流式 ASR
-- 多 Provider 设计
+- ASR Provider 自动回退
 
 ## 3. 技术选型
 
@@ -40,8 +40,8 @@
 
 ### 3.2 外部服务
 
-- ASR：`腾讯云 ASR`
-- ASR 接入方式：自实现 `HTTP Provider + 签名`
+- ASR：`本地 FunASR`（默认）+ `腾讯云 ASR`（可选）
+- ASR 接入方式：FunASR 通过内置子进程运行；腾讯云通过自实现 `HTTP Provider + 签名`
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -78,6 +78,10 @@
   负责编排录音、识别、润色、注入的主链路
 - `AudioRecorder`
   负责录音采集与音频标准化
+- `ASRProvider` (协议)
+  统一的 ASR 识别接口
+- `FunASRProvider`
+  负责本地 FunASR 子进程调用
 - `TencentASRProvider`
   负责腾讯云 ASR 调用
 - `LLMProvider`
@@ -105,7 +109,8 @@
 
 - 保证同一时间只存在一个 active session
 - 响应开始录音、结束录音、取消任务
-- 串行调度 `AudioRecorder -> TencentASRProvider -> LLMProvider -> TextInjector`
+- 串行调度 `AudioRecorder -> ASRProvider -> LLMProvider -> TextInjector`
+- 根据当前配置选择对应 ASR Provider（FunASR 或腾讯云）
 - 负责回退逻辑与记录落盘
 
 ### 5.3 AudioRecorder
@@ -115,7 +120,19 @@
 - 输出标准化音频数据或临时文件引用
 - 不负责上传和业务状态流转
 
-### 5.4 TencentASRProvider
+### 5.4 ASR Provider 层
+
+统一 ASR 协议 `ASRProvider`，所有实现需遵循 `recognize(audioData:) -> TranscriptResult` 接口。
+
+#### 5.4.1 FunASRProvider（默认）
+
+- 调用应用内置的 FunASR 可执行文件
+- 模型资源随应用打包分发
+- 通过 `Process` 子进程执行本地离线识别
+- 支持超时控制和 Task 取消时终止进程
+- 不暴露端口、模型目录、线程数等高级参数
+
+#### 5.4.2 TencentASRProvider（可选）
 
 - 接收标准音频输入
 - 生成请求签名和 HTTP 请求
@@ -139,8 +156,11 @@
 - 统一使用 `~/.typoless/config` 读写全部配置（含密钥）
 - 启动时直接从配置文件加载到内存
 - 若配置文件不存在，自动从旧存储（UserDefaults + Keychain）迁移
-- 若配置文件损坏，回退为空配置（首次配置状态）
+- 若配置文件损坏，标记为加载失败，使首次配置检查返回 false
 - 保存时执行轻量校验，整文件原子写回
+- `hasCompletedInitialSetup` 根据当前选中的 ASR Provider 判断：
+  - FunASR：无需额外配置即视为就绪
+  - 腾讯云：需要有效的 SecretId/SecretKey
 
 ### 5.8 HistoryStore
 
@@ -208,7 +228,7 @@ LLM 回退路径：
 5. `AudioRecorder` 开始采集音频
 6. 用户再次按下快捷键或达到 30 秒
 7. `AudioRecorder` 输出标准音频
-8. `TencentASRProvider` 发起一次性识别并返回转写文本
+8. 根据当前配置选择 ASR Provider：FunASR 本地识别或腾讯云远程识别
 9. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
 10. 若 LLM 失败或返回空文本，则回退 ASR 原文
 11. `TextInjector` 尝试注入最终文本
@@ -219,6 +239,7 @@ LLM 回退路径：
 
 ### 8.1 普通配置
 
+- `asr_provider`
 - `tencent_region`
 - `openai_base_url`
 - `openai_model`
@@ -248,15 +269,30 @@ LLM 回退路径：
 - 地域或 endpoint 不可用
 - 网络超时
 
-## 9. 腾讯云 ASR 设计
+## 9. ASR 设计
 
-### 9.1 接入策略
+### 9.1 Provider 架构
+
+- 统一 `ASRProvider` 协议，定义 `recognize(audioData:) async throws -> TranscriptResult`
+- `ASRProviderType` 枚举：`funasrLocal`（默认）、`tencentCloud`（可选）
+- `SessionCoordinator` 根据当前配置动态选择 Provider
+- 不做本地失败自动回退腾讯云
+
+### 9.2 FunASR 本地识别
+
+- FunASR 可执行文件和模型资源随应用打包
+- 通过 `Process` 子进程调用，音频文件作为输入
+- 子进程在非主线程执行，避免阻塞 UI
+- 支持超时终止和 Task 取消时清理进程
+- 解析子进程输出（JSON 或纯文本）获取识别结果
+
+### 9.3 腾讯云 ASR 接入
 
 - 不依赖腾讯云重型 SDK
 - 直接实现 HTTP 请求和签名
 - Provider 对外只暴露业务无关的统一接口
 
-### 9.2 输入输出
+### 9.4 输入输出
 
 输入：
 
@@ -267,17 +303,26 @@ LLM 回退路径：
 
 - `TranscriptResult`
   - `text`
-  - `requestId`
+  - `requestId`（可选，仅腾讯云返回）
   - `durationMs`
 
-### 9.3 错误映射
+### 9.5 错误映射
 
+通用错误：
+- 空音频数据 -> `asrEmptyAudio`
+
+FunASR 错误：
+- 二进制文件缺失 -> `funasrBinaryNotFound`
+- 模型缺失 -> `funasrModelMissing`
+- 识别失败 -> `funasrProcessFailure`
+
+腾讯云错误：
 - 鉴权错误 -> `invalidCredentials`
 - 网络错误 -> `networkFailure`
 - 服务错误 -> `asrFailure`
 - 空文本结果 -> `emptyTranscript`
 
-### 9.4 超时与取消
+### 9.6 超时与取消
 
 - 超时由 Provider 内部固定控制
 - 收到取消事件后应中断请求或丢弃响应结果
@@ -402,6 +447,10 @@ LLM 回退路径：
 
 - `microphonePermissionDenied`
 - `accessibilityPermissionDenied`
+- `asrEmptyAudio`
+- `funasrBinaryNotFound`
+- `funasrModelMissing`
+- `funasrProcessFailure`
 - `invalidTencentCredentials`
 - `tencentNetworkFailure`
 - `tencentASRFailure`
@@ -424,9 +473,11 @@ LLM 回退路径：
 重点覆盖：
 
 - `SessionCoordinator`
+- `FunASRProvider`
 - `TencentASRProvider`
 - `LLMProvider`
 - `TextInjector` 的错误分支
+- `ConfigStore` 的 Provider 切换与迁移逻辑
 
 核心测试场景：
 

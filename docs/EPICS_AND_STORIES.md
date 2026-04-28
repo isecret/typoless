@@ -25,6 +25,7 @@
 | E8 | 状态机、错误处理与取消 | 保证主链路状态稳定、可取消、可失败回退 |
 | E9 | 最近记录与诊断 | 提供结果留存、复制、清空与基础诊断能力 |
 | E10 | 集成验证与发布准备 | 完成端到端验收与项目交付准备 |
+| E11 | 本地 FunASR 与 ASR Provider 切换 | 支持本地 FunASR，腾讯云改为可选 Provider |
 
 ## 3. Epic 详情
 
@@ -518,6 +519,86 @@
 - E8
 - E9
 
+## E11. 本地 FunASR 与 ASR Provider 切换
+
+### 目标
+
+增加本地 FunASR 语音识别支持，并将腾讯云 ASR 改为可选 Provider，实现双 Provider 手动切换。
+
+### Stories
+
+#### S11.1 新增 ASR Provider 抽象与类型枚举
+
+作为开发者，我需要统一的 ASR 协议和 Provider 类型定义，以支持多种识别方式。
+
+验收标准：
+
+- 新增 `ASRProvider` 协议，定义 `recognize(audioData:) -> TranscriptResult`
+- 新增 `ASRProviderType` 枚举：`funasrLocal` / `tencentCloud`
+- `TencentASRProvider` 遵循 `ASRProvider` 协议
+- `TranscriptResult.requestId` 改为可选
+
+#### S11.2 实现 FunASRProvider
+
+作为用户，我希望应用可以使用本地识别，无需配置云服务。
+
+验收标准：
+
+- FunASR 以内置子进程方式运行
+- 可执行文件和模型资源随应用打包
+- 子进程在非主线程执行，不阻塞 UI
+- 支持超时控制和取消时终止进程
+- 识别结果映射为统一 `TranscriptResult`
+
+#### S11.3 ASR 配置扩展与迁移
+
+作为用户，我希望升级后不丢失已有配置。
+
+验收标准：
+
+- `ASRConfig` 增加 `provider` 字段
+- 新用户默认 `funasrLocal`
+- 老用户无 `provider` 字段时默认迁移为 `tencentCloud`
+- `hasCompletedInitialSetup` 按 Provider 判断
+- 配置文件损坏时标记为加载失败，不静默视为就绪
+
+#### S11.4 ASR 设置页改造
+
+作为用户，我希望在设置页中切换识别方式。
+
+验收标准：
+
+- 设置页新增 Provider 选择控件
+- 选择 FunASR 时不展示腾讯云密钥表单
+- 选择腾讯云时展示 SecretId/SecretKey/Region 表单
+- 切换 Provider 时保留已有腾讯云凭证
+- 继续遵守自动保存交互约束
+
+#### S11.5 主链路与错误模型扩展
+
+作为用户，我希望选择不同 Provider 后主链路正常工作。
+
+验收标准：
+
+- `SessionCoordinator` 根据配置选择对应 Provider
+- FunASR 失败不自动回退腾讯云
+- 新增 FunASR 相关错误分类
+- 错误提示走菜单栏摘要机制
+
+#### S11.6 文档与打包更新
+
+作为团队，我需要文档和构建配置同步更新。
+
+验收标准：
+
+- PRD/TDD/EPICS/README 从"腾讯云唯一"更新为"双 Provider"
+- Release 构建产物需包含 FunASR 子进程和模型资源
+
+依赖：
+
+- E5
+- E8
+
 ## 4. 推荐实现顺序
 
 建议按以下顺序推进：
@@ -532,6 +613,7 @@
 8. `E8 状态机、错误处理与取消`
 9. `E9 最近记录与诊断`
 10. `E10 集成验证与发布准备`
+11. `E11 本地 FunASR 与 ASR Provider 切换`
 
 ## 5. MVP 完成定义
 

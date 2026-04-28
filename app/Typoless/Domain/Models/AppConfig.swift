@@ -3,7 +3,25 @@ import Foundation
 // MARK: - ASR 配置（不含密钥）
 
 struct ASRConfig: Codable, Equatable, Sendable {
+    var provider: ASRProviderType = .funasrLocal
     var region: TencentRegion = .guangzhou
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case region
+    }
+
+    init(provider: ASRProviderType = .funasrLocal, region: TencentRegion = .guangzhou) {
+        self.provider = provider
+        self.region = region
+    }
+
+    /// 自定义解码：老配置缺少 provider 字段时，默认为 tencentCloud（兼容已有用户）
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try container.decodeIfPresent(ASRProviderType.self, forKey: .provider) ?? .tencentCloud
+        region = try container.decodeIfPresent(TencentRegion.self, forKey: .region) ?? .guangzhou
+    }
 }
 
 enum TencentRegion: String, Codable, CaseIterable, Sendable {
