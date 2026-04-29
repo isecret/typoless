@@ -237,7 +237,11 @@ final class SessionCoordinator {
                 baseURL: configStore.llmConfig.baseURL,
                 apiKey: configStore.openAIAPIKey,
                 model: configStore.llmConfig.model,
-                dictionaryTerms: terms
+                thinkingDisabled: configStore.llmConfig.thinkingDisabled,
+                dictionaryTerms: terms,
+                onThinkingUnsupported: { [self] in
+                    try? self.configStore.markThinkingDisabledForCurrentLLM()
+                }
             )
 
             let llmStart = Date()

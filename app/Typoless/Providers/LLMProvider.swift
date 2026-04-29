@@ -35,54 +35,48 @@ struct LLMProvider: Sendable {
     let baseURL: String
     let apiKey: String
     let model: String
+    let thinkingDisabled: Bool
     let dictionaryTerms: [String]
+    let onThinkingUnsupported: (@MainActor @Sendable () -> Void)?
 
-    init(baseURL: String, apiKey: String, model: String, dictionaryTerms: [String] = []) {
+    init(
+        baseURL: String,
+        apiKey: String,
+        model: String,
+        thinkingDisabled: Bool,
+        dictionaryTerms: [String] = [],
+        onThinkingUnsupported: (@MainActor @Sendable () -> Void)? = nil
+    ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.model = model
+        self.thinkingDisabled = thinkingDisabled
         self.dictionaryTerms = dictionaryTerms
+        self.onThinkingUnsupported = onThinkingUnsupported
     }
 
     // MARK: - Public API
 
     func polish(text: String) async throws -> PolishResult {
         let url = try buildURL()
-        let bodyData = try buildRequestBody(text: text)
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = bodyData
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.timeoutInterval = Self.timeout
-
-        let data: Data
-        do {
-            let (responseData, response) = try await URLSession.shared.data(for: request)
-            data = responseData
-
-            if let httpResponse = response as? HTTPURLResponse {
-                switch httpResponse.statusCode {
-                case 200: break
-                case 401, 403:
-                    throw TypolessError.invalidLLMConfiguration(detail: "认证失败，请检查 API Key")
-                case 404:
-                    throw TypolessError.invalidLLMConfiguration(detail: "模型不存在或 URL 错误")
-                default:
-                    let body = String(data: data, encoding: .utf8) ?? ""
-                    throw TypolessError.llmNetworkFailure(message: "HTTP \(httpResponse.statusCode): \(body)")
-                }
-            }
-        } catch let error as TypolessError {
-            throw error
-        } catch let error as URLError {
-            throw TypolessError.llmNetworkFailure(message: error.localizedDescription)
-        } catch {
-            throw TypolessError.llmNetworkFailure(message: error.localizedDescription)
+        if thinkingDisabled {
+            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
+            return try parseResponse(data)
         }
 
-        return try parseResponse(data)
+        do {
+            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .thinkingDisabled)
+            return try parseResponse(data)
+        } catch let error as TypolessError {
+            if case let .llmNetworkFailure(message) = error,
+               shouldRetryWithoutThinking(message: message) {
+                await onThinkingUnsupported?()
+                let fallbackData = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
+                return try parseResponse(fallbackData)
+            }
+            throw error
+        }
     }
 
     // MARK: - Request
@@ -95,15 +89,19 @@ struct LLMProvider: Sendable {
         return url
     }
 
-    private func buildRequestBody(text: String) throws -> Data {
+    private func buildRequestBody(text: String, requestMode: RequestMode) throws -> Data {
         let systemPrompt = Self.buildSystemPrompt(terms: dictionaryTerms)
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": systemPrompt],
                 ["role": "user", "content": text],
             ],
         ]
+
+        if case .thinkingDisabled = requestMode {
+            body["thinking"] = ["type": "disabled"]
+        }
         return try JSONSerialization.data(withJSONObject: body)
     }
 
@@ -116,6 +114,59 @@ struct LLMProvider: Sendable {
             .joined(separator: "\n")
 
         return baseSystemPrompt + "\n\n## 术语参考\n\n以下为用户维护的专有名词，校对时优先使用这些写法：\n\n\(termsList)"
+    }
+
+    private func sendChatCompletionRequest(
+        url: URL,
+        text: String,
+        requestMode: RequestMode
+    ) async throws -> Data {
+        let bodyData = try buildRequestBody(text: text, requestMode: requestMode)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = bodyData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = Self.timeout
+
+        do {
+            let (responseData, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse {
+                switch httpResponse.statusCode {
+                case 200:
+                    return responseData
+                case 400:
+                    let body = String(data: responseData, encoding: .utf8) ?? ""
+                    throw TypolessError.llmNetworkFailure(message: "HTTP 400: \(body)")
+                case 401, 403:
+                    throw TypolessError.invalidLLMConfiguration(detail: "认证失败，请检查 API Key")
+                case 404:
+                    throw TypolessError.invalidLLMConfiguration(detail: "模型不存在或 URL 错误")
+                default:
+                    let body = String(data: responseData, encoding: .utf8) ?? ""
+                    throw TypolessError.llmNetworkFailure(message: "HTTP \(httpResponse.statusCode): \(body)")
+                }
+            }
+
+            return responseData
+        } catch let error as TypolessError {
+            throw error
+        } catch let error as URLError {
+            throw TypolessError.llmNetworkFailure(message: error.localizedDescription)
+        } catch {
+            throw TypolessError.llmNetworkFailure(message: error.localizedDescription)
+        }
+    }
+
+    private func shouldRetryWithoutThinking(message: String) -> Bool {
+        let lowered = message.lowercased()
+        return lowered.contains("thinking")
+            || lowered.contains("unsupported")
+            || lowered.contains("unknown parameter")
+            || lowered.contains("unknown field")
+            || lowered.contains("extra inputs are not permitted")
     }
 
     // MARK: - Response
@@ -147,6 +198,11 @@ struct LLMProvider: Sendable {
             source: .llm
         )
     }
+}
+
+private enum RequestMode: Sendable {
+    case thinkingDisabled
+    case plain
 }
 
 // MARK: - Response Models

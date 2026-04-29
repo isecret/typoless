@@ -5,6 +5,7 @@ import Foundation
 struct LLMConfig: Codable, Equatable, Sendable {
     var baseURL: String = ""
     var model: String = ""
+    var thinkingDisabled: Bool = false
 }
 
 // MARK: - 通用配置

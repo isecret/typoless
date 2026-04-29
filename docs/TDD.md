@@ -205,6 +205,9 @@
 ### 5.6 LLMProvider
 
 - 使用固定 Prompt 生成 Chat Completions 请求
+- 默认优先发送 `thinking: { "type": "disabled" }` 关闭长思考
+- 若当前 LLM 配置已记录 `thinkingDisabled = true`，则直接发送普通请求
+- 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config`
 - 返回润色后的最终文本
 - 不处理 UI 和回退逻辑
 - Prompt 可接收个人词典术语参考，但不开放用户自定义 Prompt
@@ -222,6 +225,8 @@
 - 若配置文件不存在，自动从旧存储（UserDefaults + Keychain）迁移
 - 若配置文件损坏，标记为加载失败，使首次配置检查返回 false
 - 保存时执行轻量校验，整文件原子写回
+- LLM 配置包含内部兼容性字段 `thinkingDisabled`
+- 当 `Base URL`、`API Key`、`Model` 任一保存值发生变化时，自动重置 `thinkingDisabled = false`
 - `hasCompletedInitialSetup` 在配置文件正常加载后返回 true；ASR 资源完整性在录音前检查
 
 ### 5.9 PersonalDictionaryStore
