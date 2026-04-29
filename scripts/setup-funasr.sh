@@ -41,41 +41,45 @@ fi
 
 mkdir -p "$MODEL_DIR"
 
-# Download models using FunASR's model hub (downloads from ModelScope)
+# Download models using ModelScope snapshot_download.
 "$PYTHON" -c "
 import os
 import sys
 
 model_dir = '$MODEL_DIR'
 
-from funasr import AutoModel
+from modelscope.hub.snapshot_download import snapshot_download
 
-# paraformer-zh (ASR)
-asr_path = os.path.join(model_dir, 'paraformer-zh')
-if not os.path.exists(asr_path):
-    print('Downloading paraformer-zh ...')
-    AutoModel(model='paraformer-zh', model_path=asr_path, disable_update=True)
-    print('  Done.')
-else:
-    print('paraformer-zh already exists, skipping.')
+MODELS = [
+    (
+        'paraformer-zh',
+        'iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch',
+    ),
+    (
+        'fsmn-vad',
+        'iic/speech_fsmn_vad_zh-cn-16k-common-pytorch',
+    ),
+    (
+        'ct-punc',
+        'iic/punc_ct-transformer_cn-en-common-vocab471067-large',
+    ),
+]
 
-# fsmn-vad (VAD)
-vad_path = os.path.join(model_dir, 'fsmn-vad')
-if not os.path.exists(vad_path):
-    print('Downloading fsmn-vad ...')
-    AutoModel(model='fsmn-vad', model_path=vad_path, disable_update=True)
-    print('  Done.')
-else:
-    print('fsmn-vad already exists, skipping.')
+for local_name, repo_id in MODELS:
+    target_path = os.path.join(model_dir, local_name)
+    if os.path.exists(target_path) and os.listdir(target_path):
+        print(f'{local_name} already exists, skipping.')
+        continue
 
-# ct-punc (Punctuation)
-punc_path = os.path.join(model_dir, 'ct-punc')
-if not os.path.exists(punc_path):
-    print('Downloading ct-punc ...')
-    AutoModel(model='ct-punc', model_path=punc_path, disable_update=True)
+    print(f'Downloading {local_name} from {repo_id} ...')
+    os.makedirs(target_path, exist_ok=True)
+    snapshot_download(
+        repo_id,
+        cache_dir=model_dir,
+        local_dir=target_path,
+        local_files_only=False,
+    )
     print('  Done.')
-else:
-    print('ct-punc already exists, skipping.')
 
 print('All models ready.')
 "

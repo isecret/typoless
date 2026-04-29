@@ -15,7 +15,7 @@
     "punc": {
       "name": "ct-punc",
       "path": "models/ct-punc",
-      "required": true
+      "required": false
     }
   },
   "worker": {

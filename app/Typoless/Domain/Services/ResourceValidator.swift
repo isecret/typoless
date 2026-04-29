@@ -41,6 +41,10 @@ struct ResourceValidator: Sendable {
         let pythonCandidates = [
             funasrRoot.appendingPathComponent("runtime/python3").path,
             ProcessInfo.processInfo.environment["FUNASR_PYTHON_PATH"],
+            "\(NSHomeDirectory())/.pyenv/shims/python3",
+            ProcessInfo.processInfo.environment["PYENV_ROOT"].map { "\($0)/shims/python3" },
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3",
             "/usr/bin/python3",
         ].compactMap { $0 }
 

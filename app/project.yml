@@ -27,6 +27,7 @@ targets:
           - "Resources/whisper"
           - "Resources/rnnoise"
           - "Resources/sherpa"
+          - "Resources/funasr"
     resources:
       - path: Typoless/Resources/whisper
         buildPhase: resources
@@ -35,6 +36,9 @@ targets:
         buildPhase: resources
         optional: true
       - path: Typoless/Resources/sherpa
+        buildPhase: resources
+        optional: true
+      - path: Typoless/Resources/funasr
         buildPhase: resources
         optional: true
     dependencies:
@@ -67,23 +71,18 @@ targets:
             exit 1
           fi
 
-          # sherpa-onnx runtime
-          SHERPA_DIR="${SRCROOT}/Typoless/Resources/sherpa"
-          if [ ! -f "${SHERPA_DIR}/lib/libsherpa-onnx-c-api.dylib" ]; then
-            echo "error: sherpa-onnx runtime not found. Run ./scripts/setup-sherpa.sh first."
+          # FunASR runtime 和模型（默认链路）
+          FUNASR_DIR="${SRCROOT}/Typoless/Resources/funasr"
+          if [ ! -f "${FUNASR_DIR}/manifest.json" ]; then
+            echo "error: FunASR manifest not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
-
-          # sherpa-onnx model
-          SHERPA_MODEL="${SHERPA_DIR}/models/streaming-zh"
-          if [ ! -f "${SHERPA_MODEL}/tokens.txt" ]; then
-            echo "error: sherpa-onnx model not found. Run ./scripts/setup-sherpa.sh first."
+          if [ ! -f "${FUNASR_DIR}/worker/funasr_worker.py" ]; then
+            echo "error: FunASR worker not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
-          ENCODER_OK=false
-          for f in "${SHERPA_MODEL}"/encoder*.onnx; do [ -f "$f" ] && ENCODER_OK=true && break; done
-          if ! $ENCODER_OK; then
-            echo "error: sherpa-onnx encoder model not found."
+          if [ ! -d "${FUNASR_DIR}/models/paraformer-zh" ]; then
+            echo "error: FunASR paraformer model not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
     postBuildScripts:
@@ -105,6 +104,17 @@ targets:
           if [ -d "${RNNOISE_SRC}" ]; then
             mkdir -p "$(dirname "${RNNOISE_DST}")"
             ditto "${RNNOISE_SRC}" "${RNNOISE_DST}"
+          fi
+
+          # FunASR
+          FUNASR_SRC="${SRCROOT}/Typoless/Resources/funasr"
+          FUNASR_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/funasr"
+          if [ -d "${FUNASR_SRC}" ]; then
+            mkdir -p "$(dirname "${FUNASR_DST}")"
+            rm -rf "${FUNASR_DST}"
+            ditto "${FUNASR_SRC}" "${FUNASR_DST}"
+            [ -f "${FUNASR_DST}/runtime/python3" ] && chmod +x "${FUNASR_DST}/runtime/python3"
+            [ -f "${FUNASR_DST}/worker/funasr_worker.py" ] && chmod +x "${FUNASR_DST}/worker/funasr_worker.py"
           fi
 
           # sherpa-onnx

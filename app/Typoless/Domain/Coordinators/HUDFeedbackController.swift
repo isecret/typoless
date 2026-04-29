@@ -204,10 +204,12 @@ final class HUDFeedbackController {
             context.duration = 0.25
             self.hudWindow?.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            guard let self, self.presentationGeneration == gen else { return }
-            self.hudWindow?.orderOut(nil)
-            self.hudWindow?.ignoresMouseEvents = true
-            self.hudState = .hidden
+            Task { @MainActor [weak self] in
+                guard let self, self.presentationGeneration == gen else { return }
+                self.hudWindow?.orderOut(nil)
+                self.hudWindow?.ignoresMouseEvents = true
+                self.hudState = .hidden
+            }
         })
     }
 

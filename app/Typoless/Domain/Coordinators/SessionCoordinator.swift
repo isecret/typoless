@@ -30,8 +30,8 @@ final class SessionCoordinator {
     private let textInjector = TextInjector()
     private let diagnostics = DiagnosticsLogger.shared
 
-    /// FunASR sidecar 运行时管理器（惰性初始化，跨 session 复用）
-    private lazy var asrRuntimeManager = ASRRuntimeManager()
+    /// FunASR sidecar 运行时管理器，跨 session 复用
+    private let asrRuntimeManager = ASRRuntimeManager()
 
     private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?

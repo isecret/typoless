@@ -45,10 +45,16 @@ final class FunASRProvider: ASRProvider, @unchecked Sendable {
             "params": params,
             "id": reqID,
         ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
 
         // 带超时的识别请求
-        let response = try await withTimeout(seconds: Self.recognizeTimeout) {
-            try await self.runtimeManager.sendRequest(request)
+        let responseData = try await withTimeout(seconds: Self.recognizeTimeout) {
+            try await self.runtimeManager.sendRequestData(requestData)
+        }
+        let response = try parseResponse(responseData)
+        if let error = response["error"] as? [String: Any] {
+            let message = error["message"] as? String ?? "Unknown worker error"
+            throw TypolessError.asrProcessFailure(message: message)
         }
 
         guard let result = response["result"] as? [String: Any] else {
@@ -79,9 +85,15 @@ final class FunASRProvider: ASRProvider, @unchecked Sendable {
             "params": [:] as [String: Any],
             "id": 0,
         ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
 
-        let response = try await withTimeout(seconds: Self.warmupTimeout) {
-            try await self.runtimeManager.sendRequest(request)
+        let responseData = try await withTimeout(seconds: Self.warmupTimeout) {
+            try await self.runtimeManager.sendRequestData(requestData)
+        }
+        let response = try parseResponse(responseData)
+        if let error = response["error"] as? [String: Any] {
+            let message = error["message"] as? String ?? "Unknown worker error"
+            throw TypolessError.asrProcessFailure(message: message)
         }
 
         if let result = response["result"] as? [String: Any],
@@ -110,6 +122,23 @@ final class FunASRProvider: ASRProvider, @unchecked Sendable {
             }
             group.cancelAll()
             return result
+        }
+    }
+
+    private func parseResponse(_ data: Data) throws -> [String: Any] {
+        do {
+            guard let response = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw TypolessError.asrProcessFailure(message: "Invalid JSON-RPC response")
+            }
+            return response
+        } catch let error as TypolessError {
+            throw error
+        } catch {
+            let raw = String(data: data, encoding: .utf8)?
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .prefix(160) ?? "non-utf8"
+            logger.error("Failed to parse worker response: \(String(raw), privacy: .public)")
+            throw TypolessError.asrProcessFailure(message: "Invalid JSON-RPC response")
         }
     }
 }

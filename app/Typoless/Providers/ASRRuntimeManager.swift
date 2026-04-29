@@ -24,16 +24,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
         let root = resourceRoot ?? Self.defaultResourceRoot()
         self.resourceRoot = root
 
-        // Python runtime 查找顺序：内嵌 > 环境变量 > 系统
-        let embeddedPython = root.appendingPathComponent("runtime/python3").path
-        if FileManager.default.isExecutableFile(atPath: embeddedPython) {
-            self.pythonPath = embeddedPython
-        } else if let envPython = ProcessInfo.processInfo.environment["FUNASR_PYTHON_PATH"],
-                  FileManager.default.isExecutableFile(atPath: envPython) {
-            self.pythonPath = envPython
-        } else {
-            self.pythonPath = "/usr/bin/python3"
-        }
+        self.pythonPath = Self.resolvePythonPath(resourceRoot: root)
 
         self.workerEntry = root.appendingPathComponent("worker/funasr_worker.py").path
     }
@@ -112,27 +103,8 @@ final class ASRRuntimeManager: @unchecked Sendable {
 
     /// 发送 JSON-RPC 请求并等待响应
     func sendRequest(_ request: [String: Any]) async throws -> [String: Any] {
-        // 确保进程正在运行
-        if process == nil || !(process?.isRunning ?? false) {
-            try start()
-        }
-
-        guard let stdinPipe = stdinPipe,
-              let stdoutPipe = stdoutPipe else {
-            throw TypolessError.asrRuntimeMissing
-        }
-
-        // 序列化请求
-        let data = try JSONSerialization.data(withJSONObject: request)
-        var line = data
-        line.append(contentsOf: "\n".utf8)
-
-        // 写入 stdin
-        let writeHandle = stdinPipe.fileHandleForWriting
-        try writeHandle.write(contentsOf: line)
-
-        // 从 stdout 读取一行响应
-        let responseData = try await readLine(from: stdoutPipe.fileHandleForReading)
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let responseData = try await sendRequestData(requestData)
 
         guard let response = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
             throw TypolessError.asrProcessFailure(message: "Invalid JSON-RPC response")
@@ -145,6 +117,29 @@ final class ASRRuntimeManager: @unchecked Sendable {
         }
 
         return response
+    }
+
+    /// 发送已编码的 JSON-RPC 请求并返回原始响应数据
+    func sendRequestData(_ requestData: Data) async throws -> Data {
+        // 确保进程正在运行
+        if process == nil || !(process?.isRunning ?? false) {
+            try start()
+        }
+
+        guard let stdinPipe = stdinPipe,
+              let stdoutPipe = stdoutPipe else {
+            throw TypolessError.asrRuntimeMissing
+        }
+
+        var line = requestData
+        line.append(contentsOf: "\n".utf8)
+
+        // 写入 stdin
+        let writeHandle = stdinPipe.fileHandleForWriting
+        try writeHandle.write(contentsOf: line)
+
+        // 从 stdout 读取一行响应
+        return try await readLine(from: stdoutPipe.fileHandleForReading)
     }
 
     /// 健康检查
@@ -204,5 +199,26 @@ final class ASRRuntimeManager: @unchecked Sendable {
         }
         // 从 App bundle 定位
         return Bundle.main.resourceURL!.appendingPathComponent("funasr")
+    }
+
+    private static func resolvePythonPath(resourceRoot: URL) -> String {
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+        let env = ProcessInfo.processInfo.environment
+
+        let candidates: [String?] = [
+            resourceRoot.appendingPathComponent("runtime/python3").path,
+            env["FUNASR_PYTHON_PATH"],
+            "\(home)/.pyenv/shims/python3",
+            env["PYENV_ROOT"].map { "\($0)/shims/python3" },
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3",
+            "/usr/bin/python3",
+        ]
+
+        return candidates
+            .compactMap { $0 }
+            .first(where: { fm.isExecutableFile(atPath: $0) })
+            ?? "/usr/bin/python3"
     }
 }

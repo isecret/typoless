@@ -12,7 +12,10 @@ import os
 import sys
 import time
 import traceback
+from typing import Optional
 from pathlib import Path
+
+import soundfile as sf
 
 # Redirect warnings and third-party output to stderr before any imports
 # that might pollute stdout
@@ -21,8 +24,8 @@ _real_stdout = sys.stdout
 sys.stderr = open(sys.stderr.fileno(), mode="w", buffering=1, encoding="utf-8")
 
 # Capture any stray stdout from imports
-import io as _io
-_capture_buf = _io.StringIO()
+_rpc_stdout = os.fdopen(os.dup(sys.stdout.fileno()), mode="w", buffering=1, encoding="utf-8")
+sys.stdout = sys.stderr
 
 logging.basicConfig(
     stream=sys.stderr,
@@ -54,8 +57,8 @@ def _err(code: int, message: str, req_id=None):
 def _write(obj: dict):
     """Write a single compact JSON line to stdout and flush."""
     line = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
-    _real_stdout.write(line + "\n")
-    _real_stdout.flush()
+    _rpc_stdout.write(line + "\n")
+    _rpc_stdout.flush()
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +84,16 @@ class ModelManager:
             paths = {}
             for key in ("asr", "vad", "punc"):
                 entry = models_cfg.get(key, {})
+                required = entry.get("required", key in ("asr", "vad"))
+                if not entry and not required:
+                    continue
+                if key == "punc" and not required:
+                    continue
                 rel = entry.get("path", f"models/{entry.get('name', key)}")
                 full = self.resource_root / rel
                 if not full.exists():
+                    if not required:
+                        continue
                     raise FileNotFoundError(f"Model directory missing: {full}")
                 paths[key] = str(full)
             return paths
@@ -92,12 +102,13 @@ class ModelManager:
         defaults = {
             "asr": self.resource_root / "models" / "paraformer-zh",
             "vad": self.resource_root / "models" / "fsmn-vad",
-            "punc": self.resource_root / "models" / "ct-punc",
         }
         for key, p in defaults.items():
             if not p.exists():
                 raise FileNotFoundError(f"Model directory missing: {p}")
-        return {k: str(v) for k, v in defaults.items()}
+
+        paths = {k: str(v) for k, v in defaults.items()}
+        return paths
 
     def _select_device(self) -> str:
         """Select best available device: MPS > CPU."""
@@ -122,14 +133,17 @@ class ModelManager:
         for attempt_device in ([device, "cpu"] if device != "cpu" else ["cpu"]):
             try:
                 logger.info("Loading FunASR models on device=%s ...", attempt_device)
-                self.model = AutoModel(
+                kwargs = dict(
                     model=paths["asr"],
                     vad_model=paths["vad"],
-                    punc_model=paths["punc"],
                     device=attempt_device,
                     disable_update=True,
                     log_level="ERROR",
                 )
+                if "punc" in paths:
+                    kwargs["punc_model"] = paths["punc"]
+
+                self.model = AutoModel(**kwargs)
                 self.device = attempt_device
                 self._loaded = True
                 logger.info("Models loaded successfully on device=%s", attempt_device)
@@ -156,8 +170,15 @@ class ModelManager:
         if p.stat().st_size == 0:
             raise ValueError(f"WAV file is empty: {wav_path}")
 
+        speech, sample_rate = sf.read(wav_path, dtype="float32")
+        if getattr(speech, "ndim", 1) > 1:
+            speech = speech.mean(axis=1)
+
         t0 = time.monotonic()
-        kwargs = {"input": wav_path}
+        kwargs = {
+            "input": speech,
+            "fs": int(sample_rate),
+        }
         if hotwords:
             kwargs["hotword"] = hotwords
         result = self.model.generate(**kwargs)
@@ -178,7 +199,7 @@ class ModelManager:
 # Request handlers
 # ---------------------------------------------------------------------------
 
-_manager: ModelManager | None = None
+_manager: Optional[ModelManager] = None
 
 
 def _get_manager() -> ModelManager:
