@@ -4,12 +4,12 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 首版产品形态不是系统级输入法，而是 `菜单栏常驻应用`。用户通过全局快捷键触发录音（按一次开始，再按一次结束），录音结束后自动完成：
 
-`录音 -> RNNoise 本地降噪 -> sherpa-onnx 流式识别 -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
+`录音 -> RNNoise 本地降噪 -> FunASR 离线识别 -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
 
 ## 项目目标
 
 - 在 macOS 上提供全局可用的中文语音输入能力
-- 使用本地 `sherpa-onnx` 流式 ASR 完成短语音识别，无需配置云端 ASR 服务
+- 使用本地 `FunASR` 离线 ASR 完成短语音识别，无需配置云端 ASR 服务
 - 使用 RNNoise 本地降噪和个人词典提升中文短语音识别质量
 - 支持用户接入自有 `OpenAI 兼容` 大模型服务
 - 将口语输入整理为更适合直接发送或写入的文本
@@ -24,7 +24,8 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 全局快捷键（Carbon Event API）
 - 按一次开始录音，再按一次结束录音
 - 本地 Whisper 语音识别（基于 `whisper.cpp`，内置子进程方式，旧链路）
-- sherpa-onnx 本地流式 ASR（默认链路，支持中文 streaming transducer）
+- sherpa-onnx 本地流式 ASR（旧链路，支持中文 streaming transducer）
+- FunASR 本地离线 ASR（默认链路，通过内置 Python sidecar 运行 paraformer-zh + fsmn-vad + ct-punc）
 - RNNoise 本地降噪（录音后、ASR 前自动执行）
 - OpenAI 兼容 LLM 润色（增强版固定 Prompt，纠错 + 同音词 + 去赘词 + 轻度书面化 + 补标点 + 专有名词保护）
 - 个人词典（ASR hotwords + LLM 术语参考，`~/.typoless/dictionary.json`）
@@ -38,7 +39,8 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 诊断页（最近错误摘要 + 会话状态 + 版本信息）
 - 诊断日志（per-session 耗时、Debug ASR/LLM 明文对照、Release 脱敏）
 - 60 秒录音上限 + 500ms 短录音静默取消
-- 资源准备脚本（RNNoise、sherpa-onnx runtime + 模型）
+- 资源准备脚本（RNNoise、sherpa-onnx runtime + 模型，旧链路）
+- FunASR 模型随 App 打包，无需额外准备
 - 构建前与录音前资源校验
 
 ### 不包含
@@ -59,7 +61,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 交互方式：单一全局快捷键，按一次开始录音，再按一次结束录音
 - 单次录音上限：`60 秒`
 - 低于 `500ms` 的录音视为误触，静默取消，不进入识别和 LLM
-- ASR Provider：默认 `sherpa-onnx` 本地流式识别
+- ASR Provider：默认 `FunASR` 本地离线识别
 - 音频预处理：默认 RNNoise 本地降噪
 - 默认输出：`LLM 润色版`
 - LLM 失败回退：自动输出 `ASR 原文`
@@ -71,7 +73,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 - 客户端：`Swift 6.0 + SwiftUI + AppKit`
 - 架构：`MVVM + Service Layer`
-- 语音识别：`sherpa-onnx` 本地流式 ASR
+- 语音识别：`FunASR` 本地离线 ASR（默认）/ `sherpa-onnx` 本地流式 ASR（旧链路）
 - 音频降噪：`RNNoise`
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
@@ -89,8 +91,8 @@ app/Typoless/
 │   └── Services/           # DiagnosticsLogger, ResourceValidator
 ├── Persistence/            # ConfigStore, KeychainHelper, PersonalDictionaryStore
 ├── Platform/               # AudioRecorder, AudioPreprocessor, HotkeyManager, PermissionsManager, TextInjector
-├── Providers/              # ASRProvider, StreamingASRProvider, WhisperProvider, LLMProvider
-├── Resources/              # 资源文件（whisper, rnnoise, sherpa）
+├── Providers/              # ASRProvider, FunASRProvider, ASRRuntimeManager, StreamingASRProvider, WhisperProvider, LLMProvider
+├── Resources/              # 资源文件（rnnoise, funasr, sherpa, whisper）
 └── UI/
     ├── MenuBar/            # MenuBarView
     └── Settings/           # 设置页各 Tab 视图
@@ -105,7 +107,9 @@ app/Typoless/
 | `AudioRecorder` | 音频采集与 PCM/WAV 标准化 |
 | `AudioPreprocessor` | RNNoise 本地降噪 |
 | `ASRProvider` | 统一 ASR 识别协议 |
-| `StreamingASRProvider` | sherpa-onnx 流式识别（默认链路） |
+| `FunASRProvider` | FunASR 离线识别（默认链路），通过 sidecar 通信 |
+| `ASRRuntimeManager` | Python sidecar 生命周期管理、warmup、健康检查 |
+| `StreamingASRProvider` | sherpa-onnx 流式识别（旧链路） |
 | `WhisperProvider` | 本地 Whisper 子进程调用（旧链路） |
 | `LLMProvider` | OpenAI Chat Completions 调用 |
 | `TextInjector` | AX API 文本注入 + 键盘事件回退 |
@@ -121,7 +125,7 @@ app/Typoless/
 ### 首次配置
 
 1. 启动应用
-2. 通过脚本准备 RNNoise 与 sherpa-onnx 本地资源
+2. 应用内置 ASR 与降噪资源，无需额外准备
 3. 配置 LLM `Base URL / API Key / Model`
 4. 设置全局快捷键
 5. 授予麦克风权限
@@ -133,7 +137,7 @@ app/Typoless/
 2. 按下快捷键开始录音
 3. 再次按下快捷键结束录音（或达到 60 秒自动结束）
 4. 对音频进行本地降噪
-5. 使用 sherpa-onnx 进行本地流式识别，录音结束后获取 final 文本
+5. 使用 FunASR 进行本地离线识别，获取转写文本
 6. 调用 LLM 做纠错与轻度书面化
 7. 将最终文本一次性注入当前焦点应用
 
@@ -201,7 +205,7 @@ app/Typoless/
 
 ## 测试策略
 
-- 单元测试重点覆盖 `Provider`（sherpa/Whisper）、`AudioPreprocessor`、`PersonalDictionaryStore` 和 `Session Coordinator`
+- 单元测试重点覆盖 `Provider`（FunASR/sherpa/Whisper）、`ASRRuntimeManager`、`AudioPreprocessor`、`PersonalDictionaryStore` 和 `Session Coordinator`
 - 端到端以手工验收主链路为主
 - 重点验证权限缺失、配置错误、LLM 回退、注入失败
 
@@ -213,9 +217,10 @@ app/Typoless/
 - [ ] 麦克风权限授权后可录音
 - [ ] 低于 500ms 的短录音静默取消，不触发 ASR / LLM / 注入
 - [ ] 辅助功能权限授权后可注入文本
-- [ ] 完整链路：录音 → 降噪 → ASR → LLM → 注入（浏览器输入框、备忘录、聊天应用）
+- [ ] 完整链路：录音 → 降噪 → FunASR → LLM → 注入（浏览器输入框、备忘录、聊天应用）
 - [ ] RNNoise 降噪链路正常
-- [ ] sherpa-onnx 流式识别链路正常
+- [ ] FunASR 离线识别链路正常
+- [ ] FunASR sidecar 首次惰性启动成功
 - [ ] Debug 日志可查看耗时和 ASR/LLM 明文对照
 - [ ] Release 日志不泄露 ASR/LLM 明文
 - [ ] 个人词典可改善专有名词识别与润色
@@ -248,13 +253,13 @@ app/Typoless/
 
 ### 准备本地语音资源
 
-当前仓库通过脚本准备本地 ASR 与降噪资源，不提交大模型文件。
+默认 FunASR 链路的模型随 App 打包，无需手动准备。以下脚本仅用于旧链路或开发调试：
 
 ```bash
 # 准备 RNNoise 降噪库
 ./scripts/setup-rnnoise.sh
 
-# 准备 sherpa-onnx runtime 与中文 streaming 模型
+# 准备 sherpa-onnx runtime 与中文 streaming 模型（旧链路）
 ./scripts/setup-sherpa.sh
 
 # 准备 Whisper 资源（旧链路，可选）
@@ -283,9 +288,9 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 
 ## 当前状态
 
-- `PRD`: 已更新至 v1.1
-- `TDD`: 已更新至 v1.1
-- `代码实现`: 新链路实现完成（DiagnosticsLogger、RNNoise、sherpa-onnx、个人词典、Prompt 优化、资源校验），待端到端手工验收
+- `PRD`: 已更新至 v1.2（FunASR 收敛）
+- `TDD`: 已更新至 v1.2（FunASR sidecar 架构）
+- `代码实现`: FunASR 默认链路实现中（DiagnosticsLogger、RNNoise、个人词典、Prompt 优化、资源校验已完成；FunASR Provider 与 sidecar 集成进行中）
 
 ## 参考
 
