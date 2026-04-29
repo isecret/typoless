@@ -4,6 +4,7 @@
 # Xcode / Swift
 .build/
 DerivedData/
+app/.derivedData/
 *.xcodeproj/
 *.pbxuser
 !default.pbxuser
