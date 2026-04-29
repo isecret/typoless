@@ -24,7 +24,10 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 全局快捷键（Carbon Event API）
 - 按一次开始录音，再按一次结束录音
 - 本地 Whisper 语音识别（基于 `whisper.cpp`，内置子进程方式，旧链路）
-- OpenAI 兼容 LLM 润色（固定 Prompt，纠错 + 去赘词 + 轻度书面化 + 补标点）
+- sherpa-onnx 本地流式 ASR（默认链路，支持中文 streaming transducer）
+- RNNoise 本地降噪（录音后、ASR 前自动执行）
+- OpenAI 兼容 LLM 润色（增强版固定 Prompt，纠错 + 同音词 + 去赘词 + 轻度书面化 + 补标点 + 专有名词保护）
+- 个人词典（ASR hotwords + LLM 术语参考，`~/.typoless/dictionary.json`）
 - 文本注入（AX API 主策略 + 键盘事件回退）
 - 麦克风与辅助功能权限引导
 - 注入失败文本临时复制入口（菜单栏内显示截断预览，点击复制到剪贴板，仅当前运行期有效）
@@ -33,15 +36,10 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 用户可理解的错误分类与展示
 - 处理中可取消（识别中 / 润色中）
 - 诊断页（最近错误摘要 + 会话状态 + 版本信息）
-
-### 规划中 / 待实现
-
-- 诊断耗时 Debug 日志
-- Debug 构建 ASR/LLM 明文对照日志，Release 构建脱敏日志
-- RNNoise 本地降噪
-- `sherpa-onnx` 本地流式 ASR 默认链路
-- Prompt 优化（同音词/错别字修正 + 个人词典术语保留）
-- 个人词典（ASR hotwords + LLM 术语参考）
+- 诊断日志（per-session 耗时、Debug ASR/LLM 明文对照、Release 脱敏）
+- 60 秒录音上限 + 500ms 短录音静默取消
+- 资源准备脚本（RNNoise、sherpa-onnx runtime + 模型）
+- 构建前与录音前资源校验
 
 ### 不包含
 
@@ -87,11 +85,12 @@ app/Typoless/
 ├── App/                    # 应用入口（TypolessApp）
 ├── Domain/
 │   ├── Coordinators/       # AppCoordinator, SessionCoordinator
-│   └── Models/             # SessionState, TypolessError, AppConfig 等
-├── Persistence/            # ConfigStore, KeychainHelper
-├── Platform/               # AudioRecorder, HotkeyManager, PermissionsManager, TextInjector
+│   ├── Models/             # SessionState, TypolessError, AppConfig 等
+│   └── Services/           # DiagnosticsLogger, ResourceValidator
+├── Persistence/            # ConfigStore, KeychainHelper, PersonalDictionaryStore
+├── Platform/               # AudioRecorder, AudioPreprocessor, HotkeyManager, PermissionsManager, TextInjector
 ├── Providers/              # ASRProvider, StreamingASRProvider, WhisperProvider, LLMProvider
-├── Resources/              # 资源文件
+├── Resources/              # 资源文件（whisper, rnnoise, sherpa）
 └── UI/
     ├── MenuBar/            # MenuBarView
     └── Settings/           # 设置页各 Tab 视图
@@ -106,13 +105,16 @@ app/Typoless/
 | `AudioRecorder` | 音频采集与 PCM/WAV 标准化 |
 | `AudioPreprocessor` | RNNoise 本地降噪 |
 | `ASRProvider` | 统一 ASR 识别协议 |
-| `StreamingASRProvider` | sherpa-onnx 流式识别 |
+| `StreamingASRProvider` | sherpa-onnx 流式识别（默认链路） |
 | `WhisperProvider` | 本地 Whisper 子进程调用（旧链路） |
 | `LLMProvider` | OpenAI Chat Completions 调用 |
 | `TextInjector` | AX API 文本注入 + 键盘事件回退 |
 | `PermissionsManager` | 麦克风与辅助功能权限管理 |
 | `HotkeyManager` | Carbon Event 全局快捷键 |
 | `ConfigStore` | `~/.typoless/config` 配置读写 |
+| `PersonalDictionaryStore` | 个人词典管理（`~/.typoless/dictionary.json`） |
+| `DiagnosticsLogger` | 会话耗时与 ASR/LLM 对照日志 |
+| `ResourceValidator` | 运行时资源完整性校验 |
 
 ## 核心流程
 
@@ -249,9 +251,17 @@ app/Typoless/
 当前仓库通过脚本准备本地 ASR 与降噪资源，不提交大模型文件。
 
 ```bash
+# 准备 RNNoise 降噪库
+./scripts/setup-rnnoise.sh
+
+# 准备 sherpa-onnx runtime 与中文 streaming 模型
+./scripts/setup-sherpa.sh
+
+# 准备 Whisper 资源（旧链路，可选）
 ./scripts/setup-whisper.sh
-# 后续将扩展脚本准备 RNNoise 与 sherpa-onnx 资源
 ```
+
+脚本支持通过环境变量指定资源路径，详见各脚本顶部注释。
 
 ### 生成 Xcode 工程
 
@@ -275,7 +285,7 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 
 - `PRD`: 已更新至 v1.1
 - `TDD`: 已更新至 v1.1
-- `代码实现`: Whisper 旧链路 MVP 已完成；RNNoise、sherpa-onnx、个人词典与诊断日志为下一阶段规划
+- `代码实现`: 新链路实现完成（DiagnosticsLogger、RNNoise、sherpa-onnx、个人词典、Prompt 优化、资源校验），待端到端手工验收
 
 ## 参考
 
