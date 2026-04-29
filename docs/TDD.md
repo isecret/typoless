@@ -4,9 +4,9 @@
 
 - 项目名称：Typoless
 - 文档类型：TDD
-- 版本：v1.1
+- 版本：v1.2
 - 状态：已更新
-- 更新时间：2026-04-28
+- 更新时间：2026-04-29
 
 ## 2. 目标
 
@@ -40,7 +40,7 @@
 ### 3.2 外部服务
 
 - 音频预处理：`RNNoise` 本地降噪
-- ASR：`sherpa-onnx` 本地流式识别
+- ASR：`FunASR` 本地离线识别（通过内置 Python sidecar 运行 paraformer-zh + fsmn-vad + ct-punc）
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -63,7 +63,7 @@
 - `Domain`
   负责状态机、会话编排、错误模型、配置模型
 - `Providers`
-  负责本地 sherpa-onnx 流式语音识别和 OpenAI 兼容 LLM 的调用
+  负责本地 FunASR 离线语音识别和 OpenAI 兼容 LLM 的调用
 - `Platform`
   负责录音、权限、全局快捷键、文本注入
 - `Persistence`
@@ -81,10 +81,14 @@
   负责 RNNoise 本地降噪处理
 - `ASRProvider` (协议)
   统一的 ASR 识别接口
+- `FunASRProvider`
+  负责 FunASR 离线识别，通过 stdio JSON-RPC 与 Python sidecar 通信，输出转写结果
+- `ASRRuntimeManager`
+  负责 Python sidecar 生命周期管理、warmup、健康检查与异常恢复
 - `StreamingASRProvider`
-  负责 sherpa-onnx 流式识别，输出 partial 与 final 结果
+  保留旧 sherpa-onnx 流式识别实现，不作为默认 ASR 路径
 - `WhisperProvider`
-  保留旧本地 Whisper 子进程调用能力，但不作为默认 ASR 路径
+  保留旧本地 Whisper 子进程调用能力，不作为默认 ASR 路径
 - `LLMProvider`
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
@@ -113,7 +117,7 @@
 - 保证同一时间只存在一个 active session
 - 响应开始录音、结束录音、取消任务
 - 串行调度 `AudioRecorder -> AudioPreprocessor -> ASRProvider -> LLMProvider -> TextInjector`
-- 默认使用本地 `StreamingASRProvider`
+- 默认使用 `FunASRProvider`
 - 负责回退逻辑
 - 在内存中维护最近一次注入失败文本，成功注入后清空
 - 负责输出会话耗时诊断日志
@@ -135,22 +139,68 @@
 
 ### 5.5 ASR Provider 层
 
-统一 ASR 协议需支持非流式 final 结果与流式 partial/final 事件。
+统一 ASR 协议需支持非流式 final 结果。
 
-#### 5.5.1 StreamingASRProvider
+#### 5.5.1 FunASRProvider
 
-- 基于 `sherpa-onnx` 本地 streaming ASR。
-- 录音期间产生 partial 结果，仅用于内部状态、HUD 预览或 Debug 日志。
-- 录音结束后返回 final 文本，进入 LLM 润色和注入。
-- 支持使用个人词典生成 hotwords 文件；仅在所选 transducer 模型支持 hotwords 时启用。
-- runtime、模型、tokens、hotwords 文件通过项目脚本准备和校验。
-- 资源缺失时返回明确配置错误，阻止录音，不自动回退 Whisper。
+- 基于 `FunASR` 本地离线 ASR，使用固定模型组合 `paraformer-zh + fsmn-vad + ct-punc`。
+- 通过 `ASRRuntimeManager` 管理 Python sidecar 进程。
+- 使用 stdio JSON-RPC 协议与 sidecar 通信：请求发送 WAV 文件路径，响应返回转写文本。
+- 录音结束后将降噪后的 WAV 提交给 sidecar，获取转写结果进入 LLM 润色和注入。
+- 支持传入个人词典 hotword 参数。
+- 设备优先使用 MPS（Metal Performance Shaders）推理，不可用时回退 CPU。
+- ASR 超时固定 15 秒，超时后取消请求并清理 sidecar 状态。
+- 资源缺失时返回明确配置错误，阻止录音。
 
-#### 5.5.2 WhisperProvider
+#### 5.5.2 ASRRuntimeManager
+
+- 管理 Python sidecar 进程的启动、停止、重启。
+- 首次录音时惰性启动 sidecar（lazy-load），启动后执行 warmup。
+- 提供 `ping` 健康检查接口，在录音前验证 sidecar 可用性。
+- sidecar 异常退出后自动标记不可用，下次录音前尝试重启。
+- sidecar 卡死（ping 超时）时执行 force kill 后重启。
+
+#### 5.5.3 Sidecar stdio JSON-RPC 协议
+
+请求格式：
+
+```json
+{"jsonrpc": "2.0", "method": "recognize", "params": {"wav_path": "/path/to/audio.wav", "hotwords": "张三 李四"}, "id": 1}
+```
+
+响应格式：
+
+```json
+{"jsonrpc": "2.0", "result": {"text": "转写结果文本", "duration_ms": 1234}, "id": 1}
+```
+
+健康检查：
+
+```json
+{"jsonrpc": "2.0", "method": "ping", "id": 0}
+```
+
+```json
+{"jsonrpc": "2.0", "result": {"status": "ok"}, "id": 0}
+```
+
+错误响应：
+
+```json
+{"jsonrpc": "2.0", "error": {"code": -1, "message": "model load failed"}, "id": 1}
+```
+
+#### 5.5.4 StreamingASRProvider（旧实现）
+
+- 作为旧 sherpa-onnx 流式识别实现保留。
+- 不作为默认路径。
+- 不作为 FunASR 资源缺失时的自动回退。
+
+#### 5.5.5 WhisperProvider（旧实现）
 
 - 作为旧离线识别实现保留。
 - 不作为默认路径。
-- 不作为 sherpa runtime/model 缺失时的自动回退。
+- 不作为资源缺失时的自动回退。
 
 ### 5.6 LLMProvider
 
@@ -178,7 +228,7 @@
 
 - 使用 `~/.typoless/dictionary.json` 存储用户维护的个人词典。
 - 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`。
-- 生成 sherpa hotwords 文件，并为 LLM Prompt 提供术语参考。
+- 生成 FunASR hotwords 参数，并为 LLM Prompt 提供术语参考。
 
 ### 5.10 DiagnosticsLogger
 
@@ -244,12 +294,12 @@ LLM 回退路径：
 2. `HotkeyManager` 通知 `AppCoordinator`
 3. `AppCoordinator` 根据当前状态决定动作（idle → 开始录音，recording → 结束录音，其他 → 忽略）
 4. `SessionCoordinator` 校验录音条件并进入 `recording`
-5. `AudioRecorder` 开始采集音频，`StreamingASRProvider` 可接收音频流并产生内部 partial
+5. `AudioRecorder` 开始采集音频
 6. 用户再次按下快捷键或达到 60 秒
 7. `AudioRecorder` 输出标准音频
 8. 若录音时长低于 500ms，则静默取消并通过 `DiagnosticsLogger` 记录 `short_recording_cancelled`
 9. `AudioPreprocessor` 执行 RNNoise 降噪
-10. `StreamingASRProvider` 产出 final 转写文本
+10. `FunASRProvider` 提交降噪后音频给 sidecar，获取转写文本
 11. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
 12. 若 LLM 失败或返回空文本，则回退 ASR 原文
 13. `TextInjector` 尝试注入最终文本
@@ -298,9 +348,8 @@ LLM 回退路径：
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议需支持 final 结果。
-- 新增流式识别接口，支持 partial/final 事件。
-- 默认实现为 `StreamingASRProvider`。
-- `WhisperProvider` 保留为旧实现，不做自动回退。
+- 默认实现为 `FunASRProvider`，通过 `ASRRuntimeManager` 管理 Python sidecar。
+- `StreamingASRProvider` 和 `WhisperProvider` 保留为旧实现，不做自动回退。
 
 ### 9.2 RNNoise 降噪
 
@@ -309,19 +358,28 @@ LLM 回退路径：
 - 输出：ASR 可消费的 WAV 数据。
 - 失败：返回明确错误并停止本次主链路。
 
-### 9.3 sherpa-onnx 流式识别
+### 9.3 FunASR 离线识别
 
-- 使用本地 sherpa-onnx runtime 和中文 streaming transducer 模型。
-- 录音期间输出 partial 文本，partial 不写入目标应用。
-- 录音结束后输出 final 文本。
-- 支持 VAD 与 hotwords；hotwords 来自个人词典启用词条。
+- 使用内置 Python sidecar 运行 FunASR，固定模型组合：`paraformer-zh`（语音识别）+ `fsmn-vad`（语音活动检测）+ `ct-punc`（标点恢复）。
+- 模型随 App 打包，无需运行时下载。
+- 通过 stdio JSON-RPC 协议通信，每次请求传入 WAV 文件路径，返回转写文本。
+- 设备优先使用 MPS 推理加速，不可用时回退 CPU。
+- 支持 hotword 参数，来自个人词典启用词条。
 - 不暴露模型选择、线程数、hotwords 权重等高级参数。
 
-### 9.4 输入输出
+### 9.4 Sidecar 生命周期
+
+- 首次录音时惰性启动 sidecar，执行模型加载和 warmup。
+- 启动后保持常驻，后续请求复用同一 sidecar 进程。
+- sidecar 异常退出后标记不可用，下次录音前自动重启。
+- 提供 ping 健康检查，录音前验证 sidecar 可用。
+- sidecar ping 超时时执行 force kill 后重启。
+
+### 9.5 输入输出
 
 输入：
 
-- 标准化音频数据、降噪后音频数据或流式音频 chunk
+- 降噪后 16k mono WAV 文件路径
 
 输出：
 
@@ -329,23 +387,21 @@ LLM 回退路径：
   - `text`
   - `requestId`（可选）
   - `durationMs`
-- 流式事件：
-  - `partial(text)`
-  - `final(TranscriptResult)`
 
-### 9.5 错误映射
+### 9.6 错误映射
 
 通用错误：
 - 空音频数据 -> `asrEmptyAudio`
 
 本地音频与 ASR 错误：
 - 降噪资源缺失或处理失败 -> `audioPreprocessFailure`
-- sherpa runtime 缺失 -> `asrRuntimeMissing`
-- sherpa 模型缺失 -> `asrModelMissing`
-- 二进制文件缺失 -> `asrBinaryNotFound`
+- Python runtime 缺失 -> `asrRuntimeMissing`
+- FunASR 模型缺失 -> `asrModelMissing`
+- sidecar worker 缺失 -> `asrBinaryNotFound`
 - 识别失败 -> `asrProcessFailure`
+- sidecar 健康检查失败 -> `asrRuntimeMissing`
 
-### 9.6 超时与取消
+### 9.7 超时与取消
 
 - 超时由 Provider 内部固定控制
 - 收到取消事件后应中断请求或丢弃响应结果
@@ -485,8 +541,8 @@ LLM 回退路径：
 重点覆盖：
 
 - `SessionCoordinator`
-- `WhisperProvider`
-- `StreamingASRProvider`
+- `FunASRProvider`
+- `ASRRuntimeManager`
 - `AudioPreprocessor`
 - `LLMProvider`
 - `TextInjector` 的错误分支
@@ -501,10 +557,11 @@ LLM 回退路径：
 - LLM 失败回退
 - 用户取消
 - 低于 500ms 的短录音静默取消
-- 超时
+- ASR 超时
+- sidecar 异常退出与恢复
 - 并发 session 拒绝
 - 配置错误映射
-- sherpa/RNNoise 资源缺失时阻止录音
+- FunASR/RNNoise 资源缺失时阻止录音
 - Debug/Release 日志脱敏策略
 
 ### 15.2 集成与手工验收
@@ -530,7 +587,7 @@ LLM 回退路径：
 5. RNNoise 音频降噪
 6. ASR/LLM Debug 对照日志
 7. LLM Provider 与 Prompt 优化
-8. sherpa-onnx StreamingASRProvider
+8. FunASR Provider 与 sidecar 集成
 9. 个人词典与 hotwords/Prompt 集成
 10. SessionCoordinator 与状态机整合
 11. 注入失败恢复与错误摘要
@@ -543,7 +600,7 @@ LLM 回退路径：
 - 主链路从录音到注入可以稳定运行
 - 所有关键状态可在菜单栏中反映
 - 所有关键错误可被统一分类和展示
-- 本地降噪与 sherpa-onnx streaming ASR 默认链路可运行
+- 本地降噪与 FunASR 离线 ASR 默认链路可运行
 - LLM 失败时可自动回退 ASR 原文
 - 注入失败时文本不会丢失
 - 配置、权限在重启后行为正确
