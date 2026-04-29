@@ -24,6 +24,7 @@ final class SessionCoordinator {
     }
 
     private let audioRecorder = AudioRecorder()
+    private let audioPreprocessor = AudioPreprocessor()
     private let permissionsManager: PermissionsManager
     private let configStore: ConfigStore
     private let textInjector = TextInjector()
@@ -160,13 +161,36 @@ final class SessionCoordinator {
         diag.recordingMs = recordingMs
         diag.targetBundleID = targetApplicationBundleID
 
-        // 1. 使用本地 Whisper 识别
+        // 1. 音频降噪
+        let denoiseStart = Date()
+        let processedAudio: Data
+        do {
+            processedAudio = try audioPreprocessor.denoise(wavData: audioData)
+            let denoiseMs = Int(Date().timeIntervalSince(denoiseStart) * 1000)
+            diag.denoiseMs = denoiseMs
+            diagnostics.denoiseCompleted(sessionID: sessionID, durationMs: denoiseMs)
+        } catch {
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
+            let denoiseMs = Int(Date().timeIntervalSince(denoiseStart) * 1000)
+            diag.denoiseMs = denoiseMs
+            let mapped = mapError(error)
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = mapped.diagnosticClassification
+            diagnostics.denoiseFailed(sessionID: sessionID, reason: mapped.diagnosticClassification)
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            handleError(mapped)
+            return
+        }
+
+        guard generation == sessionGeneration, !Task.isCancelled else { return }
+
+        // 2. 使用本地 Whisper 识别
         let asrProvider: any ASRProvider = WhisperProvider()
 
         let asrStart = Date()
         let transcriptResult: TranscriptResult
         do {
-            transcriptResult = try await asrProvider.recognize(audioData: audioData)
+            transcriptResult = try await asrProvider.recognize(audioData: processedAudio)
         } catch {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
             let mapped = mapError(error)
