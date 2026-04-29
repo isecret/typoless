@@ -70,10 +70,17 @@ final class PersonalDictionaryStore {
     }
 
     /// 为 FunASR 生成 hotwords 参数字符串（空格分隔）
+    ///
+    /// 优先使用 `pronunciationHint`（帮助 ASR 识别发音），若缺失则退回 `term`。
     func hotwordsForFunASR() -> String {
         enabledEntries
-            .map(\.term)
-            .filter { !$0.isEmpty }
+            .compactMap { entry -> String? in
+                let hint = entry.pronunciationHint?.trimmingCharacters(in: .whitespaces)
+                if let hint, !hint.isEmpty {
+                    return hint
+                }
+                return entry.term.isEmpty ? nil : entry.term
+            }
             .joined(separator: " ")
     }
 
@@ -93,9 +100,11 @@ final class PersonalDictionaryStore {
         return url
     }
 
-    /// 为 LLM Prompt 提供术语参考列表
-    func termsForPrompt() -> [String] {
-        enabledEntries.map(\.term).filter { !$0.isEmpty }
+    /// 为 LLM Prompt 提供结构化术语参考（包含 term 和 pronunciationHint）
+    func termsForPrompt() -> [TermReference] {
+        enabledEntries
+            .filter { !$0.term.isEmpty }
+            .map { TermReference(term: $0.term, pronunciationHint: $0.pronunciationHint) }
     }
 
     // MARK: - 持久化
@@ -171,4 +180,12 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, Sendable {
         category = try container.decodeIfPresent(String.self, forKey: .category)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
+}
+
+// MARK: - Term Reference for LLM
+
+/// 传递给 LLM 的术语参考，包含目标写法和发音提示
+struct TermReference: Sendable, Equatable {
+    let term: String
+    let pronunciationHint: String?
 }

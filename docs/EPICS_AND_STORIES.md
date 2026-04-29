@@ -618,7 +618,9 @@
 验收标准：
 
 - 启用词条作为 hotword 参数传入 FunASR 请求
-- 词典仍作为术语参考进入 LLM Prompt
+- `pronunciationHint` 优先作为 FunASR hotword 输入；若缺失则退回 `term`
+- 词典以结构化术语参考（含 term + pronunciationHint）进入 LLM Prompt
+- LLM Prompt 明确要求在中英混合语境下恢复英文术语正确写法
 - 不暴露 hotword 权重等高级参数
 - 词典内容不被视为可执行系统指令
 
