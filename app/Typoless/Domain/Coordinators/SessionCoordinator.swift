@@ -56,6 +56,8 @@ final class SessionCoordinator {
 
         do {
             try permissionsManager.ensureMicrophoneAuthorized()
+            try ResourceValidator.validateDenoiseResources()
+            try ResourceValidator.validateASRResources()
             state = .recording
             try audioRecorder.startRecording()
             diagnostics.sessionStarted(

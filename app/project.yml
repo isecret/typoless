@@ -25,8 +25,16 @@ targets:
         excludes:
           - "**/.gitkeep"
           - "Resources/whisper"
+          - "Resources/rnnoise"
+          - "Resources/sherpa"
     resources:
       - path: Typoless/Resources/whisper
+        buildPhase: resources
+        optional: true
+      - path: Typoless/Resources/rnnoise
+        buildPhase: resources
+        optional: true
+      - path: Typoless/Resources/sherpa
         buildPhase: resources
         optional: true
     dependencies:
@@ -42,39 +50,67 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Typoless
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Typoless 需要麦克风权限来进行语音输入"
     preBuildScripts:
-      - name: "Validate Whisper Source Resources"
+      - name: "Validate Source Resources"
         script: |
+          # Whisper (legacy, optional)
           WHISPER_DIR="${SRCROOT}/Typoless/Resources/whisper"
-          if [ ! -f "${WHISPER_DIR}/bin/whisper-cli" ]; then
-            echo "error: Whisper CLI not found. Run ./scripts/setup-whisper.sh first."
+          if [ -d "${WHISPER_DIR}" ]; then
+            if [ ! -f "${WHISPER_DIR}/bin/whisper-cli" ]; then
+              echo "warning: Whisper CLI not found. Run ./scripts/setup-whisper.sh if needed."
+            fi
+          fi
+
+          # RNNoise (required for new pipeline)
+          RNNOISE_DIR="${SRCROOT}/Typoless/Resources/rnnoise"
+          if [ ! -f "${RNNOISE_DIR}/lib/librnnoise.dylib" ]; then
+            echo "error: RNNoise library not found. Run ./scripts/setup-rnnoise.sh first."
             exit 1
           fi
-          if [ ! -f "${WHISPER_DIR}/bin/whisper-cli-bin" ]; then
-            echo "error: Whisper CLI runtime binary not found. Run ./scripts/setup-whisper.sh first."
+
+          # sherpa-onnx runtime
+          SHERPA_DIR="${SRCROOT}/Typoless/Resources/sherpa"
+          if [ ! -f "${SHERPA_DIR}/lib/libsherpa-onnx-c-api.dylib" ]; then
+            echo "error: sherpa-onnx runtime not found. Run ./scripts/setup-sherpa.sh first."
             exit 1
           fi
-          if [ ! -f "${WHISPER_DIR}/lib/libwhisper.1.dylib" ] || [ ! -f "${WHISPER_DIR}/lib/libggml.0.dylib" ] || [ ! -f "${WHISPER_DIR}/lib/libggml-base.0.dylib" ]; then
-            echo "error: Whisper runtime libraries not found. Run ./scripts/setup-whisper.sh first."
+
+          # sherpa-onnx model
+          SHERPA_MODEL="${SHERPA_DIR}/models/streaming-zh"
+          if [ ! -f "${SHERPA_MODEL}/tokens.txt" ]; then
+            echo "error: sherpa-onnx model not found. Run ./scripts/setup-sherpa.sh first."
             exit 1
           fi
-          if [ ! -s "${WHISPER_DIR}/models/ggml-small.bin" ]; then
-            echo "error: Whisper model not found. Run ./scripts/setup-whisper.sh first."
+          ENCODER_OK=false
+          for f in "${SHERPA_MODEL}"/encoder*.onnx; do [ -f "$f" ] && ENCODER_OK=true && break; done
+          if ! $ENCODER_OK; then
+            echo "error: sherpa-onnx encoder model not found."
             exit 1
           fi
     postBuildScripts:
-      - name: "Copy Whisper Resources and Fix Permissions"
+      - name: "Copy Resources and Fix Permissions"
         script: |
+          # Whisper (legacy)
           WHISPER_SRC="${SRCROOT}/Typoless/Resources/whisper"
           WHISPER_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/whisper"
           if [ -d "${WHISPER_SRC}" ]; then
             mkdir -p "$(dirname "${WHISPER_DST}")"
             ditto "${WHISPER_SRC}" "${WHISPER_DST}"
+            [ -f "${WHISPER_DST}/bin/whisper-cli" ] && chmod +x "${WHISPER_DST}/bin/whisper-cli"
+            [ -f "${WHISPER_DST}/bin/whisper-cli-bin" ] && chmod +x "${WHISPER_DST}/bin/whisper-cli-bin"
           fi
-          WHISPER_BIN="${WHISPER_DST}/bin/whisper-cli"
-          if [ -f "${WHISPER_BIN}" ]; then
-            chmod +x "${WHISPER_BIN}"
+
+          # RNNoise
+          RNNOISE_SRC="${SRCROOT}/Typoless/Resources/rnnoise"
+          RNNOISE_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/rnnoise"
+          if [ -d "${RNNOISE_SRC}" ]; then
+            mkdir -p "$(dirname "${RNNOISE_DST}")"
+            ditto "${RNNOISE_SRC}" "${RNNOISE_DST}"
           fi
-          WHISPER_BIN_REAL="${WHISPER_DST}/bin/whisper-cli-bin"
-          if [ -f "${WHISPER_BIN_REAL}" ]; then
-            chmod +x "${WHISPER_BIN_REAL}"
+
+          # sherpa-onnx
+          SHERPA_SRC="${SRCROOT}/Typoless/Resources/sherpa"
+          SHERPA_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/sherpa"
+          if [ -d "${SHERPA_SRC}" ]; then
+            mkdir -p "$(dirname "${SHERPA_DST}")"
+            ditto "${SHERPA_SRC}" "${SHERPA_DST}"
           fi

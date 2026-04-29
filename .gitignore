@@ -75,5 +75,11 @@ build/
 app/Typoless/Resources/whisper/bin/whisper-cli
 app/Typoless/Resources/whisper/models/ggml-small.bin
 
+# RNNoise resources (set up via scripts/setup-rnnoise.sh)
+app/Typoless/Resources/rnnoise/
+
+# sherpa-onnx resources (set up via scripts/setup-sherpa.sh, models too large for git)
+app/Typoless/Resources/sherpa/
+
 # Keep project-local agent skills tracked, but ignore transient caches if added later
 .agents/cache/
