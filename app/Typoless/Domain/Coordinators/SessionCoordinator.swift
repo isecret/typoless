@@ -190,7 +190,7 @@ final class SessionCoordinator {
         guard generation == sessionGeneration, !Task.isCancelled else { return }
 
         // 2. 使用 sherpa-onnx 流式 ASR（默认链路）
-        let hotwordsPath = try? await MainActor.run { try dictionaryStore?.writeHotwordsFile().path }
+        let hotwordsPath = try? await MainActor.run { try dictionaryStore?.writeHotwordsFile()?.path }
         let asrProvider: any ASRProvider = StreamingASRProvider(hotwordsFilePath: hotwordsPath)
 
         let asrStart = Date()

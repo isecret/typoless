@@ -56,16 +56,13 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
         }
 
         // 获取结果
-        let resultPtr = api.getResult(stream)
+        let resultPtr = api.getResultAsJson(recognizer, stream)
         let text: String
-        if let resultPtr, let jsonStr = resultPtr.pointee.json {
-            let jsonString = String(cString: jsonStr)
+        if let resultPtr {
+            let jsonString = String(cString: resultPtr)
             text = Self.extractTextFromJSON(jsonString)
-            api.destroyResult(resultPtr)
+            api.destroyResultJson(resultPtr)
         } else {
-            if let resultPtr {
-                api.destroyResult(resultPtr)
-            }
             throw TypolessError.asrProcessFailure(message: "sherpa-onnx 识别结果为空")
         }
 
@@ -83,7 +80,7 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
 
     // MARK: - sherpa-onnx C API Types
 
-    private typealias CreateOnlineRecognizer = @convention(c) (UnsafePointer<SherpaOnnxOnlineRecognizerConfig>?) -> OpaquePointer?
+    private typealias CreateOnlineRecognizer = @convention(c) (UnsafeRawPointer?) -> OpaquePointer?
     private typealias DestroyOnlineRecognizer = @convention(c) (OpaquePointer?) -> Void
     private typealias CreateOnlineStream = @convention(c) (OpaquePointer?) -> OpaquePointer?
     private typealias DestroyOnlineStream = @convention(c) (OpaquePointer?) -> Void
@@ -91,12 +88,8 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
     private typealias InputFinished = @convention(c) (OpaquePointer?) -> Void
     private typealias IsOnlineStreamReady = @convention(c) (OpaquePointer?, OpaquePointer?) -> Int32
     private typealias DecodeOnlineStream = @convention(c) (OpaquePointer?, OpaquePointer?) -> Void
-    private typealias GetOnlineStreamResult = @convention(c) (OpaquePointer?) -> UnsafeMutablePointer<SherpaOnnxOnlineRecognizerResult>?
-    private typealias DestroyOnlineRecognizerResult = @convention(c) (UnsafeMutablePointer<SherpaOnnxOnlineRecognizerResult>?) -> Void
-
-    private struct SherpaOnnxOnlineRecognizerResult {
-        var json: UnsafePointer<CChar>?
-    }
+    private typealias GetOnlineStreamResultAsJson = @convention(c) (OpaquePointer?, OpaquePointer?) -> UnsafePointer<CChar>?
+    private typealias DestroyOnlineStreamResultJson = @convention(c) (UnsafePointer<CChar>?) -> Void
 
     // sherpa-onnx config structures (simplified for dlopen usage)
     private struct SherpaOnnxOnlineTransducerModelConfig {
@@ -105,18 +98,54 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
         var joiner: UnsafePointer<CChar>?
     }
 
+    private struct SherpaOnnxOnlineParaformerModelConfig {
+        var encoder: UnsafePointer<CChar>?
+        var decoder: UnsafePointer<CChar>?
+    }
+
+    private struct SherpaOnnxOnlineZipformer2CtcModelConfig {
+        var model: UnsafePointer<CChar>?
+    }
+
+    private struct SherpaOnnxOnlineNemoCtcModelConfig {
+        var model: UnsafePointer<CChar>?
+    }
+
+    private struct SherpaOnnxOnlineToneCtcModelConfig {
+        var model: UnsafePointer<CChar>?
+    }
+
     private struct SherpaOnnxOnlineModelConfig {
         var transducer: SherpaOnnxOnlineTransducerModelConfig
+        var paraformer: SherpaOnnxOnlineParaformerModelConfig
+        var zipformer2Ctc: SherpaOnnxOnlineZipformer2CtcModelConfig
         var tokens: UnsafePointer<CChar>?
         var numThreads: Int32
         var provider: UnsafePointer<CChar>?
         var debug: Int32
         var modelType: UnsafePointer<CChar>?
+        var modelingUnit: UnsafePointer<CChar>?
+        var bpeVocab: UnsafePointer<CChar>?
+        var tokensBuf: UnsafePointer<CChar>?
+        var tokensBufSize: Int32
+        var nemoCtc: SherpaOnnxOnlineNemoCtcModelConfig
+        var toneCtc: SherpaOnnxOnlineToneCtcModelConfig
     }
 
     private struct SherpaOnnxFeatureConfig {
         var sampleRate: Int32
         var featureDim: Int32
+    }
+
+    private struct SherpaOnnxOnlineCtcFstDecoderConfig {
+        var graph: UnsafePointer<CChar>?
+        var maxActive: Int32
+    }
+
+    private struct SherpaOnnxHomophoneReplacerConfig {
+        var dictDir: UnsafePointer<CChar>?
+        var lexicon: UnsafePointer<CChar>?
+        var ruleFsts: UnsafePointer<CChar>?
     }
 
     private struct SherpaOnnxOnlineRecognizerConfig {
@@ -130,6 +159,13 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
         var rule3MinUtteranceLength: Float
         var hotwordsFile: UnsafePointer<CChar>?
         var hotwordsScore: Float
+        var ctcFstDecoderConfig: SherpaOnnxOnlineCtcFstDecoderConfig
+        var ruleFsts: UnsafePointer<CChar>?
+        var ruleFars: UnsafePointer<CChar>?
+        var blankPenalty: Float
+        var hotwordsBuf: UnsafePointer<CChar>?
+        var hotwordsBufSize: Int32
+        var homophoneReplacerConfig: SherpaOnnxHomophoneReplacerConfig
     }
 
     private struct SherpaAPI {
@@ -141,8 +177,8 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
         let inputFinished: InputFinished
         let isReady: IsOnlineStreamReady
         let decode: DecodeOnlineStream
-        let getResult: GetOnlineStreamResult
-        let destroyResult: DestroyOnlineRecognizerResult
+        let getResultAsJson: GetOnlineStreamResultAsJson
+        let destroyResultJson: DestroyOnlineStreamResultJson
     }
 
     // MARK: - Loading
@@ -174,8 +210,8 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
             inputFinished: loadSym("SherpaOnnxOnlineStreamInputFinished"),
             isReady: loadSym("SherpaOnnxIsOnlineStreamReady"),
             decode: loadSym("SherpaOnnxDecodeOnlineStream"),
-            getResult: loadSym("SherpaOnnxGetOnlineStreamResult"),
-            destroyResult: loadSym("SherpaOnnxDestroyOnlineRecognizerResult")
+            getResultAsJson: loadSym("SherpaOnnxGetOnlineStreamResultAsJson"),
+            destroyResultJson: loadSym("SherpaOnnxDestroyOnlineStreamResultJson")
         )
     }
 
@@ -191,9 +227,24 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
         let fm = FileManager.default
         let contents = (try? fm.contentsOfDirectory(atPath: modelDir)) ?? []
 
-        let encoderFile = contents.first { $0.hasPrefix("encoder") && $0.hasSuffix(".onnx") } ?? "encoder.onnx"
-        let decoderFile = contents.first { $0.hasPrefix("decoder") && $0.hasSuffix(".onnx") } ?? "decoder.onnx"
-        let joinerFile = contents.first { $0.hasPrefix("joiner") && $0.hasSuffix(".onnx") } ?? "joiner.onnx"
+        let encoderFile =
+            contents.first(where: { $0 == "encoder-epoch-99-avg-1.onnx" })
+            ?? contents.first(where: { $0 == "encoder.onnx" })
+            ?? contents.first(where: { $0.hasPrefix("encoder") && $0.hasSuffix(".onnx") && !$0.contains(".int8.") })
+            ?? contents.first(where: { $0.hasPrefix("encoder") && $0.hasSuffix(".onnx") })
+            ?? "encoder.onnx"
+        let decoderFile =
+            contents.first(where: { $0 == "decoder-epoch-99-avg-1.onnx" })
+            ?? contents.first(where: { $0 == "decoder.onnx" })
+            ?? contents.first(where: { $0.hasPrefix("decoder") && $0.hasSuffix(".onnx") && !$0.contains(".int8.") })
+            ?? contents.first(where: { $0.hasPrefix("decoder") && $0.hasSuffix(".onnx") })
+            ?? "decoder.onnx"
+        let joinerFile =
+            contents.first(where: { $0 == "joiner-epoch-99-avg-1.onnx" })
+            ?? contents.first(where: { $0 == "joiner.onnx" })
+            ?? contents.first(where: { $0.hasPrefix("joiner") && $0.hasSuffix(".onnx") && !$0.contains(".int8.") })
+            ?? contents.first(where: { $0.hasPrefix("joiner") && $0.hasSuffix(".onnx") })
+            ?? "joiner.onnx"
 
         let encoderPath = (modelDir as NSString).appendingPathComponent(encoderFile)
         let decoderPath = (modelDir as NSString).appendingPathComponent(decoderFile)
@@ -201,13 +252,17 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
         let tokensPath = (modelDir as NSString).appendingPathComponent("tokens.txt")
 
         // 使用 C 字符串
+        let shouldUseHotwords = hotwordsFilePath?.isEmpty == false
+
         return try encoderPath.withCString { encoderCStr in
             try decoderPath.withCString { decoderCStr in
                 try joinerPath.withCString { joinerCStr in
                     try tokensPath.withCString { tokensCStr in
-                        try "greedy_search".withCString { decodingCStr in
+                        try (shouldUseHotwords ? "modified_beam_search" : "greedy_search").withCString { decodingCStr in
                             try "cpu".withCString { providerCStr in
-                                try "".withCString { modelTypeCStr in
+                                try "transducer".withCString { modelTypeCStr in
+                                    try "cjkchar".withCString { modelingUnitCStr in
+                                        try "".withCString { emptyCStr in
                                     let transducerConfig = SherpaOnnxOnlineTransducerModelConfig(
                                         encoder: encoderCStr,
                                         decoder: decoderCStr,
@@ -216,11 +271,24 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
 
                                     let modelConfig = SherpaOnnxOnlineModelConfig(
                                         transducer: transducerConfig,
+                                        paraformer: SherpaOnnxOnlineParaformerModelConfig(
+                                            encoder: nil,
+                                            decoder: nil
+                                        ),
+                                        zipformer2Ctc: SherpaOnnxOnlineZipformer2CtcModelConfig(
+                                            model: nil
+                                        ),
                                         tokens: tokensCStr,
                                         numThreads: 2,
                                         provider: providerCStr,
                                         debug: 0,
-                                        modelType: modelTypeCStr
+                                        modelType: modelTypeCStr,
+                                        modelingUnit: modelingUnitCStr,
+                                        bpeVocab: emptyCStr,
+                                        tokensBuf: emptyCStr,
+                                        tokensBufSize: 0,
+                                        nemoCtc: SherpaOnnxOnlineNemoCtcModelConfig(model: nil),
+                                        toneCtc: SherpaOnnxOnlineToneCtcModelConfig(model: nil)
                                     )
 
                                     let featConfig = SherpaOnnxFeatureConfig(
@@ -237,15 +305,29 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
                                         rule1MinTrailingSilence: 2.4,
                                         rule2MinTrailingSilence: 1.2,
                                         rule3MinUtteranceLength: 20.0,
-                                        hotwordsFile: nil,
-                                        hotwordsScore: 1.5
+                                        hotwordsFile: emptyCStr,
+                                        hotwordsScore: 1.5,
+                                        ctcFstDecoderConfig: SherpaOnnxOnlineCtcFstDecoderConfig(
+                                            graph: emptyCStr,
+                                            maxActive: 0
+                                        ),
+                                        ruleFsts: emptyCStr,
+                                        ruleFars: emptyCStr,
+                                        blankPenalty: 0,
+                                        hotwordsBuf: emptyCStr,
+                                        hotwordsBufSize: 0,
+                                        homophoneReplacerConfig: SherpaOnnxHomophoneReplacerConfig(
+                                            dictDir: emptyCStr,
+                                            lexicon: emptyCStr,
+                                            ruleFsts: emptyCStr
+                                        )
                                     )
 
                                     // 设置 hotwords（如果有）
                                     if let hwPath = hotwordsFilePath {
                                         return try hwPath.withCString { hwCStr in
                                             config.hotwordsFile = hwCStr
-                                            guard let recognizer = api.createRecognizer(&config) else {
+                                            guard let recognizer = withUnsafePointer(to: &config, { api.createRecognizer($0) }) else {
                                                 throw TypolessError.asrProcessFailure(
                                                     message: "无法初始化 sherpa-onnx 识别器"
                                                 )
@@ -253,12 +335,14 @@ final class StreamingASRProvider: ASRProvider, @unchecked Sendable {
                                             return recognizer
                                         }
                                     } else {
-                                        guard let recognizer = api.createRecognizer(&config) else {
+                                        guard let recognizer = withUnsafePointer(to: &config, { api.createRecognizer($0) }) else {
                                             throw TypolessError.asrProcessFailure(
                                                 message: "无法初始化 sherpa-onnx 识别器"
                                             )
                                         }
                                         return recognizer
+                                    }
+                                        }
                                     }
                                 }
                             }

@@ -70,8 +70,14 @@ final class PersonalDictionaryStore {
     }
 
     /// 将 hotwords 写入临时文件并返回路径
-    func writeHotwordsFile() throws -> URL {
+    func writeHotwordsFile() throws -> URL? {
         let content = generateHotwordsContent()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !content.isEmpty else {
+            return nil
+        }
+
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("typoless-hotwords.txt")
 

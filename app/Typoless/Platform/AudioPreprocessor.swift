@@ -15,9 +15,13 @@ final class AudioPreprocessor: Sendable {
 
     // MARK: - RNNoise FFI Typedefs
 
-    private typealias RNNoiseCreateFunc = @convention(c) () -> OpaquePointer?
+    private typealias RNNoiseCreateFunc = @convention(c) (UnsafeRawPointer?) -> OpaquePointer?
     private typealias RNNoiseDestroyFunc = @convention(c) (OpaquePointer?) -> Void
-    private typealias RNNoiseProcessFrameFunc = @convention(c) (OpaquePointer?, UnsafeMutablePointer<Float>?) -> Float
+    private typealias RNNoiseProcessFrameFunc = @convention(c) (
+        OpaquePointer?,
+        UnsafeMutablePointer<Float>?,
+        UnsafePointer<Float>?
+    ) -> Float
 
     // MARK: - Public API
 
@@ -40,7 +44,7 @@ final class AudioPreprocessor: Sendable {
         while offset + frameSize <= floatSamples.count {
             floatSamples.withUnsafeMutableBufferPointer { buffer in
                 let framePtr = buffer.baseAddress! + offset
-                _ = handle.processFrame(handle.state, framePtr)
+                _ = handle.processFrame(handle.state, framePtr, UnsafePointer(framePtr))
             }
             offset += frameSize
         }
@@ -87,7 +91,7 @@ final class AudioPreprocessor: Sendable {
         let destroy = unsafeBitCast(destroySym, to: RNNoiseDestroyFunc.self)
         let processFrame = unsafeBitCast(processSym, to: RNNoiseProcessFrameFunc.self)
 
-        guard let state = create() else {
+        guard let state = create(nil) else {
             dlclose(lib)
             throw TypolessError.audioPreprocessFailure(message: "RNNoise 初始化失败")
         }
