@@ -6,9 +6,12 @@ enum TypolessError: Error, Equatable, Sendable {
     case accessibilityPermissionDenied
     // ASR 通用错误
     case asrEmptyAudio
+    // 本地音频预处理错误
+    case audioPreprocessFailure(message: String)
     // 本地 ASR 识别错误
     case asrBinaryNotFound
     case asrModelMissing
+    case asrRuntimeMissing
     case asrProcessFailure(message: String)
     // LLM 错误
     case invalidLLMConfiguration(detail: String)
@@ -30,8 +33,12 @@ enum TypolessError: Error, Equatable, Sendable {
             "本地识别引擎未就绪，请重新安装应用"
         case .asrModelMissing:
             "本地识别模型缺失"
+        case .asrRuntimeMissing:
+            "本地识别引擎缺失，请运行资源准备脚本"
         case .asrProcessFailure(let message):
             "本地语音识别失败：\(message)"
+        case .audioPreprocessFailure(let message):
+            "音频预处理失败：\(message)"
         case .invalidLLMConfiguration(let detail):
             "LLM 配置无效：\(detail)"
         case .llmNetworkFailure:

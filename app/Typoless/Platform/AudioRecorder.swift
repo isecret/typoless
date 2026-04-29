@@ -4,13 +4,17 @@ import Foundation
 /// 音频录制器，直接录制为 PCM/WAV 16kHz mono，避免实时转换链路引发的 CoreAudio 重配置崩溃
 final class AudioRecorder: @unchecked Sendable {
 
-    static let maxDuration: TimeInterval = 30
+    static let maxDuration: TimeInterval = 60
     static let sampleRate: Double = 16_000
     static let channels: Int = 1
+
+    /// 低于此阈值的录音视为误触，静默取消
+    static let shortRecordingThreshold: TimeInterval = 0.5
 
     private var recorder: AVAudioRecorder?
     private var recordingURL: URL?
     private var recording = false
+    private var recordingStartTime: Date?
 
     /// 开始录音（MainActor 调用）
     @MainActor
@@ -45,6 +49,7 @@ final class AudioRecorder: @unchecked Sendable {
             self.recorder = recorder
             recordingURL = url
             recording = true
+            recordingStartTime = Date()
         } catch let error as AudioRecorderError {
             throw error
         } catch {
@@ -66,35 +71,52 @@ final class AudioRecorder: @unchecked Sendable {
         return powf(linear, gamma)
     }
 
-    /// 停止录音并返回 WAV 数据（MainActor 调用）
+    /// 停止录音并返回录音结果（含音频数据和录音时长）
     @MainActor
-    func stopRecording() -> Data {
-        guard recording else { return Data() }
+    func stopRecording() -> AudioRecordingResult {
+        guard recording else { return AudioRecordingResult(data: Data(), durationMs: 0) }
         recording = false
+
+        let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        let durationMs = Int(duration * 1000)
+        recordingStartTime = nil
 
         recorder?.stop()
         recorder = nil
 
         guard let url = recordingURL else {
             cleanupRecordingFile()
-            return Data()
+            return AudioRecordingResult(data: Data(), durationMs: durationMs)
         }
 
         defer { cleanupRecordingFile() }
 
-        return (try? Data(contentsOf: url)) ?? Data()
+        let data = (try? Data(contentsOf: url)) ?? Data()
+        return AudioRecordingResult(data: data, durationMs: durationMs)
     }
 
     @MainActor
     private func cleanupRecordingFile() {
         recorder?.stop()
         recorder = nil
+        recordingStartTime = nil
 
         if let url = recordingURL {
             try? FileManager.default.removeItem(at: url)
         }
         recordingURL = nil
         recording = false
+    }
+}
+
+/// 录音结果，包含音频数据和录音时长
+struct AudioRecordingResult: Sendable {
+    let data: Data
+    let durationMs: Int
+
+    /// 录音时长是否低于短录音阈值（500ms）
+    var isShortRecording: Bool {
+        durationMs < Int(AudioRecorder.shortRecordingThreshold * 1000)
     }
 }
 
