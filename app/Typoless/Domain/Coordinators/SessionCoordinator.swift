@@ -30,6 +30,9 @@ final class SessionCoordinator {
     private let textInjector = TextInjector()
     private let diagnostics = DiagnosticsLogger.shared
 
+    /// FunASR sidecar 运行时管理器（惰性初始化，跨 session 复用）
+    private lazy var asrRuntimeManager = ASRRuntimeManager()
+
     private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
@@ -189,9 +192,12 @@ final class SessionCoordinator {
 
         guard generation == sessionGeneration, !Task.isCancelled else { return }
 
-        // 2. 使用 sherpa-onnx 流式 ASR（默认链路）
-        let hotwordsPath = try? await MainActor.run { try dictionaryStore?.writeHotwordsFile()?.path }
-        let asrProvider: any ASRProvider = StreamingASRProvider(hotwordsFilePath: hotwordsPath)
+        // 2. 使用 FunASR 离线识别（默认链路）
+        let hotwords = await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
+        let asrProvider: any ASRProvider = FunASRProvider(
+            runtimeManager: asrRuntimeManager,
+            hotwords: hotwords
+        )
 
         let asrStart = Date()
         let transcriptResult: TranscriptResult
