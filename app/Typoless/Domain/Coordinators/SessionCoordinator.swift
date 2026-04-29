@@ -225,72 +225,65 @@ final class SessionCoordinator {
             durationMs: asrMs
         )
 
-        // 2. LLM 润色（如果开启）
-        var finalText = transcriptResult.text
-        var polishSource: PolishResult.Source = .fallback
-
-        if configStore.generalConfig.enableAIPolish {
-            state = .polishing
-
-            let terms = await MainActor.run { dictionaryStore?.termsForPrompt() ?? [] }
-            let llmProvider = LLMProvider(
-                baseURL: configStore.llmConfig.baseURL,
-                apiKey: configStore.openAIAPIKey,
-                model: configStore.llmConfig.model,
-                thinkingDisabled: configStore.llmConfig.thinkingDisabled,
-                dictionaryTerms: terms,
-                onThinkingUnsupported: { [self] in
-                    try? self.configStore.markThinkingDisabledForCurrentLLM()
-                }
-            )
-
-            let llmStart = Date()
-            do {
-                let polishResult = try await llmProvider.polish(text: transcriptResult.text)
-                guard generation == sessionGeneration, !Task.isCancelled else { return }
-
-                let llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
-                diag.llmMs = llmMs
-
-                if !polishResult.text.isEmpty {
-                    finalText = polishResult.text
-                    polishSource = .llm
-                }
-                diagnostics.llmCompleted(
-                    sessionID: sessionID,
-                    text: finalText,
-                    source: polishSource.rawValue,
-                    durationMs: llmMs
-                )
-            } catch {
-                // LLM 失败：回退到 ASR 原文继续注入
-                guard generation == sessionGeneration, !Task.isCancelled else { return }
-                let llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
-                diag.llmMs = llmMs
-                polishSource = .fallback
-
-                let reason: String
-                if let te = error as? TypolessError {
-                    reason = te.diagnosticClassification
-                } else {
-                    reason = error.localizedDescription
-                }
-                diagnostics.llmFallback(sessionID: sessionID, reason: reason)
-            }
+        // 3. LLM 润色必须配置完整且成功，否则直接报错
+        guard configStore.isLLMConfigured else {
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = TypolessError.llmConfigurationIncomplete.diagnosticClassification
+            diagnostics.sessionError(sessionID: sessionID, error: .llmConfigurationIncomplete)
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            handleError(.llmConfigurationIncomplete)
+            return
         }
 
-        // 3. 文本注入
-        guard generation == sessionGeneration, !Task.isCancelled else { return }
-        state = .injecting
-        diag.resultSource = polishSource.rawValue
+        state = .polishing
+        let terms = await MainActor.run { dictionaryStore?.termsForPrompt() ?? [] }
+        let llmProvider = LLMProvider(
+            baseURL: configStore.llmConfig.baseURL,
+            apiKey: configStore.openAIAPIKey,
+            model: configStore.llmConfig.model,
+            thinkingDisabled: configStore.llmConfig.thinkingDisabled,
+            dictionaryTerms: terms,
+            onThinkingUnsupported: { [self] in
+                try? self.configStore.markThinkingDisabledForCurrentLLM()
+            }
+        )
 
-        let polishAttempted = configStore.generalConfig.enableAIPolish
-        lastResult = SessionResult(text: finalText, source: polishSource, polishAttempted: polishAttempted)
+        let llmStart = Date()
+        let polishResult: PolishResult
+        do {
+            polishResult = try await llmProvider.polish(text: transcriptResult.text)
+        } catch {
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
+            let mapped = mapError(error)
+            diag.llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = mapped.diagnosticClassification
+            diagnostics.sessionError(sessionID: sessionID, error: mapped)
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            handleError(mapped)
+            return
+        }
+
+        guard generation == sessionGeneration, !Task.isCancelled else { return }
+        let llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
+        diag.llmMs = llmMs
+        diagnostics.llmCompleted(
+            sessionID: sessionID,
+            text: polishResult.text,
+            source: polishResult.source.rawValue,
+            durationMs: llmMs
+        )
+
+        // 4. 文本注入
+        state = .injecting
+        diag.resultSource = polishResult.source.rawValue
+
+        lastResult = SessionResult(text: polishResult.text, source: polishResult.source)
 
         let injectionStart = Date()
         do {
             try textInjector.inject(
-                text: finalText,
+                text: polishResult.text,
                 targetPID: targetApplicationPID,
                 targetBundleID: targetApplicationBundleID,
                 pasteboardPreferredBundleIDs: configStore.generalConfig.effectivePasteboardInjectionBundleIDs
@@ -302,7 +295,7 @@ final class SessionCoordinator {
             diag.errorClassification = mapError(error).diagnosticClassification
             diagnostics.sessionError(sessionID: sessionID, error: mapError(error))
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            lastInjectionFailureText = finalText
+            lastInjectionFailureText = polishResult.text
             handleError(mapError(error))
             return
         }
@@ -363,5 +356,4 @@ final class SessionCoordinator {
 struct SessionResult: Sendable {
     let text: String
     let source: PolishResult.Source
-    let polishAttempted: Bool
 }

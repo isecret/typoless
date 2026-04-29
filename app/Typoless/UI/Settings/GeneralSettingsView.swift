@@ -36,7 +36,6 @@ struct GeneralSettingsView: View {
         guard isLoaded else { return }
         let config = GeneralConfig(
             hotkey: hotkey,
-            enableAIPolish: configStore.generalConfig.enableAIPolish,
             pasteboardInjectionBundleIDs: configStore.generalConfig.pasteboardInjectionBundleIDs.sorted()
         )
         try? configStore.saveGeneralConfig(config)

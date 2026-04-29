@@ -82,12 +82,10 @@ class ModelManager:
                 manifest = json.load(f)
             models_cfg = manifest.get("models", {})
             paths = {}
-            for key in ("asr", "vad", "punc"):
+            for key in ("asr", "vad"):
                 entry = models_cfg.get(key, {})
                 required = entry.get("required", key in ("asr", "vad"))
                 if not entry and not required:
-                    continue
-                if key == "punc" and not required:
                     continue
                 rel = entry.get("path", f"models/{entry.get('name', key)}")
                 full = self.resource_root / rel
@@ -140,8 +138,6 @@ class ModelManager:
                     disable_update=True,
                     log_level="ERROR",
                 )
-                if "punc" in paths:
-                    kwargs["punc_model"] = paths["punc"]
 
                 self.model = AutoModel(**kwargs)
                 self.device = attempt_device

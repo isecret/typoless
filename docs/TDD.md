@@ -40,7 +40,7 @@
 ### 3.2 外部服务
 
 - 音频预处理：`RNNoise` 本地降噪
-- ASR：`FunASR` 本地离线识别（通过内置 Python sidecar 运行 paraformer-zh + fsmn-vad + ct-punc）
+- ASR：`FunASR` 本地离线识别（通过内置 Python sidecar 运行 paraformer-zh + fsmn-vad）
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -52,7 +52,7 @@
 
 ### 3.4 本地存储
 
-- 全部配置（含密钥）：`~/.typoless/config`（UTF-8 JSON，目录权限 `0700`，文件权限 `0600`）
+- 全部配置（含密钥）：`~/.typoless/config.json`（UTF-8 JSON，目录权限 `0700`，文件权限 `0600`）
 
 ## 4. 系统架构
 
@@ -86,9 +86,9 @@
 - `ASRRuntimeManager`
   负责 Python sidecar 生命周期管理、warmup、健康检查与异常恢复
 - `StreamingASRProvider`
-  保留旧 sherpa-onnx 流式识别实现，不作为默认 ASR 路径
+  保留旧 sherpa-onnx 流式识别实现，不作为默认 ASR 路径，也不随正式包分发旧资源
 - `WhisperProvider`
-  保留旧本地 Whisper 子进程调用能力，不作为默认 ASR 路径
+  保留旧本地 Whisper 子进程调用能力，不作为默认 ASR 路径，也不随正式包分发旧资源
 - `LLMProvider`
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
@@ -143,7 +143,7 @@
 
 #### 5.5.1 FunASRProvider
 
-- 基于 `FunASR` 本地离线 ASR，使用固定模型组合 `paraformer-zh + fsmn-vad + ct-punc`。
+- 基于 `FunASR` 本地离线 ASR，使用固定模型组合 `paraformer-zh + fsmn-vad`。
 - 通过 `ASRRuntimeManager` 管理 Python sidecar 进程。
 - 使用 stdio JSON-RPC 协议与 sidecar 通信：请求发送 WAV 文件路径，响应返回转写文本。
 - 录音结束后将降噪后的 WAV 提交给 sidecar，获取转写结果进入 LLM 润色和注入。
@@ -155,10 +155,11 @@
 #### 5.5.2 ASRRuntimeManager
 
 - 管理 Python sidecar 进程的启动、停止、重启。
-- 首次录音时惰性启动 sidecar（lazy-load），启动后执行 warmup。
+- 首次录音时惰性启动 sidecar（lazy-load）。
 - 提供 `ping` 健康检查接口，在录音前验证 sidecar 可用性。
 - sidecar 异常退出后自动标记不可用，下次录音前尝试重启。
 - sidecar 卡死（ping 超时）时执行 force kill 后重启。
+- sidecar 空闲超时后自动停止并释放内存，下次请求再惰性启动。
 
 #### 5.5.3 Sidecar stdio JSON-RPC 协议
 
@@ -207,7 +208,7 @@
 - 使用固定 Prompt 生成 Chat Completions 请求
 - 默认优先发送 `thinking: { "type": "disabled" }` 关闭长思考
 - 若当前 LLM 配置已记录 `thinkingDisabled = true`，则直接发送普通请求
-- 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config`
+- 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config.json`
 - 返回润色后的最终文本
 - 不处理 UI 和回退逻辑
 - Prompt 可接收个人词典术语参考，但不开放用户自定义 Prompt
@@ -220,13 +221,14 @@
 
 ### 5.8 ConfigStore
 
-- 统一使用 `~/.typoless/config` 读写全部配置（含密钥）
+- 统一使用 `~/.typoless/config.json` 读写全部配置（含密钥）
 - 启动时直接从配置文件加载到内存
 - 若配置文件不存在，自动从旧存储（UserDefaults + Keychain）迁移
 - 若配置文件损坏，标记为加载失败，使首次配置检查返回 false
 - 保存时执行轻量校验，整文件原子写回
 - LLM 配置包含内部兼容性字段 `thinkingDisabled`
 - 当 `Base URL`、`API Key`、`Model` 任一保存值发生变化时，自动重置 `thinkingDisabled = false`
+- 允许保存全空或半填的 LLM 配置；运行时仅在三项都完整时视为可用
 - `hasCompletedInitialSetup` 在配置文件正常加载后返回 true；ASR 资源完整性在录音前检查
 
 ### 5.9 PersonalDictionaryStore
@@ -257,14 +259,6 @@
 ### 6.2 状态流转
 
 正常路径：
-
-`idle -> recording -> transcribing -> polishing -> injecting -> done -> idle`
-
-关闭 AI 润色路径：
-
-`idle -> recording -> transcribing -> injecting -> done -> idle`
-
-LLM 回退路径：
 
 `idle -> recording -> transcribing -> polishing -> injecting -> done -> idle`
 
@@ -305,11 +299,12 @@ LLM 回退路径：
 8. 若录音时长低于 500ms，则静默取消并通过 `DiagnosticsLogger` 记录 `short_recording_cancelled`
 9. `AudioPreprocessor` 执行 RNNoise 降噪
 10. `FunASRProvider` 提交降噪后音频给 sidecar，获取转写文本
-11. 若 `enable_ai_polish = true`，则 `LLMProvider` 发起润色请求
-12. 若 LLM 失败或返回空文本，则回退 ASR 原文
-13. `TextInjector` 尝试注入最终文本
-14. `DiagnosticsLogger` 输出本次会话耗时与结果摘要
-15. 状态返回 `idle`
+11. 若 LLM 配置不完整，则主链路直接报错并结束
+12. `LLMProvider` 发起润色请求
+13. 若 LLM 失败或返回空文本，则主链路直接报错并结束
+14. `TextInjector` 尝试注入最终文本
+15. `DiagnosticsLogger` 输出本次会话耗时与结果摘要
+16. 状态返回 `idle`
 
 ## 8. 配置模型
 
@@ -318,10 +313,7 @@ LLM 回退路径：
 - `openai_base_url`
 - `openai_model`
 - `global_hotkey`
-- `recording_trigger_mode`
-- `enable_ai_polish`
-- `asr_mode`
-- `enable_noise_reduction`
+- `pasteboard_injection_bundle_ids`
 
 ### 8.2 敏感配置
 
@@ -337,8 +329,7 @@ LLM 回退路径：
 
 保存时进行轻量校验：
 
-- 非空校验
-- URL 基本格式校验
+- Base URL 非空时做 URL 基本格式校验
 - 快捷键冲突和有效性校验
 
 联网调用时进行严格校验：
@@ -365,7 +356,7 @@ LLM 回退路径：
 
 ### 9.3 FunASR 离线识别
 
-- 使用内置 Python sidecar 运行 FunASR，固定模型组合：`paraformer-zh`（语音识别）+ `fsmn-vad`（语音活动检测）+ `ct-punc`（标点恢复）。
+- 使用内置 Python sidecar 运行 FunASR，固定模型组合：`paraformer-zh`（语音识别）+ `fsmn-vad`（语音活动检测）。
 - 模型随 App 打包，无需运行时下载。
 - 通过 stdio JSON-RPC 协议通信，每次请求传入 WAV 文件路径，返回转写文本。
 - 设备优先使用 MPS 推理加速，不可用时回退 CPU。
@@ -374,8 +365,9 @@ LLM 回退路径：
 
 ### 9.4 Sidecar 生命周期
 
-- 首次录音时惰性启动 sidecar，执行模型加载和 warmup。
-- 启动后保持常驻，后续请求复用同一 sidecar 进程。
+- 首次录音时惰性启动 sidecar，执行模型加载。
+- 活跃请求之间复用同一 sidecar 进程。
+- 空闲超过 30 秒后自动停止 sidecar，释放 Python 进程和模型内存。
 - sidecar 异常退出后标记不可用，下次录音前自动重启。
 - 提供 ping 健康检查，录音前验证 sidecar 可用。
 - sidecar ping 超时时执行 force kill 后重启。
@@ -558,8 +550,8 @@ LLM 回退路径：
 核心测试场景：
 
 - 正常主链路
-- 关闭 AI 润色
-- LLM 失败回退
+- LLM 配置不完整
+- LLM 失败直接报错
 - 用户取消
 - 低于 500ms 的短录音静默取消
 - ASR 超时
@@ -606,6 +598,6 @@ LLM 回退路径：
 - 所有关键状态可在菜单栏中反映
 - 所有关键错误可被统一分类和展示
 - 本地降噪与 FunASR 离线 ASR 默认链路可运行
-- LLM 失败时可自动回退 ASR 原文
+- LLM 配置不完整或请求失败时不会注入任何文本
 - 注入失败时文本不会丢失
 - 配置、权限在重启后行为正确

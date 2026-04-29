@@ -14,6 +14,7 @@ enum TypolessError: Error, Equatable, Sendable {
     case asrRuntimeMissing
     case asrProcessFailure(message: String)
     // LLM 错误
+    case llmConfigurationIncomplete
     case invalidLLMConfiguration(detail: String)
     case llmNetworkFailure(message: String)
     case llmEmptyResponse
@@ -39,12 +40,14 @@ enum TypolessError: Error, Equatable, Sendable {
             "本地语音识别失败：\(message)"
         case .audioPreprocessFailure(let message):
             "音频预处理失败：\(message)"
+        case .llmConfigurationIncomplete:
+            "LLM 配置未完成，请填写 Base URL、API Key 和 Model"
         case .invalidLLMConfiguration(let detail):
-            "LLM 配置无效：\(detail)"
+            "LLM 配置异常：\(detail)"
         case .llmNetworkFailure:
-            "LLM 网络连接失败，请检查网络"
+            "LLM 请求失败，请检查配置或网络"
         case .llmEmptyResponse:
-            "LLM 返回空结果，已使用原始识别文本"
+            "LLM 返回空结果，请检查模型或网关配置"
         case .textInjectionFailure(let detail):
             "文本注入失败：\(detail)"
         case .sessionCancelled:

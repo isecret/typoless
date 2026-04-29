@@ -23,24 +23,20 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 设置页（LLM / 通用 / 权限 / 诊断）
 - 全局快捷键（Carbon Event API）
 - 按一次开始录音，再按一次结束录音
-- 本地 Whisper 语音识别（基于 `whisper.cpp`，内置子进程方式，旧链路）
-- sherpa-onnx 本地流式 ASR（旧链路，支持中文 streaming transducer）
-- FunASR 本地离线 ASR（默认链路，通过内置 Python sidecar 运行 paraformer-zh + fsmn-vad + ct-punc）
+- FunASR 本地离线 ASR（默认链路，通过内置 Python sidecar 运行 paraformer-zh + fsmn-vad）
 - RNNoise 本地降噪（录音后、ASR 前自动执行）
 - OpenAI 兼容 LLM 润色（增强版固定 Prompt，纠错 + 同音词 + 去赘词 + 轻度书面化 + 补标点 + 专有名词保护）
 - 个人词典（ASR hotwords + LLM 术语参考，`~/.typoless/dictionary.json`）
 - 文本注入（AX API 主策略 + 键盘事件回退）
 - 麦克风与辅助功能权限引导
 - 注入失败文本临时复制入口（菜单栏内显示截断预览，点击复制到剪贴板，仅当前运行期有效）
-- LLM 失败时自动回退 ASR 原文
 - 状态机驱动菜单栏反馈（空闲 / 录音中 / 识别中 / 润色中 / 注入中 / 完成 / 失败 / 已取消）
 - 用户可理解的错误分类与展示
 - 处理中可取消（识别中 / 润色中）
 - 诊断页（最近错误摘要 + 会话状态 + 版本信息）
 - 诊断日志（per-session 耗时、Debug ASR/LLM 明文对照、Release 脱敏）
 - 60 秒录音上限 + 500ms 短录音静默取消
-- 资源准备脚本（RNNoise、sherpa-onnx runtime + 模型，旧链路）
-- FunASR 模型随 App 打包，无需额外准备
+- FunASR 与 RNNoise 资源随 App 打包，无需额外准备
 - 构建前与录音前资源校验
 
 ### 不包含
@@ -64,7 +60,8 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - ASR Provider：默认 `FunASR` 本地离线识别
 - 音频预处理：默认 RNNoise 本地降噪
 - 默认输出：`LLM 润色版`
-- LLM 失败回退：自动输出 `ASR 原文`
+- LLM 启用条件：`Base URL`、`API Key`、`Model` 三项完整
+- LLM 失败处理：直接报错，不注入任何文本
 - 注入失败策略：不自动写剪贴板，菜单栏显示失败文本截断预览，点击可复制到剪贴板，仅当前运行期有效
 
 ## 技术架构
@@ -78,7 +75,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
 - 文本注入：优先 `Accessibility API`，失败后回退键盘事件输入
-- 配置存储：`~/.typoless/config`（UTF-8 JSON）
+- 配置存储：`~/.typoless/config.json`（UTF-8 JSON）
 
 ### 分层结构
 
@@ -92,7 +89,7 @@ app/Typoless/
 ├── Persistence/            # ConfigStore, KeychainHelper, PersonalDictionaryStore
 ├── Platform/               # AudioRecorder, AudioPreprocessor, HotkeyManager, PermissionsManager, TextInjector
 ├── Providers/              # ASRProvider, FunASRProvider, ASRRuntimeManager, StreamingASRProvider, WhisperProvider, LLMProvider
-├── Resources/              # 资源文件（rnnoise, funasr, sherpa, whisper）
+├── Resources/              # 资源文件（正式包默认包含 rnnoise, funasr）
 └── UI/
     ├── MenuBar/            # MenuBarView
     └── Settings/           # 设置页各 Tab 视图
@@ -115,7 +112,7 @@ app/Typoless/
 | `TextInjector` | AX API 文本注入 + 键盘事件回退 |
 | `PermissionsManager` | 麦克风与辅助功能权限管理 |
 | `HotkeyManager` | Carbon Event 全局快捷键 |
-| `ConfigStore` | `~/.typoless/config` 配置读写 |
+| `ConfigStore` | `~/.typoless/config.json` 配置读写 |
 | `PersonalDictionaryStore` | 个人词典管理（`~/.typoless/dictionary.json`） |
 | `DiagnosticsLogger` | 会话耗时与 ASR/LLM 对照日志 |
 | `ResourceValidator` | 运行时资源完整性校验 |
@@ -125,7 +122,7 @@ app/Typoless/
 ### 首次配置
 
 1. 启动应用
-2. 应用内置 ASR 与降噪资源，无需额外准备
+2. 应用内置默认 ASR 与降噪资源，无需额外准备
 3. 配置 LLM `Base URL / API Key / Model`
 4. 设置全局快捷键
 5. 授予麦克风权限
@@ -169,7 +166,7 @@ app/Typoless/
 | 本地识别引擎未就绪 | 本地识别引擎未就绪，请重新安装应用 |
 | LLM 配置无效 | LLM 配置无效：具体原因 |
 | LLM 网络失败 | LLM 网络连接失败，请检查网络 |
-| LLM 空结果 | LLM 返回空结果，已使用原始识别文本 |
+| LLM 空结果 | LLM 返回空结果，请检查模型或网关配置 |
 | 文本注入失败 | 文本注入失败：具体原因 |
 
 ## LLM 处理边界
@@ -193,14 +190,11 @@ app/Typoless/
 
 | 配置字段 | 存储位置 |
 | --- | --- |
-| `openai_base_url` | `~/.typoless/config` |
-| `openai_model` | `~/.typoless/config` |
-| `global_hotkey` | `~/.typoless/config` |
-| `recording_trigger_mode` | `~/.typoless/config` |
-| `enable_ai_polish` | `~/.typoless/config` |
-| `openai_api_key` | `~/.typoless/config` |
-| `asr_mode` | `~/.typoless/config` |
-| `enable_noise_reduction` | `~/.typoless/config` |
+| `openai_base_url` | `~/.typoless/config.json` |
+| `openai_model` | `~/.typoless/config.json` |
+| `global_hotkey` | `~/.typoless/config.json` |
+| `pasteboard_injection_bundle_ids` | `~/.typoless/config.json` |
+| `openai_api_key` | `~/.typoless/config.json` |
 | 个人词典 | `~/.typoless/dictionary.json` |
 
 ## 测试策略
@@ -224,8 +218,8 @@ app/Typoless/
 - [ ] Debug 日志可查看耗时和 ASR/LLM 明文对照
 - [ ] Release 日志不泄露 ASR/LLM 明文
 - [ ] 个人词典可改善专有名词识别与润色
-- [ ] 关闭 AI 润色：录音 → ASR → 直接注入
-- [ ] LLM 失败自动回退 ASR 原文
+- [ ] LLM 配置不完整时，录音流程直接报错且不注入文本
+- [ ] LLM 失败或空结果时直接报错且不注入文本
 - [ ] 注入失败后菜单栏显示失败文本预览，点击可复制
 - [ ] 成功注入后失败文本预览消失
 - [ ] 菜单栏状态随主链路正确刷新
@@ -253,17 +247,17 @@ app/Typoless/
 
 ### 准备本地语音资源
 
-默认 FunASR 链路的模型随 App 打包，无需手动准备。以下脚本仅用于旧链路或开发调试：
+正式包默认仅内置 `FunASR + RNNoise` 资源。开发环境至少需要准备 RNNoise；旧链路脚本只保留给历史调试用途：
 
 ```bash
 # 准备 RNNoise 降噪库
 ./scripts/setup-rnnoise.sh
 
-# 准备 sherpa-onnx runtime 与中文 streaming 模型（旧链路）
-./scripts/setup-sherpa.sh
+# 可选：准备 sherpa-onnx runtime 与中文 streaming 模型（旧链路调试）
+# ./scripts/setup-sherpa.sh
 
-# 准备 Whisper 资源（旧链路，可选）
-./scripts/setup-whisper.sh
+# 可选：准备 Whisper 资源（旧链路调试）
+# ./scripts/setup-whisper.sh
 ```
 
 脚本支持通过环境变量指定资源路径，详见各脚本顶部注释。

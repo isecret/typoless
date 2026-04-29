@@ -75,7 +75,6 @@ struct ClipboardWhitelistSettingsView: View {
         guard isLoaded else { return }
         let config = GeneralConfig(
             hotkey: configStore.generalConfig.hotkey,
-            enableAIPolish: configStore.generalConfig.enableAIPolish,
             pasteboardInjectionBundleIDs: pasteboardInjectionBundleIDs.sorted()
         )
         try? configStore.saveGeneralConfig(config)

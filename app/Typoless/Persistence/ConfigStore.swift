@@ -1,6 +1,6 @@
 import Foundation
 
-/// 配置中心：全部配置统一存储到 ~/.typoless/config
+/// 配置中心：全部配置统一存储到 ~/.typoless/config.json
 @MainActor
 @Observable
 final class ConfigStore {
@@ -23,6 +23,12 @@ final class ConfigStore {
         !configLoadFailed
     }
 
+    var isLLMConfigured: Bool {
+        !llmConfig.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !llmConfig.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     // MARK: - 配置文件路径
 
     private static let configDirectory: URL = {
@@ -31,7 +37,7 @@ final class ConfigStore {
     }()
 
     private static let configFileURL: URL = {
-        configDirectory.appendingPathComponent("config")
+        configDirectory.appendingPathComponent("config.json")
     }()
 
     // MARK: - 旧存储键（仅用于迁移）
@@ -100,14 +106,8 @@ final class ConfigStore {
         let trimmedModel = config.model.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if generalConfig.enableAIPolish {
-            if trimmedURL.isEmpty { throw ConfigValidationError.emptyField("Base URL") }
-            if trimmedKey.isEmpty { throw ConfigValidationError.emptyField("API Key") }
-            if trimmedModel.isEmpty { throw ConfigValidationError.emptyField("Model") }
-
-            if URL(string: trimmedURL) == nil {
-                throw ConfigValidationError.invalidURL(trimmedURL)
-            }
+        if !trimmedURL.isEmpty, URL(string: trimmedURL) == nil {
+            throw ConfigValidationError.invalidURL(trimmedURL)
         }
 
         var normalConfig = config

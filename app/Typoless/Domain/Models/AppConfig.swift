@@ -12,29 +12,24 @@ struct LLMConfig: Codable, Equatable, Sendable {
 
 struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
-    var enableAIPolish: Bool = true
     var pasteboardInjectionBundleIDs: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case hotkey
-        case enableAIPolish
         case pasteboardInjectionBundleIDs
     }
 
     init(
         hotkey: HotkeyCombo = .default,
-        enableAIPolish: Bool = true,
         pasteboardInjectionBundleIDs: [String] = []
     ) {
         self.hotkey = hotkey
-        self.enableAIPolish = enableAIPolish
         self.pasteboardInjectionBundleIDs = pasteboardInjectionBundleIDs
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         hotkey = try container.decodeIfPresent(HotkeyCombo.self, forKey: .hotkey) ?? .default
-        enableAIPolish = try container.decodeIfPresent(Bool.self, forKey: .enableAIPolish) ?? true
         pasteboardInjectionBundleIDs = try container.decodeIfPresent([String].self, forKey: .pasteboardInjectionBundleIDs) ?? []
     }
 

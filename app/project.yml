@@ -29,13 +29,7 @@ targets:
           - "Resources/sherpa"
           - "Resources/funasr"
     resources:
-      - path: Typoless/Resources/whisper
-        buildPhase: resources
-        optional: true
       - path: Typoless/Resources/rnnoise
-        buildPhase: resources
-        optional: true
-      - path: Typoless/Resources/sherpa
         buildPhase: resources
         optional: true
       - path: Typoless/Resources/funasr
@@ -56,14 +50,6 @@ targets:
     preBuildScripts:
       - name: "Validate Source Resources"
         script: |
-          # Whisper (legacy, optional)
-          WHISPER_DIR="${SRCROOT}/Typoless/Resources/whisper"
-          if [ -d "${WHISPER_DIR}" ]; then
-            if [ ! -f "${WHISPER_DIR}/bin/whisper-cli" ]; then
-              echo "warning: Whisper CLI not found. Run ./scripts/setup-whisper.sh if needed."
-            fi
-          fi
-
           # RNNoise (required for new pipeline)
           RNNOISE_DIR="${SRCROOT}/Typoless/Resources/rnnoise"
           if [ ! -f "${RNNOISE_DIR}/lib/librnnoise.dylib" ]; then
@@ -88,16 +74,6 @@ targets:
     postBuildScripts:
       - name: "Copy Resources and Fix Permissions"
         script: |
-          # Whisper (legacy)
-          WHISPER_SRC="${SRCROOT}/Typoless/Resources/whisper"
-          WHISPER_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/whisper"
-          if [ -d "${WHISPER_SRC}" ]; then
-            mkdir -p "$(dirname "${WHISPER_DST}")"
-            ditto "${WHISPER_SRC}" "${WHISPER_DST}"
-            [ -f "${WHISPER_DST}/bin/whisper-cli" ] && chmod +x "${WHISPER_DST}/bin/whisper-cli"
-            [ -f "${WHISPER_DST}/bin/whisper-cli-bin" ] && chmod +x "${WHISPER_DST}/bin/whisper-cli-bin"
-          fi
-
           # RNNoise
           RNNOISE_SRC="${SRCROOT}/Typoless/Resources/rnnoise"
           RNNOISE_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/rnnoise"
@@ -115,12 +91,4 @@ targets:
             ditto "${FUNASR_SRC}" "${FUNASR_DST}"
             [ -f "${FUNASR_DST}/runtime/python3" ] && chmod +x "${FUNASR_DST}/runtime/python3"
             [ -f "${FUNASR_DST}/worker/funasr_worker.py" ] && chmod +x "${FUNASR_DST}/worker/funasr_worker.py"
-          fi
-
-          # sherpa-onnx
-          SHERPA_SRC="${SRCROOT}/Typoless/Resources/sherpa"
-          SHERPA_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/sherpa"
-          if [ -d "${SHERPA_SRC}" ]; then
-            mkdir -p "$(dirname "${SHERPA_DST}")"
-            ditto "${SHERPA_SRC}" "${SHERPA_DST}"
           fi

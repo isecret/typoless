@@ -11,11 +11,6 @@
       "name": "fsmn-vad",
       "path": "models/fsmn-vad",
       "required": true
-    },
-    "punc": {
-      "name": "ct-punc",
-      "path": "models/ct-punc",
-      "required": false
     }
   },
   "worker": {

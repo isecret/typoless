@@ -20,8 +20,7 @@ Typoless.app/
             │   └── python3            # 内嵌 Python 解释器（或符号链接到系统 Python）
             └── models/
                 ├── paraformer-zh/     # 语音识别模型
-                ├── fsmn-vad/          # 语音活动检测模型
-                └── ct-punc/           # 标点恢复模型
+                └── fsmn-vad/          # 语音活动检测模型
 ```
 
 ## 3. 开发期资源布局
@@ -37,8 +36,7 @@ app/Typoless/Resources/funasr/
 ├── runtime/                  # 开发期可使用系统 Python，不内嵌
 └── models/                   # 通过脚本下载，不提交到仓库
     ├── paraformer-zh/
-    ├── fsmn-vad/
-    └── ct-punc/
+    └── fsmn-vad/
 ```
 
 ## 4. manifest.json 格式
@@ -56,11 +54,6 @@ app/Typoless/Resources/funasr/
     "vad": {
       "name": "fsmn-vad",
       "path": "models/fsmn-vad",
-      "required": true
-    },
-    "punc": {
-      "name": "ct-punc",
-      "path": "models/ct-punc",
       "required": true
     }
   },
@@ -120,7 +113,7 @@ let manifestURL = funasrRoot.appendingPathComponent("manifest.json")
 ```
 
 脚本职责：
-- 从 ModelScope 下载 paraformer-zh、fsmn-vad、ct-punc 模型
+- 从 ModelScope 下载 paraformer-zh、fsmn-vad 模型
 - 放置到 `app/Typoless/Resources/funasr/models/` 下
 - 生成或更新 `manifest.json`
 - 不提交模型文件到仓库（`.gitignore` 排除）

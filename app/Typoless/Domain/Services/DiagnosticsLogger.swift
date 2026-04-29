@@ -83,12 +83,6 @@ final class DiagnosticsLogger: Sendable {
         #endif
     }
 
-    func llmFallback(sessionID: String, reason: String) {
-        logger.info(
-            "[\(sessionID)] llm_fallback | reason=\(reason, privacy: .public)"
-        )
-    }
-
     // MARK: - Error Logging
 
     func sessionError(sessionID: String, error: TypolessError) {
@@ -153,6 +147,7 @@ extension TypolessError {
         case .asrRuntimeMissing: "asr_runtime_missing"
         case .asrProcessFailure: "asr_process_failure"
         case .audioPreprocessFailure: "audio_preprocess_failure"
+        case .llmConfigurationIncomplete: "llm_configuration_incomplete"
         case .invalidLLMConfiguration: "invalid_llm_configuration"
         case .llmNetworkFailure: "llm_network_failure"
         case .llmEmptyResponse: "llm_empty_response"

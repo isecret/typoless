@@ -26,7 +26,7 @@ struct LLMSettingsView: View {
         } header: {
             Text("AI 配置")
         } footer: {
-            Text("支持任何兼容 OpenAI Chat Completions 的接口")
+            Text("支持任何兼容 OpenAI Chat Completions 的接口。填写 Base URL、API Key、Model 后会自动启用 AI 润色。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -11,7 +11,6 @@
 # Models downloaded:
 #   - paraformer-zh (speech recognition)
 #   - fsmn-vad (voice activity detection)
-#   - ct-punc (punctuation restoration)
 #
 # Source: ModelScope / FunASR official models
 # License: Apache-2.0
@@ -58,10 +57,6 @@ MODELS = [
     (
         'fsmn-vad',
         'iic/speech_fsmn_vad_zh-cn-16k-common-pytorch',
-    ),
-    (
-        'ct-punc',
-        'iic/punc_ct-transformer_cn-en-common-vocab471067-large',
     ),
 ]
 
