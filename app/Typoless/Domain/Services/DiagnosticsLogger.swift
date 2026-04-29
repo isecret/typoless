@@ -57,15 +57,15 @@ final class DiagnosticsLogger: Sendable {
 
     // MARK: - ASR/LLM Comparison
 
-    func asrCompleted(sessionID: String, text: String, durationMs: Int) {
+    func asrCompleted(sessionID: String, text: String, durationMs: Int, coldStart: Bool = false, warmupWaitMs: Int = 0) {
         #if DEBUG
         logger.debug(
-            "[\(sessionID)] asr_completed | text=\"\(text, privacy: .public)\" | duration=\(durationMs)ms"
+            "[\(sessionID)] asr_completed | text=\"\(text, privacy: .public)\" | duration=\(durationMs)ms | cold_start=\(coldStart) | warmup_wait=\(warmupWaitMs)ms"
         )
         #else
         let hash = Self.textHash(text)
         logger.info(
-            "[\(sessionID)] asr_completed | length=\(text.count) | hash=\(hash, privacy: .public) | duration=\(durationMs)ms"
+            "[\(sessionID)] asr_completed | length=\(text.count) | hash=\(hash, privacy: .public) | duration=\(durationMs)ms | cold_start=\(coldStart) | warmup_wait=\(warmupWaitMs)ms"
         )
         #endif
     }
@@ -107,6 +107,16 @@ final class DiagnosticsLogger: Sendable {
         logger.error(
             "[\(sessionID)] denoise_failed | reason=\(reason, privacy: .public)"
         )
+    }
+
+    // MARK: - General Events
+
+    func log(sessionID: String, event: String, detail: String? = nil) {
+        if let detail {
+            logger.info("[\(sessionID)] \(event, privacy: .public) | detail=\(detail, privacy: .public)")
+        } else {
+            logger.info("[\(sessionID)] \(event, privacy: .public)")
+        }
     }
 
     // MARK: - Helpers

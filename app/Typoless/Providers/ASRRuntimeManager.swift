@@ -3,10 +3,31 @@ import os.log
 
 /// Python sidecar 进程生命周期管理器
 ///
-/// 负责 FunASR worker 的启动、停止、健康检查与异常恢复。
-/// 首次录音时惰性启动 sidecar，空闲超时后自动释放，后续请求按需重启。
+/// 负责 FunASR worker 的启动、停止、预热、健康检查与异常恢复。
+/// 支持录音开始即后台预热（单飞）、串行 RPC 通道、自适应空闲保活。
 final class ASRRuntimeManager: @unchecked Sendable {
-    private static let idleShutdownTimeout: TimeInterval = 30
+
+    /// 空闲保活策略
+    enum IdlePolicy: Sendable {
+        case warmupOnly         // 仅预热后空闲：90 秒
+        case afterRecognition   // 识别成功后空闲：180 秒
+
+        var timeout: TimeInterval {
+            switch self {
+            case .warmupOnly: return 90
+            case .afterRecognition: return 180
+            }
+        }
+    }
+
+    /// 预热状态
+    enum WarmupState: Sendable {
+        case cold       // 未启动 / 已释放
+        case warming    // 正在预热中
+        case warm       // 已加载模型，可直接识别
+    }
+
+    private(set) var warmupState: WarmupState = .cold
 
     private let logger = Logger(subsystem: "com.isecret.typoless", category: "ASRRuntime")
 
@@ -17,6 +38,14 @@ final class ASRRuntimeManager: @unchecked Sendable {
     private let lock = NSLock()
     private var activeRequestCount = 0
     private var idleShutdownTask: Task<Void, Never>?
+    private var currentIdlePolicy: IdlePolicy = .warmupOnly
+
+    /// 单飞预热任务
+    private var warmupTask: Task<Void, Error>?
+
+    /// 串行 RPC 队列，防止并发读写 stdio 导致响应串线
+    private let rpcQueue = DispatchQueue(label: "com.isecret.typoless.asr-rpc", qos: .userInitiated)
+    private let rpcSemaphore = DispatchSemaphore(value: 1)
 
     private let resourceRoot: URL
     private let pythonPath: String
@@ -52,10 +81,98 @@ final class ASRRuntimeManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
+        warmupTask?.cancel()
+        warmupTask = nil
+        warmupState = .cold
         stopLocked(reason: "explicit stop")
     }
 
-    /// 发送 JSON-RPC 请求并等待响应
+    // MARK: - Warmup（单飞预热）
+
+    /// 触发后台预热。如果已 warm 则立即返回；如果正在 warming 则复用同一 task。
+    /// 预热不阻塞调用方，调用方可在需要时 await 返回的 task。
+    @discardableResult
+    func warmup() -> Task<Void, Error> {
+        lock.lock()
+
+        cancelIdleShutdownLocked(reason: "warmup requested")
+
+        if warmupState == .warm, process?.isRunning == true {
+            lock.unlock()
+            return Task { }
+        }
+
+        if let existing = warmupTask {
+            lock.unlock()
+            return existing
+        }
+
+        let task = Task { [weak self] in
+            try await self?.performWarmup()
+        }
+        warmupTask = task
+        warmupState = .warming
+        lock.unlock()
+
+        logger.info("FunASR warmup started")
+        return task
+    }
+
+    /// 等待预热完成（如果正在进行）。已 warm 或 cold 状态不阻塞。
+    func awaitWarmupIfNeeded() async throws {
+        let task: Task<Void, Error>?
+        lock.lock()
+        task = warmupTask
+        lock.unlock()
+
+        if let task {
+            try await task.value
+        }
+    }
+
+    private func performWarmup() async throws {
+        // 启动 worker 进程
+        do {
+            try lock.withLock { try startLocked() }
+        } catch {
+            lock.lock()
+            warmupState = .cold
+            warmupTask = nil
+            lock.unlock()
+            throw error
+        }
+
+        // 发送 warmup RPC（触发模型加载）
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "method": "warmup",
+            "id": 0,
+        ]
+        do {
+            _ = try await sendRequest(request)
+        } catch {
+            // warmup 失败不阻塞后续 recognize（recognize 会自行重试启动）
+            lock.lock()
+            warmupState = .cold
+            warmupTask = nil
+            lock.unlock()
+            logger.warning("FunASR warmup failed: \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
+
+        lock.lock()
+        warmupState = .warm
+        warmupTask = nil
+        currentIdlePolicy = .warmupOnly
+        scheduleIdleShutdownLocked()
+        lock.unlock()
+
+        logger.info("FunASR warmup completed | idle_policy=warmupOnly")
+    }
+
+    // MARK: - RPC
+
+    /// 发送 JSON-RPC 请求并等待响应（串行化）
     func sendRequest(_ request: [String: Any]) async throws -> [String: Any] {
         let requestData = try JSONSerialization.data(withJSONObject: request)
         let responseData = try await sendRequestData(requestData)
@@ -64,7 +181,6 @@ final class ASRRuntimeManager: @unchecked Sendable {
             throw TypolessError.asrProcessFailure(message: "Invalid JSON-RPC response")
         }
 
-        // 检查 JSON-RPC 错误
         if let error = response["error"] as? [String: Any] {
             let message = error["message"] as? String ?? "Unknown worker error"
             throw TypolessError.asrProcessFailure(message: message)
@@ -73,7 +189,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
         return response
     }
 
-    /// 发送已编码的 JSON-RPC 请求并返回原始响应数据
+    /// 发送已编码的 JSON-RPC 请求并返回原始响应数据（串行化，防止并发读写）
     func sendRequestData(_ requestData: Data) async throws -> Data {
         let (writeHandle, readHandle) = try prepareRequestHandles()
         defer { finishRequest() }
@@ -81,11 +197,49 @@ final class ASRRuntimeManager: @unchecked Sendable {
         var line = requestData
         line.append(contentsOf: "\n".utf8)
 
-        // 写入 stdin
-        try writeHandle.write(contentsOf: line)
+        // 串行化 RPC：等待信号量确保同一时间只有一个请求在读写 stdio
+        return try await withCheckedThrowingContinuation { continuation in
+            rpcQueue.async { [weak self] in
+                guard let self else {
+                    continuation.resume(throwing: TypolessError.asrProcessFailure(message: "Runtime deallocated"))
+                    return
+                }
+                self.rpcSemaphore.wait()
+                defer { self.rpcSemaphore.signal() }
 
-        // 从 stdout 读取一行响应
-        return try await readLine(from: readHandle)
+                do {
+                    try writeHandle.write(contentsOf: line)
+                } catch {
+                    continuation.resume(throwing: TypolessError.asrProcessFailure(message: "Failed to write to worker: \(error.localizedDescription)"))
+                    return
+                }
+
+                var buffer = Data()
+                while true {
+                    let byte = readHandle.readData(ofLength: 1)
+                    if byte.isEmpty {
+                        if buffer.isEmpty {
+                            continuation.resume(throwing: TypolessError.asrProcessFailure(message: "Worker process terminated unexpectedly"))
+                        } else {
+                            continuation.resume(returning: buffer)
+                        }
+                        return
+                    }
+                    if byte[0] == UInt8(ascii: "\n") {
+                        continuation.resume(returning: buffer)
+                        return
+                    }
+                    buffer.append(byte)
+                }
+            }
+        }
+    }
+
+    /// 标记识别成功，延长保活时间
+    func markRecognitionSucceeded() {
+        lock.lock()
+        defer { lock.unlock() }
+        currentIdlePolicy = .afterRecognition
     }
 
     /// 健康检查
@@ -103,6 +257,9 @@ final class ASRRuntimeManager: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
+        warmupTask?.cancel()
+        warmupTask = nil
+        warmupState = .cold
         stopLocked(reason: "worker restart requested")
         try startLocked()
     }
@@ -114,32 +271,29 @@ final class ASRRuntimeManager: @unchecked Sendable {
         return process?.isRunning ?? false
     }
 
-    // MARK: - Private
+    // MARK: - Diagnostics
 
-    private func readLine(from handle: FileHandle) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var buffer = Data()
-                while true {
-                    let byte = handle.readData(ofLength: 1)
-                    if byte.isEmpty {
-                        // EOF
-                        if buffer.isEmpty {
-                            continuation.resume(throwing: TypolessError.asrProcessFailure(message: "Worker process terminated unexpectedly"))
-                        } else {
-                            continuation.resume(returning: buffer)
-                        }
-                        return
-                    }
-                    if byte[0] == UInt8(ascii: "\n") {
-                        continuation.resume(returning: buffer)
-                        return
-                    }
-                    buffer.append(byte)
-                }
-            }
-        }
+    /// 当前诊断信息快照
+    struct DiagnosticsSnapshot: Sendable {
+        let isColdStart: Bool
+        let warmupState: WarmupState
+        let workerReused: Bool
+        let idlePolicy: IdlePolicy
     }
+
+    /// 获取当前诊断快照
+    func diagnosticsSnapshot(wasColdStart: Bool) -> DiagnosticsSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return DiagnosticsSnapshot(
+            isColdStart: wasColdStart,
+            warmupState: warmupState,
+            workerReused: process?.isRunning ?? false,
+            idlePolicy: currentIdlePolicy
+        )
+    }
+
+    // MARK: - Private
 
     private func prepareRequestHandles() throws -> (FileHandle, FileHandle) {
         lock.lock()
@@ -211,6 +365,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
     private func stopLocked(reason: String) {
         cancelIdleShutdownLocked(reason: reason)
         activeRequestCount = 0
+        warmupState = .cold
         stderrPipe?.fileHandleForReading.readabilityHandler = nil
 
         if let proc = process, proc.isRunning {
@@ -229,8 +384,8 @@ final class ASRRuntimeManager: @unchecked Sendable {
         guard activeRequestCount == 0 else { return }
 
         idleShutdownTask?.cancel()
-        let timeout = Self.idleShutdownTimeout
-        logger.info("FunASR idle shutdown scheduled | timeout=\(Int(timeout))s")
+        let timeout = currentIdlePolicy.timeout
+        logger.info("FunASR idle shutdown scheduled | timeout=\(Int(timeout))s policy=\(String(describing: self.currentIdlePolicy), privacy: .public)")
 
         idleShutdownTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(timeout))
@@ -258,7 +413,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
         stopLocked(reason: "idle timeout")
     }
 
-    private static func defaultResourceRoot() -> URL {
+    static func defaultResourceRoot() -> URL {
         // 优先使用环境变量
         if let envPath = ProcessInfo.processInfo.environment["FUNASR_RESOURCE_PATH"] {
             return URL(fileURLWithPath: envPath)

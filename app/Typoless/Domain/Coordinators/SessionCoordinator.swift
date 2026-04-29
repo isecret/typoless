@@ -73,6 +73,9 @@ final class SessionCoordinator {
             return
         }
 
+        // 录音开始即后台预热 ASR worker（不阻塞录音）
+        asrRuntimeManager.warmup()
+
         // 60 秒超时自动结束
         timeoutTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(AudioRecorder.maxDuration))
@@ -169,7 +172,9 @@ final class SessionCoordinator {
         diag.recordingMs = recordingMs
         diag.targetBundleID = targetApplicationBundleID
 
-        // 1. 音频降噪
+        let wasColdStart = asrRuntimeManager.warmupState != .warm
+
+        // 1. 音频降噪（与 ASR warmup 并行进行）
         let denoiseStart = Date()
         let processedAudio: Data
         do {
@@ -192,6 +197,18 @@ final class SessionCoordinator {
 
         guard generation == sessionGeneration, !Task.isCancelled else { return }
 
+        // 等待录音开始时触发的 ASR 预热完成（若已完成则立即返回）
+        let warmupStart = Date()
+        do {
+            try await asrRuntimeManager.awaitWarmupIfNeeded()
+        } catch {
+            // warmup 失败不阻塞，recognize 会自行启动 worker
+            diagnostics.log(sessionID: sessionID, event: "warmup_failed", detail: error.localizedDescription)
+        }
+        let warmupWaitMs = Int(Date().timeIntervalSince(warmupStart) * 1000)
+
+        guard generation == sessionGeneration, !Task.isCancelled else { return }
+
         // 2. 使用 FunASR 离线识别（默认链路）
         let hotwords = await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
         let asrProvider: any ASRProvider = FunASRProvider(
@@ -203,6 +220,7 @@ final class SessionCoordinator {
         let transcriptResult: TranscriptResult
         do {
             transcriptResult = try await asrProvider.recognize(audioData: processedAudio)
+            asrRuntimeManager.markRecognitionSucceeded()
         } catch {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
             let mapped = mapError(error)
@@ -222,7 +240,9 @@ final class SessionCoordinator {
         diagnostics.asrCompleted(
             sessionID: sessionID,
             text: transcriptResult.text,
-            durationMs: asrMs
+            durationMs: asrMs,
+            coldStart: wasColdStart,
+            warmupWaitMs: warmupWaitMs
         )
 
         // 3. LLM 润色必须配置完整且成功，否则直接报错

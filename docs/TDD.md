@@ -155,11 +155,14 @@
 #### 5.5.2 ASRRuntimeManager
 
 - 管理 Python sidecar 进程的启动、停止、重启。
-- 首次录音时惰性启动 sidecar（lazy-load）。
+- 录音开始时触发后台预热（不阻塞录音），单飞机制避免重复预热。
+- 预热与降噪并行执行，降噪完成后等待预热结果即可识别。
+- 所有 RPC 请求通过串行队列发送，防止并发读写 stdio 导致响应串线。
 - 提供 `ping` 健康检查接口，在录音前验证 sidecar 可用性。
 - sidecar 异常退出后自动标记不可用，下次录音前尝试重启。
 - sidecar 卡死（ping 超时）时执行 force kill 后重启。
-- sidecar 空闲超时后自动停止并释放内存，下次请求再惰性启动。
+- 自适应空闲保活策略：warmup-only 后保活 90 秒，识别成功后保活 180 秒。
+- 诊断日志区分 cold start / reused / warmup duration / idle policy。
 
 #### 5.5.3 Sidecar stdio JSON-RPC 协议
 
