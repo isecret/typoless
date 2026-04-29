@@ -35,10 +35,13 @@ final class SessionCoordinator {
     private var sessionGeneration: UInt64 = 0
     private var currentSessionID: String = ""
 
-    init(permissionsManager: PermissionsManager, configStore: ConfigStore) {
+    init(permissionsManager: PermissionsManager, configStore: ConfigStore, dictionaryStore: PersonalDictionaryStore? = nil) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
+        self.dictionaryStore = dictionaryStore
     }
+
+    private let dictionaryStore: PersonalDictionaryStore?
 
     /// 开始录音
     func startRecording() {
@@ -220,10 +223,12 @@ final class SessionCoordinator {
         if configStore.generalConfig.enableAIPolish {
             state = .polishing
 
+            let terms = await MainActor.run { dictionaryStore?.termsForPrompt() ?? [] }
             let llmProvider = LLMProvider(
                 baseURL: configStore.llmConfig.baseURL,
                 apiKey: configStore.openAIAPIKey,
-                model: configStore.llmConfig.model
+                model: configStore.llmConfig.model,
+                dictionaryTerms: terms
             )
 
             let llmStart = Date()
