@@ -61,12 +61,20 @@ final class PersonalDictionaryStore {
 
     // MARK: - Hotwords 生成
 
-    /// 为 sherpa-onnx 生成 hotwords 文件内容（每行一个词条）
+    /// 为 sherpa-onnx 生成 hotwords 文件内容（每行一个词条，旧链路）
     func generateHotwordsContent() -> String {
         enabledEntries
             .map(\.term)
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
+    }
+
+    /// 为 FunASR 生成 hotwords 参数字符串（空格分隔）
+    func hotwordsForFunASR() -> String {
+        enabledEntries
+            .map(\.term)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     /// 将 hotwords 写入临时文件并返回路径
