@@ -59,11 +59,17 @@ final class AppCoordinator {
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()
+            window.initialFirstResponder = window.contentView
             settingsWindowController = NSWindowController(window: window)
         }
 
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
+        if let window = settingsWindowController?.window {
+            DispatchQueue.main.async {
+                window.makeFirstResponder(window.contentView)
+            }
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
