@@ -27,10 +27,10 @@
 | E10 | 集成验证与发布准备 | 完成端到端验收与项目交付准备 |
 | E11 | 诊断日志与 ASR/LLM 对照 | 建立可排查延迟和文本质量的 Debug 日志能力 |
 | E12 | 本地音频降噪 | 通过 RNNoise 降低噪声对识别率的影响 |
-| E13 | sherpa-onnx 流式 ASR | 将默认 ASR 链路切换为本地流式识别 |
+| E13 | FunASR 本地识别 | 将默认 ASR 链路切换为本地 FunASR 离线识别 |
 | E14 | Prompt 与个人词典 | 优化 LLM 纠错边界，并引入术语词典提升专名稳定性 |
-| E15 | 资源准备与校验 | 管理 sherpa-onnx、RNNoise 和模型资源的脚本化准备 |
-| E16 | 新链路集成验收 | 验证降噪、流式 ASR、LLM 和注入的完整闭环 |
+| E15 | FunASR 运行时与模型资源 | 管理内置 Python runtime、FunASR 模型与降噪资源 |
+| E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
 
 ## 3. Epic 详情
 
@@ -529,45 +529,47 @@
 - 降噪失败返回明确错误并停止本次处理
 - 不保存降噪前后的音频历史
 
-## E13. sherpa-onnx 流式 ASR
+## E13. FunASR 本地识别
 
 ### 目标
 
-将默认 ASR 从旧 Whisper 离线链路切换为本地 `sherpa-onnx` 流式识别，降低处理等待并提升中文识别扩展能力。
+将默认 ASR 从旧 sherpa-onnx 流式链路切换为本地 `FunASR` 离线识别，通过内置 Python sidecar 运行固定模型组合（paraformer-zh + fsmn-vad + ct-punc）。
 
 ### Stories
 
-#### S13.1 接入 sherpa-onnx runtime 与中文 streaming 模型
+#### S13.1 接入 FunASR worker 与固定模型组合
 
-作为开发者，我需要在客户端中接入 sherpa-onnx，以便支持本地流式 ASR。
-
-验收标准：
-
-- 支持 macOS arm64 运行
-- 使用中文 streaming transducer 模型
-- runtime、模型、tokens 文件路径可被应用定位
-- 资源缺失时返回明确错误，不自动回退 Whisper
-
-#### S13.2 实现 StreamingASRProvider
-
-作为系统，我需要统一封装流式识别能力，以便主链路消费 final 文本。
+作为开发者，我需要在项目中集成 FunASR Python sidecar worker，以便支持本地离线 ASR。
 
 验收标准：
 
-- Provider 可输出 partial 和 final 结果
-- partial 仅用于内部状态、HUD 预览或日志
-- final 文本进入 LLM 润色和注入链路
-- 用户仍通过按一次开始、再按一次结束触发录音
+- 支持 macOS arm64 运行 worker
+- 使用固定模型组合 `paraformer-zh + fsmn-vad + ct-punc`
+- worker 可定位本地模型目录并完成加载
+- 单次 WAV 请求可返回转写文本
+- 不暴露流式 partial 结果
 
-#### S13.3 将 sherpa-onnx 设为默认 ASR 链路
+#### S13.2 实现 FunASRProvider 与 ASRRuntimeManager
 
-作为用户，我希望默认使用新的本地流式 ASR，而不是旧 Whisper 链路。
+作为系统，我需要 Swift 端 Provider 管理 sidecar 生命周期与识别请求。
 
 验收标准：
 
-- 默认主链路使用 sherpa-onnx
-- 旧 Whisper 不作为资源缺失时的自动回退
-- sherpa 资源缺失时阻止录音并提示配置错误
+- FunASRProvider 接受 WAV 文件路径，返回 TranscriptResult
+- 首次录音时惰性启动 sidecar 成功
+- ASR 超时（15 秒）、取消、worker 异常可正常清理和恢复
+- 错误映射到统一 ASR 错误模型
+- sidecar 通过 stdio JSON-RPC 协议通信
+
+#### S13.3 将 FunASR 设为默认 ASR 链路并移除旧默认实现
+
+作为用户，我希望默认使用 FunASR 本地离线识别。
+
+验收标准：
+
+- 默认主链路使用 FunASRProvider
+- 资源缺失时不回退到旧 ASR，直接阻止录音并提示配置错误
+- 旧 sherpa-onnx 和 Whisper 默认路径分支移除或禁用
 
 ## E14. Prompt 与个人词典
 
@@ -604,71 +606,104 @@
 
 验收标准：
 
-- 启用词条生成 sherpa hotwords 文件
+- 启用词条生成 sherpa hotwords 文件（旧链路）
 - 词典作为术语参考进入 LLM Prompt
 - hotwords 仅在所选模型支持时启用
 - LLM 不得把词典内容当作系统指令执行
 
-## E15. 资源准备与校验
+#### S14.4 将个人词典接入 FunASR hotword 与 LLM Prompt
 
-### 目标
-
-通过脚本准备和校验 RNNoise、sherpa-onnx runtime 与模型资源，避免运行期出现不可理解失败。
-
-### Stories
-
-#### S15.1 扩展资源准备脚本
-
-作为开发者，我需要脚本化准备新链路所需资源。
+作为系统，我需要让个人词典在 FunASR 默认链路中同时影响识别和润色。
 
 验收标准：
 
-- 脚本可准备 RNNoise 库
-- 脚本可准备 sherpa-onnx runtime、中文 streaming 模型和 tokens
-- 脚本不要求把大模型提交进仓库
-- README 给出本地准备方式
+- 启用词条作为 hotword 参数传入 FunASR 请求
+- 词典仍作为术语参考进入 LLM Prompt
+- 不暴露 hotword 权重等高级参数
+- 词典内容不被视为可执行系统指令
 
-#### S15.2 扩展构建与运行前资源校验
-
-作为开发者，我需要在构建或录音前发现资源缺失。
-
-验收标准：
-
-- 构建阶段校验 RNNoise 与 sherpa 资源
-- 录音前校验运行所需资源
-- 资源缺失时阻止录音并显示用户可理解错误
-
-## E16. 新链路集成验收
+## E15. FunASR 运行时与模型资源
 
 ### 目标
 
-验证降噪、流式 ASR、LLM 润色、个人词典和文本注入能形成稳定闭环。
+管理内置 Python runtime、FunASR 模型与降噪资源的布局、校验与分发兼容性。
 
 ### Stories
 
-#### S16.1 完成新主链路端到端验证
+#### S15.1 设计 App 内嵌 Python runtime 与 FunASR 资源布局
+
+作为开发者，我需要明确 Python runtime、FunASR 模型和 worker 在 App bundle 中的目录结构。
+
+验收标准：
+
+- runtime、模型、manifest 路径有稳定约定
+- 设计支持 codesign/notarization
+- 无运行时在线模型下载依赖
+- worker 入口与资源发现机制明确
+
+#### S15.2 实现资源校验与 worker 健康检查
+
+作为开发者，我需要在录音前发现资源缺失或 worker 不可用。
+
+验收标准：
+
+- 录音前校验 Python runtime、worker、模型、manifest 存在性
+- worker ping/warmup 健康检查可检出异常
+- 资源缺失返回用户可理解错误
+- 校验失败阻止录音
+
+#### S15.3 完成正式分发所需的签名与公证兼容设计
+
+作为开发者，我需要确保 sidecar、Python runtime 和模型资源符合 Apple 签名与公证要求。
+
+验收标准：
+
+- 文档明确资源布局与签名/公证兼容性
+- worker 和 Python runtime 执行约束清晰
+- 未来实现不需要整体重新设计资源布局
+
+## E16. FunASR 新链路集成验收
+
+### 目标
+
+验证降噪、FunASR 离线 ASR、LLM 润色、个人词典和文本注入能形成稳定闭环。
+
+### Stories
+
+#### S16.1 完成 FunASR 默认链路端到端验证
 
 作为团队，我需要确认默认新链路可完成一次真实输入。
 
 验收标准：
 
-- 完成录音 -> 降噪 -> sherpa ASR -> LLM -> 注入
-- partial 不实时写入目标应用
-- final 经 LLM 后一次性注入
+- 完成录音 -> 降噪 -> FunASR -> LLM -> 注入
+- 浏览器输入框可完成注入
+- 备忘录/常见编辑器可完成注入
+- 低于 500ms 的短录音静默取消
+- 60 秒录音自动结束后继续处理
+- 首次调用惰性启动 sidecar 成功并完成主链路
 - LLM 失败时回退 ASR 原文
-- 低于 500ms 的短录音静默取消，不触发后续链路
 
-#### S16.2 完成质量诊断验收
+#### S16.2 验证 FunASR 失败处理与 LLM 回退行为
 
-作为团队，我需要用日志判断延迟和文本错误来源。
+作为团队，我需要确认异常路径可控且明确。
 
 验收标准：
 
-- Debug 日志可看到 ASR/LLM 明文对照
-- Release 日志无明文泄露
-- 日志包含各阶段耗时
-- 短录音取消记录 `short_recording_cancelled`
-- 本轮不设固定延迟阈值，仅产出可分析数据
+- 资源异常不会进入不可理解失败
+- ASR 超时、取消不留残留 worker 进程
+- worker 异常退出后可恢复，下次请求可继续
+- LLM 失败自动回退 ASR 原文
+
+#### S16.3 验证内置 FunASR runtime 的签名分发可运行性
+
+作为团队，我需要确认签名构建环境下 sidecar 可正常运行。
+
+验收标准：
+
+- 签名构建中 worker 可启动并完成一次识别
+- runtime 和模型路径稳定可定位
+- 形成可复用的 release 检查清单
 
 ## 4. 推荐实现顺序
 
@@ -687,8 +722,9 @@
 11. `E12 本地音频降噪`
 12. `E14 Prompt 与个人词典`
 13. `E15 资源准备与校验`
-14. `E13 sherpa-onnx 流式 ASR`
-15. `E16 新链路集成验收`
+14. `E13 FunASR 本地识别`
+15. `E15 FunASR 运行时与模型资源`
+16. `E16 FunASR 新链路集成验收`
 
 ## 5. MVP 完成定义
 
@@ -697,7 +733,7 @@
 - 用户可完成首次配置和权限准备
 - 用户可通过全局快捷键完成一次中文短语音输入
 - RNNoise 可完成本地降噪处理
-- sherpa-onnx 可返回有效 final 转写
+- FunASR 可返回有效转写
 - OpenAI 兼容 LLM 可完成固定边界内的文本润色
 - LLM 失败时可自动回退到 ASR 原文
 - 最终文本可注入常见 macOS 应用输入区域
