@@ -442,11 +442,11 @@
 
 - `PolishResult`
   - `text`
-  - `source = llm | fallback`
 
-### 10.4 失败回退
+### 10.4 失败处理
 
-- 以下情况直接回退到 ASR 原文：
+- 以下情况直接报错，不注入任何文本：
+  - LLM 配置不完整（Base URL / API Key / Model 任一缺失）
   - 超时
   - 401/403
   - 模型不存在
