@@ -147,7 +147,7 @@ struct HUDContentView: View {
     private var capsuleBackground: some View {
         ZStack {
             Capsule()
-                .fill(Color(white: 0.043).opacity(0.84))
+                .fill(Color(white: 0.043).opacity(0.93))
                 .overlay {
                     Capsule()
                         .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
@@ -155,7 +155,7 @@ struct HUDContentView: View {
             Capsule()
                 .fill(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.12), Color.white.opacity(0.06)],
+                        colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
