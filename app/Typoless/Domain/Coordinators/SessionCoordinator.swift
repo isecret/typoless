@@ -24,18 +24,27 @@ final class SessionCoordinator {
     }
 
     private let audioRecorder = AudioRecorder()
+    private let audioPreprocessor = AudioPreprocessor()
     private let permissionsManager: PermissionsManager
     private let configStore: ConfigStore
     private let textInjector = TextInjector()
+    private let diagnostics = DiagnosticsLogger.shared
+
+    /// FunASR sidecar 运行时管理器，跨 session 复用
+    private let asrRuntimeManager = ASRRuntimeManager()
 
     private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
+    private var currentSessionID: String = ""
 
-    init(permissionsManager: PermissionsManager, configStore: ConfigStore) {
+    init(permissionsManager: PermissionsManager, configStore: ConfigStore, dictionaryStore: PersonalDictionaryStore? = nil) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
+        self.dictionaryStore = dictionaryStore
     }
+
+    private let dictionaryStore: PersonalDictionaryStore?
 
     /// 开始录音
     func startRecording() {
@@ -46,18 +55,25 @@ final class SessionCoordinator {
         targetApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         targetApplicationBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         sessionGeneration &+= 1
+        currentSessionID = Self.generateSessionID()
 
         do {
             try permissionsManager.ensureMicrophoneAuthorized()
+            try ResourceValidator.validateDenoiseResources()
+            try ResourceValidator.validateASRResources()
             state = .recording
             try audioRecorder.startRecording()
+            diagnostics.sessionStarted(
+                sessionID: currentSessionID,
+                targetBundleID: targetApplicationBundleID
+            )
             onFeedbackEvent?(.recordingStarted)
         } catch {
             handleError(mapError(error))
             return
         }
 
-        // 30 秒超时自动结束
+        // 60 秒超时自动结束
         timeoutTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(AudioRecorder.maxDuration))
             guard !Task.isCancelled else { return }
@@ -72,9 +88,23 @@ final class SessionCoordinator {
         timeoutTask?.cancel()
         timeoutTask = nil
 
-        let audioData = audioRecorder.stopRecording()
+        let recordingResult = audioRecorder.stopRecording()
+        let audioData = recordingResult.data
         lastRecordedAudio = audioData
         onFeedbackEvent?(.recordingStopped)
+
+        // 短录音静默取消（<500ms）
+        if recordingResult.isShortRecording {
+            diagnostics.shortRecordingCancelled(
+                sessionID: currentSessionID,
+                durationMs: recordingResult.durationMs
+            )
+            lastRecordedAudio = nil
+            targetApplicationPID = nil
+            targetApplicationBundleID = nil
+            state = .idle
+            return
+        }
 
         guard !audioData.isEmpty else {
             handleError(.asrEmptyAudio)
@@ -82,10 +112,17 @@ final class SessionCoordinator {
         }
 
         let gen = sessionGeneration
+        let sessionID = currentSessionID
+        let recordingMs = recordingResult.durationMs
         state = .transcribing
 
         processingTask = Task { [weak self] in
-            await self?.processAudio(audioData, generation: gen)
+            await self?.processAudio(
+                audioData,
+                generation: gen,
+                sessionID: sessionID,
+                recordingMs: recordingMs
+            )
             self?.processingTask = nil
         }
     }
@@ -101,6 +138,7 @@ final class SessionCoordinator {
             targetApplicationPID = nil
             targetApplicationBundleID = nil
             state = .cancelled
+            diagnostics.sessionCancelled(sessionID: currentSessionID)
             onFeedbackEvent?(.processingCancelled)
             scheduleResetToIdle()
         case .transcribing, .polishing:
@@ -110,6 +148,7 @@ final class SessionCoordinator {
             targetApplicationPID = nil
             targetApplicationBundleID = nil
             state = .cancelled
+            diagnostics.sessionCancelled(sessionID: currentSessionID)
             onFeedbackEvent?(.processingCancelled)
             scheduleResetToIdle()
         default:
@@ -119,73 +158,155 @@ final class SessionCoordinator {
 
     // MARK: - Processing Pipeline
 
-    private func processAudio(_ audioData: Data, generation: UInt64) async {
-        // 1. 使用本地 Whisper 识别
-        let asrProvider: any ASRProvider = WhisperProvider()
+    private func processAudio(
+        _ audioData: Data,
+        generation: UInt64,
+        sessionID: String,
+        recordingMs: Int
+    ) async {
+        let sessionStart = Date()
+        var diag = SessionDiagnostics()
+        diag.recordingMs = recordingMs
+        diag.targetBundleID = targetApplicationBundleID
 
-        let transcriptResult: TranscriptResult
+        // 1. 音频降噪
+        let denoiseStart = Date()
+        let processedAudio: Data
         do {
-            transcriptResult = try await asrProvider.recognize(audioData: audioData)
+            processedAudio = try audioPreprocessor.denoise(wavData: audioData)
+            let denoiseMs = Int(Date().timeIntervalSince(denoiseStart) * 1000)
+            diag.denoiseMs = denoiseMs
+            diagnostics.denoiseCompleted(sessionID: sessionID, durationMs: denoiseMs)
         } catch {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
-            handleError(mapError(error))
+            let denoiseMs = Int(Date().timeIntervalSince(denoiseStart) * 1000)
+            diag.denoiseMs = denoiseMs
+            let mapped = mapError(error)
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = mapped.diagnosticClassification
+            diagnostics.denoiseFailed(sessionID: sessionID, reason: mapped.diagnosticClassification)
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            handleError(mapped)
             return
         }
 
         guard generation == sessionGeneration, !Task.isCancelled else { return }
 
-        // 2. LLM 润色（如果开启）
-        var finalText = transcriptResult.text
-        var polishSource: PolishResult.Source = .fallback
+        // 2. 使用 FunASR 离线识别（默认链路）
+        let hotwords = await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
+        let asrProvider: any ASRProvider = FunASRProvider(
+            runtimeManager: asrRuntimeManager,
+            hotwords: hotwords
+        )
 
-        if configStore.generalConfig.enableAIPolish {
-            state = .polishing
-
-            let llmProvider = LLMProvider(
-                baseURL: configStore.llmConfig.baseURL,
-                apiKey: configStore.openAIAPIKey,
-                model: configStore.llmConfig.model
-            )
-
-            do {
-                let polishResult = try await llmProvider.polish(text: transcriptResult.text)
-                guard generation == sessionGeneration, !Task.isCancelled else { return }
-
-                if !polishResult.text.isEmpty {
-                    finalText = polishResult.text
-                    polishSource = .llm
-                }
-            } catch {
-                // LLM 失败：回退到 ASR 原文继续注入
-                guard generation == sessionGeneration, !Task.isCancelled else { return }
-                polishSource = .fallback
-            }
+        let asrStart = Date()
+        let transcriptResult: TranscriptResult
+        do {
+            transcriptResult = try await asrProvider.recognize(audioData: processedAudio)
+        } catch {
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
+            let mapped = mapError(error)
+            diag.asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = mapped.diagnosticClassification
+            diagnostics.sessionError(sessionID: sessionID, error: mapped)
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            handleError(mapped)
+            return
         }
 
-        // 3. 文本注入
         guard generation == sessionGeneration, !Task.isCancelled else { return }
+
+        let asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+        diag.asrMs = asrMs
+        diagnostics.asrCompleted(
+            sessionID: sessionID,
+            text: transcriptResult.text,
+            durationMs: asrMs
+        )
+
+        // 3. LLM 润色必须配置完整且成功，否则直接报错
+        guard configStore.isLLMConfigured else {
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = TypolessError.llmConfigurationIncomplete.diagnosticClassification
+            diagnostics.sessionError(sessionID: sessionID, error: .llmConfigurationIncomplete)
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            handleError(.llmConfigurationIncomplete)
+            return
+        }
+
+        state = .polishing
+        let terms = await MainActor.run { dictionaryStore?.termsForPrompt() ?? [] }
+        let llmProvider = LLMProvider(
+            baseURL: configStore.llmConfig.baseURL,
+            apiKey: configStore.openAIAPIKey,
+            model: configStore.llmConfig.model,
+            thinkingDisabled: configStore.llmConfig.thinkingDisabled,
+            dictionaryTerms: terms,
+            onThinkingUnsupported: { [self] in
+                try? self.configStore.markThinkingDisabledForCurrentLLM()
+            }
+        )
+
+        let llmStart = Date()
+        let polishResult: PolishResult
+        do {
+            polishResult = try await llmProvider.polish(text: transcriptResult.text)
+        } catch {
+            guard generation == sessionGeneration, !Task.isCancelled else { return }
+            let mapped = mapError(error)
+            diag.llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = mapped.diagnosticClassification
+            diagnostics.sessionError(sessionID: sessionID, error: mapped)
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            handleError(mapped)
+            return
+        }
+
+        guard generation == sessionGeneration, !Task.isCancelled else { return }
+        let llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
+        diag.llmMs = llmMs
+        diagnostics.llmCompleted(
+            sessionID: sessionID,
+            text: polishResult.text,
+            source: polishResult.source.rawValue,
+            durationMs: llmMs
+        )
+
+        // 4. 文本注入
         state = .injecting
+        diag.resultSource = polishResult.source.rawValue
 
-        let polishAttempted = configStore.generalConfig.enableAIPolish
-        lastResult = SessionResult(text: finalText, source: polishSource, polishAttempted: polishAttempted)
+        lastResult = SessionResult(text: polishResult.text, source: polishResult.source)
 
+        let injectionStart = Date()
         do {
             try textInjector.inject(
-                text: finalText,
+                text: polishResult.text,
                 targetPID: targetApplicationPID,
                 targetBundleID: targetApplicationBundleID,
                 pasteboardPreferredBundleIDs: configStore.generalConfig.effectivePasteboardInjectionBundleIDs
             )
         } catch {
             guard generation == sessionGeneration else { return }
-            lastInjectionFailureText = finalText
+            diag.injectionMs = Int(Date().timeIntervalSince(injectionStart) * 1000)
+            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+            diag.errorClassification = mapError(error).diagnosticClassification
+            diagnostics.sessionError(sessionID: sessionID, error: mapError(error))
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            lastInjectionFailureText = polishResult.text
             handleError(mapError(error))
             return
         }
 
         guard generation == sessionGeneration else { return }
+        diag.injectionMs = Int(Date().timeIntervalSince(injectionStart) * 1000)
+        diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+
         lastInjectionFailureText = nil
         state = .done
+        diagnostics.sessionEnded(sessionID: sessionID, result: diag)
         onFeedbackEvent?(.processingFinished)
         scheduleResetToIdle()
     }
@@ -220,6 +341,14 @@ final class SessionCoordinator {
             self.targetApplicationBundleID = nil
         }
     }
+
+    // MARK: - Helpers
+
+    private static func generateSessionID() -> String {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000) % 100_000_000
+        let random = Int.random(in: 0..<0xFFFF)
+        return String(format: "%08x-%04x", timestamp, random)
+    }
 }
 
 // MARK: - Session Result
@@ -227,5 +356,4 @@ final class SessionCoordinator {
 struct SessionResult: Sendable {
     let text: String
     let source: PolishResult.Source
-    let polishAttempted: Bool
 }

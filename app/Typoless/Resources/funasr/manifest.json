@@ -1,0 +1,23 @@
+{
+  "version": "1.0.0",
+  "engine": "funasr",
+  "models": {
+    "asr": {
+      "name": "paraformer-zh",
+      "path": "models/paraformer-zh",
+      "required": true
+    },
+    "vad": {
+      "name": "fsmn-vad",
+      "path": "models/fsmn-vad",
+      "required": true
+    }
+  },
+  "worker": {
+    "entry": "worker/funasr_worker.py",
+    "python": "runtime/python3"
+  },
+  "device": {
+    "priority": ["mps", "cpu"]
+  }
+}

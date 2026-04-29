@@ -1,6 +1,6 @@
 import Foundation
 
-/// 配置中心：全部配置统一存储到 ~/.typoless/config
+/// 配置中心：全部配置统一存储到 ~/.typoless/config.json
 @MainActor
 @Observable
 final class ConfigStore {
@@ -23,6 +23,12 @@ final class ConfigStore {
         !configLoadFailed
     }
 
+    var isLLMConfigured: Bool {
+        !llmConfig.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !llmConfig.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     // MARK: - 配置文件路径
 
     private static let configDirectory: URL = {
@@ -31,7 +37,7 @@ final class ConfigStore {
     }()
 
     private static let configFileURL: URL = {
-        configDirectory.appendingPathComponent("config")
+        configDirectory.appendingPathComponent("config.json")
     }()
 
     // MARK: - 旧存储键（仅用于迁移）
@@ -56,6 +62,7 @@ final class ConfigStore {
             var baseURL: String = ""
             var model: String = ""
             var apiKey: String = ""
+            var thinkingDisabled: Bool = false
         }
     }
 
@@ -99,30 +106,39 @@ final class ConfigStore {
         let trimmedModel = config.model.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if generalConfig.enableAIPolish {
-            if trimmedURL.isEmpty { throw ConfigValidationError.emptyField("Base URL") }
-            if trimmedKey.isEmpty { throw ConfigValidationError.emptyField("API Key") }
-            if trimmedModel.isEmpty { throw ConfigValidationError.emptyField("Model") }
-
-            if URL(string: trimmedURL) == nil {
-                throw ConfigValidationError.invalidURL(trimmedURL)
-            }
+        if !trimmedURL.isEmpty, URL(string: trimmedURL) == nil {
+            throw ConfigValidationError.invalidURL(trimmedURL)
         }
 
         var normalConfig = config
         normalConfig.baseURL = trimmedURL
         normalConfig.model = trimmedModel
+        normalConfig.thinkingDisabled = shouldResetThinkingDisabled(
+            baseURL: trimmedURL,
+            model: trimmedModel,
+            apiKey: trimmedKey
+        ) ? false : llmConfig.thinkingDisabled
 
         var configFile = buildConfigFile()
         configFile.llm = ConfigFile.LLMFileConfig(
             baseURL: trimmedURL,
             model: trimmedModel,
-            apiKey: trimmedKey
+            apiKey: trimmedKey,
+            thinkingDisabled: normalConfig.thinkingDisabled
         )
         try writeConfigFile(configFile)
 
         llmConfig = normalConfig
         openAIAPIKey = trimmedKey
+    }
+
+    func markThinkingDisabledForCurrentLLM() throws {
+        guard !llmConfig.thinkingDisabled else { return }
+
+        llmConfig.thinkingDisabled = true
+        var configFile = buildConfigFile()
+        configFile.llm.thinkingDisabled = true
+        try writeConfigFile(configFile)
     }
 
     // MARK: - 通用配置保存
@@ -139,7 +155,11 @@ final class ConfigStore {
 
     /// 将 ConfigFile 映射到公开属性
     private func applyConfigFile(_ configFile: ConfigFile) {
-        llmConfig = LLMConfig(baseURL: configFile.llm.baseURL, model: configFile.llm.model)
+        llmConfig = LLMConfig(
+            baseURL: configFile.llm.baseURL,
+            model: configFile.llm.model,
+            thinkingDisabled: configFile.llm.thinkingDisabled
+        )
         openAIAPIKey = configFile.llm.apiKey
 
         generalConfig = configFile.general
@@ -151,10 +171,17 @@ final class ConfigStore {
             llm: ConfigFile.LLMFileConfig(
                 baseURL: llmConfig.baseURL,
                 model: llmConfig.model,
-                apiKey: openAIAPIKey
+                apiKey: openAIAPIKey,
+                thinkingDisabled: llmConfig.thinkingDisabled
             ),
             general: generalConfig
         )
+    }
+
+    private func shouldResetThinkingDisabled(baseURL: String, model: String, apiKey: String) -> Bool {
+        llmConfig.baseURL != baseURL
+            || llmConfig.model != model
+            || openAIAPIKey != apiKey
     }
 
     /// 原子写入配置文件，确保目录和文件权限正确

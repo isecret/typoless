@@ -13,20 +13,20 @@ struct LLMSettingsView: View {
         Section {
             LabeledContent("Base URL") {
                 TextField("", text: $baseURL)
-                    .textFieldStyle(.roundedBorder)
+                    .settingsInputFieldStyle()
             }
             LabeledContent("API Key") {
                 SecureField("", text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
+                    .settingsInputFieldStyle()
             }
             LabeledContent("Model") {
                 TextField("", text: $model)
-                    .textFieldStyle(.roundedBorder)
+                    .settingsInputFieldStyle()
             }
         } header: {
-            Text("OpenAI 兼容接口")
+            Text("AI 配置")
         } footer: {
-            Text("支持任何兼容 OpenAI Chat Completions 的接口")
+            Text("支持任何兼容 OpenAI Chat Completions 的接口。填写 Base URL、API Key、Model 后会自动启用 AI 润色。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -65,5 +65,16 @@ struct LLMSettingsView: View {
     private func trySave() {
         let config = LLMConfig(baseURL: baseURL, model: model)
         try? configStore.saveLLMConfig(config, apiKey: apiKey)
+    }
+}
+
+private extension View {
+    func settingsInputFieldStyle() -> some View {
+        frame(width: 320)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.regular)
+            .frame(height: 28)
     }
 }

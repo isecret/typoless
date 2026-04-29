@@ -4,12 +4,6 @@ struct PermissionsSettingsView: View {
     let permissionsManager: PermissionsManager
 
     var body: some View {
-        Section {
-            Text("请按顺序完成以下权限授权，确保应用正常运行。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-
         // MARK: - 麦克风权限
         Section("麦克风权限") {
             HStack(spacing: 8) {

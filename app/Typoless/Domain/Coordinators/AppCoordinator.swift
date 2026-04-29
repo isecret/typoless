@@ -11,15 +11,18 @@ final class AppCoordinator {
     let sessionCoordinator: SessionCoordinator
     let hotkeyManager: HotkeyManager
     let hudFeedbackController: HUDFeedbackController
+    let dictionaryStore: PersonalDictionaryStore
 
     private var settingsWindowController: NSWindowController?
 
     init() {
         let store = ConfigStore()
         let perms = PermissionsManager()
+        let dict = PersonalDictionaryStore()
         configStore = store
         permissionsManager = perms
-        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store)
+        dictionaryStore = dict
+        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store, dictionaryStore: dict)
         hotkeyManager = HotkeyManager()
 
         let hud = HUDFeedbackController()
@@ -59,11 +62,17 @@ final class AppCoordinator {
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()
+            window.initialFirstResponder = window.contentView
             settingsWindowController = NSWindowController(window: window)
         }
 
         settingsWindowController?.showWindow(nil)
         settingsWindowController?.window?.makeKeyAndOrderFront(nil)
+        if let window = settingsWindowController?.window {
+            DispatchQueue.main.async {
+                window.makeFirstResponder(window.contentView)
+            }
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 

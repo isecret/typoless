@@ -25,8 +25,14 @@ targets:
         excludes:
           - "**/.gitkeep"
           - "Resources/whisper"
+          - "Resources/rnnoise"
+          - "Resources/sherpa"
+          - "Resources/funasr"
     resources:
-      - path: Typoless/Resources/whisper
+      - path: Typoless/Resources/rnnoise
+        buildPhase: resources
+        optional: true
+      - path: Typoless/Resources/funasr
         buildPhase: resources
         optional: true
     dependencies:
@@ -42,39 +48,47 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Typoless
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Typoless 需要麦克风权限来进行语音输入"
     preBuildScripts:
-      - name: "Validate Whisper Source Resources"
+      - name: "Validate Source Resources"
         script: |
-          WHISPER_DIR="${SRCROOT}/Typoless/Resources/whisper"
-          if [ ! -f "${WHISPER_DIR}/bin/whisper-cli" ]; then
-            echo "error: Whisper CLI not found. Run ./scripts/setup-whisper.sh first."
+          # RNNoise (required for new pipeline)
+          RNNOISE_DIR="${SRCROOT}/Typoless/Resources/rnnoise"
+          if [ ! -f "${RNNOISE_DIR}/lib/librnnoise.dylib" ]; then
+            echo "error: RNNoise library not found. Run ./scripts/setup-rnnoise.sh first."
             exit 1
           fi
-          if [ ! -f "${WHISPER_DIR}/bin/whisper-cli-bin" ]; then
-            echo "error: Whisper CLI runtime binary not found. Run ./scripts/setup-whisper.sh first."
+
+          # FunASR runtime 和模型（默认链路）
+          FUNASR_DIR="${SRCROOT}/Typoless/Resources/funasr"
+          if [ ! -f "${FUNASR_DIR}/manifest.json" ]; then
+            echo "error: FunASR manifest not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
-          if [ ! -f "${WHISPER_DIR}/lib/libwhisper.1.dylib" ] || [ ! -f "${WHISPER_DIR}/lib/libggml.0.dylib" ] || [ ! -f "${WHISPER_DIR}/lib/libggml-base.0.dylib" ]; then
-            echo "error: Whisper runtime libraries not found. Run ./scripts/setup-whisper.sh first."
+          if [ ! -f "${FUNASR_DIR}/worker/funasr_worker.py" ]; then
+            echo "error: FunASR worker not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
-          if [ ! -s "${WHISPER_DIR}/models/ggml-small.bin" ]; then
-            echo "error: Whisper model not found. Run ./scripts/setup-whisper.sh first."
+          if [ ! -d "${FUNASR_DIR}/models/paraformer-zh" ]; then
+            echo "error: FunASR paraformer model not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
     postBuildScripts:
-      - name: "Copy Whisper Resources and Fix Permissions"
+      - name: "Copy Resources and Fix Permissions"
         script: |
-          WHISPER_SRC="${SRCROOT}/Typoless/Resources/whisper"
-          WHISPER_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/whisper"
-          if [ -d "${WHISPER_SRC}" ]; then
-            mkdir -p "$(dirname "${WHISPER_DST}")"
-            ditto "${WHISPER_SRC}" "${WHISPER_DST}"
+          # RNNoise
+          RNNOISE_SRC="${SRCROOT}/Typoless/Resources/rnnoise"
+          RNNOISE_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/rnnoise"
+          if [ -d "${RNNOISE_SRC}" ]; then
+            mkdir -p "$(dirname "${RNNOISE_DST}")"
+            ditto "${RNNOISE_SRC}" "${RNNOISE_DST}"
           fi
-          WHISPER_BIN="${WHISPER_DST}/bin/whisper-cli"
-          if [ -f "${WHISPER_BIN}" ]; then
-            chmod +x "${WHISPER_BIN}"
-          fi
-          WHISPER_BIN_REAL="${WHISPER_DST}/bin/whisper-cli-bin"
-          if [ -f "${WHISPER_BIN_REAL}" ]; then
-            chmod +x "${WHISPER_BIN_REAL}"
+
+          # FunASR
+          FUNASR_SRC="${SRCROOT}/Typoless/Resources/funasr"
+          FUNASR_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/funasr"
+          if [ -d "${FUNASR_SRC}" ]; then
+            mkdir -p "$(dirname "${FUNASR_DST}")"
+            rm -rf "${FUNASR_DST}"
+            ditto "${FUNASR_SRC}" "${FUNASR_DST}"
+            [ -f "${FUNASR_DST}/runtime/python3" ] && chmod +x "${FUNASR_DST}/runtime/python3"
+            [ -f "${FUNASR_DST}/worker/funasr_worker.py" ] && chmod +x "${FUNASR_DST}/worker/funasr_worker.py"
           fi

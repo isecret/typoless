@@ -7,6 +7,5 @@ struct PolishResult: Sendable {
 
     enum Source: String, Sendable {
         case llm
-        case fallback
     }
 }
