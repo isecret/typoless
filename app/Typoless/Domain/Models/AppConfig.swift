@@ -8,6 +8,51 @@ struct LLMConfig: Codable, Equatable, Sendable {
     var thinkingDisabled: Bool = false
 }
 
+// MARK: - ASR 平台配置
+
+/// ASR 平台类型
+enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
+    case localFunASR = "localFunASR"
+    case tencentCloudSentence = "tencentCloudSentence"
+}
+
+/// ASR 总配置
+struct ASRConfig: Codable, Equatable, Sendable {
+    var selectedPlatform: ASRPlatform = .localFunASR
+    var local: LocalASRConfig = LocalASRConfig()
+    var tencentCloud: TencentASRConfig = TencentASRConfig()
+}
+
+/// 本地 FunASR 模型状态
+enum LocalModelStatus: String, Codable, Equatable, Sendable {
+    case notDownloaded = "notDownloaded"
+    case downloading = "downloading"
+    case ready = "ready"
+    case failed = "failed"
+}
+
+/// 本地 ASR 配置
+struct LocalASRConfig: Codable, Equatable, Sendable {
+    var modelStatus: LocalModelStatus = .notDownloaded
+    var lastError: String?
+    var mirrorSource: String?
+
+    /// 模型固定版本标识
+    static let modelVersion = "1.0.0"
+
+    /// 模型根目录
+    static var modelRoot: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".typoless/models/funasr", isDirectory: true)
+    }
+}
+
+/// 腾讯云一句话识别配置
+struct TencentASRConfig: Codable, Equatable, Sendable {
+    var secretId: String = ""
+    var secretKey: String = ""
+}
+
 // MARK: - 通用配置
 
 struct GeneralConfig: Codable, Equatable, Sendable {

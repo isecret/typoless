@@ -31,6 +31,7 @@
 | E14 | Prompt 与个人词典 | 优化 LLM 纠错边界，并引入术语词典提升专名稳定性 |
 | E15 | FunASR 运行时与模型资源 | 管理内置 Python runtime、FunASR 模型与降噪资源 |
 | E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
+| E17 | ASR 平台选择与模型外置 | 支持本地 FunASR 外置模型下载和腾讯云 ASR |
 
 ## 3. Epic 详情
 
@@ -727,6 +728,62 @@
 14. `E13 FunASR 本地识别`
 15. `E15 FunASR 运行时与模型资源`
 16. `E16 FunASR 新链路集成验收`
+17. `E17 ASR 平台选择与模型外置`
+
+## E17. ASR 平台选择与模型外置
+
+### 目标
+
+将 FunASR 模型从 App Bundle 迁移到用户目录外置下载，并新增腾讯云一句话识别作为可选 ASR 平台。
+
+### Stories
+
+#### S17.1 ASR 配置模型与平台切换
+
+作为用户，我希望在设置页选择 ASR 平台（本地 FunASR 或 腾讯云），以便根据需求选择合适的识别方式。
+
+验收标准：
+
+- `AppConfig` 新增 `ASRPlatform`、`ASRConfig`、`LocalASRConfig`、`TencentASRConfig` 模型
+- `ConfigStore` 提供 `asrConfig` 读写和 `isASRReady` 判断
+- 平台切换通过 `selectedPlatform` 字段控制
+- 配置不完整时 `isASRReady` 返回 `false` 并携带原因描述
+
+#### S17.2 本地模型下载管理
+
+作为用户，我希望在设置页下载本地 FunASR 模型，不再依赖 App 打包模型。
+
+验收标准：
+
+- `ModelDownloadManager` 管理 `~/.typoless/models/funasr/` 下模型的下载、验证和删除
+- 优先使用 ModelScope API 下载；备选 git clone
+- 下载进度通过 `AsyncStream` 实时报告
+- 支持配置镜像源
+- 模型状态跟踪（notDownloaded / downloading / ready / failed）
+- `ResourceValidator` 支持从用户目录校验模型
+
+#### S17.3 腾讯云一句话识别集成
+
+作为用户，我希望使用腾讯云一句话识别，无需本地模型即可进行语音识别。
+
+验收标准：
+
+- `TencentSentenceASRProvider` 实现 `ASRProvider` 协议
+- 使用 TC3-HMAC-SHA256 签名，引擎 `16k_zh_en`
+- 超时 15 秒
+- 配置项：SecretId、SecretKey
+- 错误映射完整：配置不全、鉴权失败、网络错误、空响应、响应无效
+
+#### S17.4 录音链路适配多 ASR 平台
+
+作为用户，我希望录音后自动使用已选定的 ASR 平台进行识别。
+
+验收标准：
+
+- `SessionCoordinator` 录音前检查 `isASRReady`，未就绪时阻止录音
+- 本地平台走 `ASRRuntimeManager` 预热 + `FunASRProvider`
+- 腾讯云平台直接走 `TencentSentenceASRProvider`
+- 不做平台间自动回退
 
 ## 5. MVP 完成定义
 

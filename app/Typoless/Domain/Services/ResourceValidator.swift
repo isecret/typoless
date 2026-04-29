@@ -5,8 +5,8 @@ struct ResourceValidator: Sendable {
 
     /// 校验 FunASR 默认链路所需资源是否存在
     /// 资源缺失时抛出对应的 TypolessError
+    /// 优先校验用户目录 ~/.typoless/models/funasr，再校验 App bundle
     static func validateASRResources() throws {
-        // FunASR 资源根目录
         let funasrRoot = funasrResourceRoot()
         let fm = FileManager.default
 
@@ -23,8 +23,12 @@ struct ResourceValidator: Sendable {
             for (_, model) in models {
                 let required = model["required"] as? Bool ?? false
                 if required, let path = model["path"] as? String {
-                    let fullPath = funasrRoot.appendingPathComponent(path).path
-                    guard fm.fileExists(atPath: fullPath) else {
+                    // 优先从用户模型目录查找
+                    let userModelPath = LocalASRConfig.modelRoot.appendingPathComponent(
+                        URL(fileURLWithPath: path).lastPathComponent
+                    ).path
+                    let bundlePath = funasrRoot.appendingPathComponent(path).path
+                    guard fm.fileExists(atPath: userModelPath) || fm.fileExists(atPath: bundlePath) else {
                         throw TypolessError.asrModelMissing
                     }
                 }

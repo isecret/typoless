@@ -36,13 +36,13 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 诊断页（最近错误摘要 + 会话状态 + 版本信息）
 - 诊断日志（per-session 耗时、Debug ASR/LLM 明文对照、Release 脱敏）
 - 60 秒录音上限 + 500ms 短录音静默取消
-- FunASR 与 RNNoise 资源随 App 打包，无需额外准备
+- 本地 FunASR 模型外置到用户目录，设置页引导下载
+- 腾讯云一句话识别（用户手动选择，直接调用 Cloud API）
 - 构建前与录音前资源校验
 
 ### 不包含
 
 - macOS 系统级输入法
-- 云端 ASR 回退
 - 多种 LLM 协议
 - 自定义 Prompt
 - 风格模式切换
@@ -57,7 +57,8 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 - 交互方式：单一全局快捷键，按一次开始录音，再按一次结束录音
 - 单次录音上限：`60 秒`
 - 低于 `500ms` 的录音视为误触，静默取消，不进入识别和 LLM
-- ASR Provider：默认 `FunASR` 本地离线识别
+- ASR 平台：用户手动选择 `本地 FunASR` 或 `腾讯云一句话识别`
+- 本地模型：`~/.typoless/models/funasr/`，设置页下载
 - 音频预处理：默认 RNNoise 本地降噪
 - 默认输出：`LLM 润色版`
 - LLM 启用条件：`Base URL`、`API Key`、`Model` 三项完整
@@ -70,7 +71,7 @@ Typoless 是一个面向 macOS 的语音 + AI 输入助手项目。
 
 - 客户端：`Swift 6.0 + SwiftUI + AppKit`
 - 架构：`MVVM + Service Layer`
-- 语音识别：`FunASR` 本地离线 ASR（默认）/ `sherpa-onnx` 本地流式 ASR（旧链路）
+- 语音识别：`FunASR` 本地离线 ASR / `腾讯云一句话识别`（用户手动切换）
 - 音频降噪：`RNNoise`
 - 大模型接入：`OpenAI Chat Completions` 兼容接口
 - 音频格式：`PCM/WAV 16k mono`
