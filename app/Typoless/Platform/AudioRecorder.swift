@@ -62,13 +62,17 @@ final class AudioRecorder: @unchecked Sendable {
     func currentLevel() -> Float {
         guard recording, let recorder else { return 0 }
         recorder.updateMeters()
-        let power = recorder.averagePower(forChannel: 0)
-        // dB → 线性振幅，再用 gamma 曲线增强低音量感知
+        let averagePower = recorder.averagePower(forChannel: 0)
+        let peakPower = recorder.peakPower(forChannel: 0)
+        // 混合 average/peak，让短促发音和爆破音更快体现在 HUD 上
         let minDb: Float = -50
-        let clamped = max(minDb, min(0, power))
-        let linear = powf(10, clamped / 20) // 0…1
-        let gamma: Float = 0.6
-        return powf(linear, gamma)
+        let averageClamped = max(minDb, min(0, averagePower))
+        let peakClamped = max(minDb, min(0, peakPower))
+        let averageLinear = powf(10, averageClamped / 20)
+        let peakLinear = powf(10, peakClamped / 20)
+        let mixed = averageLinear * 0.42 + peakLinear * 0.58
+        let gamma: Float = 0.48
+        return min(1, powf(mixed, gamma))
     }
 
     /// 停止录音并返回录音结果（含音频数据和录音时长）

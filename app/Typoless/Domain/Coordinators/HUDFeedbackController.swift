@@ -84,7 +84,7 @@ final class HUDFeedbackController {
                     guard let self else { return }
                     let level = self.audioLevelProvider?() ?? 0
                     self.updateWaveform(level: level)
-                    try await Task.sleep(for: .milliseconds(16))
+                    try await Task.sleep(for: .milliseconds(12))
                 }
             } catch is CancellationError {
                 // 正常取消退出
@@ -164,14 +164,15 @@ final class HUDFeedbackController {
     private func updateWaveform(level: Float) {
         let target = CGFloat(level)
         let count = Self.barsCount
-        let maxH: CGFloat = 10  // 胶囊内约 50% 高度
-        let minH: CGFloat = 1
+        let maxH: CGFloat = 12
+        let minH: CGFloat = 1.2
 
         for i in 0..<count {
             let center = CGFloat(count - 1) / 2
             let centerWeight = 1 - abs(CGFloat(i) - center) / center
-            let noise = 0.65 + CGFloat.random(in: 0...0.45)
-            let eased = 0.18 + target * (0.38 + centerWeight * 0.62) * noise
+            let noise = 0.78 + CGFloat.random(in: 0...0.55)
+            let floor = 0.22 + centerWeight * 0.08
+            let eased = floor + target * (0.52 + centerWeight * 0.72) * noise
             barHeights[i] = minH + eased * (maxH - minH)
             barOpacities[i] = 0.28 + min(0.72, Double(eased))
         }
