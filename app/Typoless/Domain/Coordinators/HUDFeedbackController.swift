@@ -29,6 +29,8 @@ final class HUDFeedbackController {
     private var escEventTap: CFMachPort?
     private var escRunLoopSource: CFRunLoopSource?
     private var presentationGeneration: UInt64 = 0
+    private var waveformEnvelope: CGFloat = 0
+    private var waveformPhase: CGFloat = 0
 
     private static let barsCount = 7
 
@@ -84,7 +86,7 @@ final class HUDFeedbackController {
                     guard let self else { return }
                     let level = self.audioLevelProvider?() ?? 0
                     self.updateWaveform(level: level)
-                    try await Task.sleep(for: .milliseconds(12))
+                    try await Task.sleep(for: .milliseconds(16))
                 }
             } catch is CancellationError {
                 // 正常取消退出
@@ -162,23 +164,34 @@ final class HUDFeedbackController {
 
     /// 根据音频电平计算声波条高度，复刻原型 JS 算法
     private func updateWaveform(level: Float) {
-        let target = CGFloat(level)
+        let rawTarget = CGFloat(level)
         let count = Self.barsCount
-        let maxH: CGFloat = 12
+        let maxH: CGFloat = 12.6
         let minH: CGFloat = 1.2
+        let center = CGFloat(count - 1) / 2
+
+        // 使用包络平滑替代逐帧随机跳变，让整体起伏更连续自然。
+        let risingSmoothing: CGFloat = 0.34
+        let fallingSmoothing: CGFloat = 0.2
+        let smoothing = rawTarget > waveformEnvelope ? risingSmoothing : fallingSmoothing
+        waveformEnvelope += (rawTarget - waveformEnvelope) * smoothing
+        waveformPhase += 0.28 + waveformEnvelope * 0.18
 
         for i in 0..<count {
-            let center = CGFloat(count - 1) / 2
             let centerWeight = 1 - abs(CGFloat(i) - center) / center
-            let noise = 0.78 + CGFloat.random(in: 0...0.55)
-            let floor = 0.22 + centerWeight * 0.08
-            let eased = floor + target * (0.52 + centerWeight * 0.72) * noise
+            let offset = CGFloat(i) * 0.72
+            let pulse = (sin(waveformPhase + offset) + 1) * 0.5
+            let modulation = 0.94 + pulse * 0.16
+            let floor = 0.22 + centerWeight * 0.06
+            let eased = floor + waveformEnvelope * (0.5 + centerWeight * 0.66) * modulation
             barHeights[i] = minH + eased * (maxH - minH)
             barOpacities[i] = 0.28 + min(0.72, Double(eased))
         }
     }
 
     private func resetBars() {
+        waveformEnvelope = 0
+        waveformPhase = 0
         barHeights = Array(repeating: 1, count: Self.barsCount)
         barOpacities = Array(repeating: 0.28, count: Self.barsCount)
     }
