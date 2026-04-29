@@ -22,7 +22,7 @@
 - ASR：本地 Whisper（基于 whisper.cpp）
 - LLM：OpenAI Chat Completions 兼容接口
 - 音频格式：PCM/WAV 16k mono
-- 配置存储：~/.typoless/config（UTF-8 JSON）
+- 配置存储：~/.typoless/config.json（UTF-8 JSON）
 
 ## 仓库结构
 
