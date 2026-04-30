@@ -83,6 +83,39 @@ final class DiagnosticsLogger: Sendable {
         #endif
     }
 
+    // MARK: - Structured Processing Diagnostics
+
+    /// 记录结构化处理结果，供调试判断本次请求走了哪条路径
+    func structuredProcessingCompleted(
+        sessionID: String,
+        mode: String?,
+        correctionApplied: Bool,
+        parseSuccess: Bool,
+        fallback: Bool
+    ) {
+        #if DEBUG
+        logger.debug(
+            """
+            [\(sessionID)] structured_processing \
+            | mode=\(mode ?? "none", privacy: .public) \
+            | correction=\(correctionApplied) \
+            | parse_success=\(parseSuccess) \
+            | fallback=\(fallback)
+            """
+        )
+        #else
+        logger.info(
+            """
+            [\(sessionID)] structured_processing \
+            | mode=\(mode ?? "none", privacy: .public) \
+            | correction=\(correctionApplied) \
+            | parse_success=\(parseSuccess) \
+            | fallback=\(fallback)
+            """
+        )
+        #endif
+    }
+
     // MARK: - Error Logging
 
     func sessionError(sessionID: String, error: TypolessError) {
