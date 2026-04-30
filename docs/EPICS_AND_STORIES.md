@@ -32,6 +32,7 @@
 | E15 | FunASR 运行时与模型资源 | 管理内置 Python runtime、FunASR 模型与降噪资源 |
 | E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
 | E17 | ASR 平台选择与模型外置 | 支持本地 FunASR 外置模型下载和腾讯云 ASR |
+| E18 | LLM 保守型结构化处理 | 在不扩写、不改原意前提下提升列表化、消息化和自我修正处理稳定性 |
 
 ## 3. Epic 详情
 
@@ -757,6 +758,7 @@
 15. `E15 FunASR 运行时与模型资源`
 16. `E16 FunASR 新链路集成验收`
 17. `E17 ASR 平台选择与模型外置`
+18. `E18 LLM 保守型结构化处理`
 
 ## E17. ASR 平台选择与模型外置
 
@@ -814,6 +816,74 @@
 - 本地平台走 `ASRRuntimeManager` 预热 + `FunASRProvider`
 - 腾讯云平台直接走 `TencentSentenceASRProvider`
 - 不做平台间自动回退
+
+## E18. LLM 保守型结构化处理
+
+### 目标
+
+在保持 OpenAI Chat Completions 协议、固定 Prompt、默认自动处理和“不扩写、不改原意”原则不变的前提下，为 LLM 链路增加保守型结构化处理中间层，提升列表化表达、消息化表达和显式自我修正场景的稳定性。
+
+### Stories
+
+#### S18.1 定义结构化结果模型与兼容接口
+
+作为开发者，我需要让 LLM 输出既能承载结构化结果，又尽量不破坏现有主链路。
+
+验收标准：
+
+- 新增内部枚举 `PolishMode`，至少包含 `plainText`、`list`、`message`
+- 新增 `StructuredPolishResult`，可承载 `mode`、`items`、`salutation`、`body`、`closing`、`correctionApplied`，并提供 `isValid` 语义校验
+- `PolishResult` 保留现有 `text`，并新增可选 `structured`
+- `LLMProvider -> SessionCoordinator` 的兼容消费路径明确，既有只消费 `text` 的调用方不被破坏
+
+#### S18.2 升级固定 Prompt 支持 plain_text / list / message
+
+作为用户，我希望 AI 在不扩写的前提下，能自动把明显的列表和短消息整理得更自然。
+
+验收标准：
+
+- Prompt 保持固定内置，不开放用户自定义
+- `plain_text` 继续覆盖纠错、同音词、赘词、标点和轻度书面化
+- `list` 可识别明显枚举信号并输出条目结构，信号不足时回退 `plain_text`
+- `message` 可识别短消息信号并整理称呼、正文、简短结尾，不补充未说出的事实、承诺、时间或地点
+- Prompt 明确支持“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正
+- 个人词典继续作为术语参考进入 Prompt，且不被视为可执行指令
+
+#### S18.3 实现结构解析、本地渲染与兼容回退
+
+作为系统，我需要优先消费结构化结果，并在结构失败时稳定回退。
+
+验收标准：
+
+- 客户端优先解析 LLM 返回的结构化 JSON
+- 本地支持 `plain_text`、`list`、`message` 三类渲染
+- 当结构字段与自由文本冲突时，以客户端本地渲染结果为准
+- 非法 JSON、缺字段或文本提取失败时，可安全回退到兼容文本提取
+- LLM 失败、超时、空响应时，仍直接报错且不注入任何文本
+
+#### S18.4 补充结构化处理调试日志与诊断字段
+
+作为开发者，我需要在 Debug 模式下判断本次结构化处理走了哪条路径，以便快速定位问题。
+
+验收标准：
+
+- Debug 日志记录本次 `mode`
+- Debug 日志记录是否触发 `correctionApplied`
+- Debug 日志记录结构 JSON 解析成功/失败
+- Debug 日志记录是否发生纯文本兼容回退
+- Release 构建继续遵守脱敏约束，不输出 ASR 原文、LLM 正文或密钥
+
+#### S18.5 补充测试覆盖并同步 PRD/TDD/EPICS 文档
+
+作为团队，我需要为结构化处理中间层补齐测试和文档，确保实现与定义一致。
+
+验收标准：
+
+- 增加 `plain_text`、`list`、`message` 三类行为测试
+- 增加“不是 A，是 B”“改成”“最后一句不要了”等自我修正测试
+- 增加非法 JSON、缺字段、兼容回退测试
+- 继续验证 LLM 失败时不注入文本
+- `docs/PRD.md`、`docs/TDD.md`、`docs/EPICS_AND_STORIES.md` 同步反映结构化处理边界与实现拆分
 
 ## 5. MVP 完成定义
 
