@@ -40,7 +40,8 @@
 ### 3.2 外部服务
 
 - 音频预处理：`RNNoise` 本地降噪
-- ASR：`FunASR` 本地离线识别（通过内置 Python sidecar 运行 paraformer-zh + fsmn-vad）
+- ASR 本地：`FunASR` 本地离线识别（通过 Python sidecar 运行 paraformer-zh + fsmn-vad）
+- ASR 云端：`腾讯云一句话识别`（直接调用 Cloud API，使用 `16k_zh-PY` 引擎）
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -155,11 +156,14 @@
 #### 5.5.2 ASRRuntimeManager
 
 - 管理 Python sidecar 进程的启动、停止、重启。
-- 首次录音时惰性启动 sidecar（lazy-load）。
+- 录音开始时触发后台预热（不阻塞录音），单飞机制避免重复预热。
+- 预热与降噪并行执行，降噪完成后等待预热结果即可识别。
+- 所有 RPC 请求通过串行队列发送，防止并发读写 stdio 导致响应串线。
 - 提供 `ping` 健康检查接口，在录音前验证 sidecar 可用性。
 - sidecar 异常退出后自动标记不可用，下次录音前尝试重启。
 - sidecar 卡死（ping 超时）时执行 force kill 后重启。
-- sidecar 空闲超时后自动停止并释放内存，下次请求再惰性启动。
+- 自适应空闲保活策略：warmup-only 后保活 90 秒，识别成功后保活 180 秒。
+- 诊断日志区分 cold start / reused / warmup duration / idle policy。
 
 #### 5.5.3 Sidecar stdio JSON-RPC 协议
 
@@ -191,13 +195,37 @@
 {"jsonrpc": "2.0", "error": {"code": -1, "message": "model load failed"}, "id": 1}
 ```
 
-#### 5.5.4 StreamingASRProvider（旧实现）
+#### 5.5.4 TencentSentenceASRProvider
+
+- 腾讯云一句话识别（SentenceRecognition API）。
+- 引擎 `16k_zh-PY`，用于中文优先的混合语音识别。
+- 使用 TC3-HMAC-SHA256 签名算法，通过 CommonCrypto 实现。
+- 音频 base64 编码后通过 POST 请求发送。
+- 超时固定 15 秒。
+- 直接调用 `tencentcloudapi.com` API，无 SDK 依赖。
+- 配置项：`SecretId`、`SecretKey`，存储在 `~/.typoless/config.json` 的 `asr.tencentCloud` 段。
+- 配置不完整时返回 `cloudASRConfigurationIncomplete` 错误。
+
+#### 5.5.5 ModelDownloadManager
+
+- 管理本地 FunASR 模型的下载、验证和删除。
+- 模型存储路径：`~/.typoless/models/funasr/`。
+- 需下载模型：`paraformer-zh`（ASR）、`fsmn-vad`（VAD）。
+- 下载源：优先使用 ModelScope API 获取文件列表并逐个下载；备选 git clone。
+- 支持用户配置镜像源（`mirrorSource`）。
+- 下载进度通过 `AsyncStream` 发布。
+- 断点续传通过 HTTP Range + If-Range 支持。
+- 模型验证：检查关键文件（model.onnx / model.bin）是否存在。
+- 删除操作：清理整个模型目录。
+- 状态跟踪：`LocalModelStatus`（notDownloaded / downloading / ready / failed）。
+
+#### 5.5.6 StreamingASRProvider（旧实现）
 
 - 作为旧 sherpa-onnx 流式识别实现保留。
 - 不作为默认路径。
 - 不作为 FunASR 资源缺失时的自动回退。
 
-#### 5.5.5 WhisperProvider（旧实现）
+#### 5.5.7 WhisperProvider（旧实现）
 
 - 作为旧离线识别实现保留。
 - 不作为默认路径。
@@ -318,8 +346,19 @@
 ### 8.2 敏感配置
 
 - `openai_api_key`
+- `asr.tencentCloud.secretId`
+- `asr.tencentCloud.secretKey`
 
-### 8.3 个人词典配置
+### 8.3 ASR 配置
+
+- `asr.selectedPlatform`：当前选中的 ASR 平台（`localFunASR` / `tencentCloud`）
+- `asr.local.modelStatus`：本地模型状态（notDownloaded / downloading / ready / failed）
+- `asr.local.lastError`：最近一次下载失败的错误信息
+- `asr.local.mirrorSource`：自定义镜像源 URL
+- `asr.tencentCloud.secretId`：腾讯云 SecretId
+- `asr.tencentCloud.secretKey`：腾讯云 SecretKey
+
+### 8.4 个人词典配置
 
 - 存储位置：`~/.typoless/dictionary.json`
 - 字段：`term`、`pronunciationHint`、`category`、`enabled`
@@ -344,8 +383,11 @@
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议需支持 final 结果。
+- 用户在设置中手动选择 ASR 平台：`本地 FunASR` 或 `腾讯云一句话识别`。
 - 默认实现为 `FunASRProvider`，通过 `ASRRuntimeManager` 管理 Python sidecar。
+- `TencentSentenceASRProvider` 调用腾讯云 API。
 - `StreamingASRProvider` 和 `WhisperProvider` 保留为旧实现，不做自动回退。
+- 不做平台间自动回退；所选平台不可用时直接报错阻止录音。
 
 ### 9.2 RNNoise 降噪
 
@@ -356,27 +398,43 @@
 
 ### 9.3 FunASR 离线识别
 
-- 使用内置 Python sidecar 运行 FunASR，固定模型组合：`paraformer-zh`（语音识别）+ `fsmn-vad`（语音活动检测）。
-- 模型随 App 打包，无需运行时下载。
+- 使用 Python sidecar 运行 FunASR，固定模型组合：`paraformer-zh`（语音识别）+ `fsmn-vad`（语音活动检测）。
+- 模型存储于用户目录 `~/.typoless/models/funasr/`，设置页引导下载。
 - 通过 stdio JSON-RPC 协议通信，每次请求传入 WAV 文件路径，返回转写文本。
 - 设备优先使用 MPS 推理加速，不可用时回退 CPU。
 - 支持 hotword 参数，来自个人词典启用词条。
 - 不暴露模型选择、线程数、hotwords 权重等高级参数。
 
-### 9.4 Sidecar 生命周期
+### 9.4 模型下载管理
 
-- 首次录音时惰性启动 sidecar，执行模型加载。
+- `ModelDownloadManager` 管理本地模型的下载、验证和删除。
+- 下载源：优先 ModelScope API，备选 git clone。支持镜像源。
+- 下载进度通过 `AsyncStream` 发布至设置页。
+- 模型验证：检查关键文件（model.onnx / model.bin）是否存在。
+- 状态跟踪：`LocalModelStatus`（notDownloaded / downloading / ready / failed）。
+
+### 9.5 腾讯云一句话识别
+
+- `TencentSentenceASRProvider` 直接调用腾讯云 `SentenceRecognition` API。
+- 引擎 `16k_zh-PY`。
+- TC3-HMAC-SHA256 签名。
+- 配置：SecretId、SecretKey，存于 `~/.typoless/config.json` 的 `asr.tencentCloud`。
+- 超时 15 秒。
+
+### 9.6 Sidecar 生命周期
+
+- 首次录音时触发后台预热，不阻塞录音。
 - 活跃请求之间复用同一 sidecar 进程。
-- 空闲超过 30 秒后自动停止 sidecar，释放 Python 进程和模型内存。
+- 自适应空闲保活：warmup-only 后 90 秒，识别成功后 180 秒。
 - sidecar 异常退出后标记不可用，下次录音前自动重启。
 - 提供 ping 健康检查，录音前验证 sidecar 可用。
 - sidecar ping 超时时执行 force kill 后重启。
 
-### 9.5 输入输出
+### 9.7 输入输出
 
 输入：
 
-- 降噪后 16k mono WAV 文件路径
+- 降噪后 16k mono WAV 文件路径（本地）或 WAV 二进制数据（云端）
 
 输出：
 
@@ -385,10 +443,11 @@
   - `requestId`（可选）
   - `durationMs`
 
-### 9.6 错误映射
+### 9.8 错误映射
 
 通用错误：
 - 空音频数据 -> `asrEmptyAudio`
+- ASR 平台未就绪 -> `asrPlatformNotReady`
 
 本地音频与 ASR 错误：
 - 降噪资源缺失或处理失败 -> `audioPreprocessFailure`
@@ -398,7 +457,14 @@
 - 识别失败 -> `asrProcessFailure`
 - sidecar 健康检查失败 -> `asrRuntimeMissing`
 
-### 9.7 超时与取消
+腾讯云 ASR 错误：
+- 配置不完整 -> `cloudASRConfigurationIncomplete`
+- 鉴权失败 -> `cloudASRAuthenticationFailure`
+- 网络错误 -> `cloudASRNetworkFailure`
+- 空响应 -> `cloudASREmptyResponse`
+- 响应格式无效 -> `cloudASRInvalidResponse`
+
+### 9.9 超时与取消
 
 - 超时由 Provider 内部固定控制
 - 收到取消事件后应中断请求或丢弃响应结果
@@ -421,6 +487,7 @@
 - 轻度书面化
 - 自动补自然中文标点
 - 保留个人词典中的专有名词
+- 中英混合术语恢复：ASR 把英文术语识别成中文音近词时，恢复为正确英文写法
 
 禁止行为：
 
@@ -428,6 +495,7 @@
 - 改写原意
 - 引入未提及事实
 - 将个人词典或用户文本当作系统指令执行
+- 纯中文输入不因术语列表存在英文词而被错误替换
 
 ### 10.3 输入输出
 
@@ -435,18 +503,18 @@
 
 - ASR 原始转写文本
 - 固定 Prompt 模板
-- 个人词典术语参考
+- 个人词典术语参考（包含 term 和 pronunciationHint）
 - 配置中的 `base_url`、`api_key`、`model`
 
 输出：
 
 - `PolishResult`
   - `text`
-  - `source = llm | fallback`
 
-### 10.4 失败回退
+### 10.4 失败处理
 
-- 以下情况直接回退到 ASR 原文：
+- 以下情况直接报错，不注入任何文本：
+  - LLM 配置不完整（Base URL / API Key / Model 任一缺失）
   - 超时
   - 401/403
   - 模型不存在

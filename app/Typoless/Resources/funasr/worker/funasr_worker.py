@@ -70,12 +70,16 @@ class ModelManager:
 
     def __init__(self, resource_root: Path):
         self.resource_root = resource_root
+        self.model_root = Path(os.environ.get(
+            "FUNASR_MODEL_ROOT",
+            str(Path.home() / ".typoless" / "models" / "funasr"),
+        ))
         self.model = None
         self.device = None
         self._loaded = False
 
     def _resolve_model_paths(self) -> dict:
-        """Resolve model directories from manifest or default convention."""
+        """Resolve model directories from manifest into the external model root."""
         manifest_path = self.resource_root / "manifest.json"
         if manifest_path.exists():
             with open(manifest_path, "r", encoding="utf-8") as f:
@@ -88,7 +92,7 @@ class ModelManager:
                 if not entry and not required:
                     continue
                 rel = entry.get("path", f"models/{entry.get('name', key)}")
-                full = self.resource_root / rel
+                full = self.model_root / Path(rel).name
                 if not full.exists():
                     if not required:
                         continue
@@ -98,8 +102,8 @@ class ModelManager:
 
         # Fallback: conventional directory names
         defaults = {
-            "asr": self.resource_root / "models" / "paraformer-zh",
-            "vad": self.resource_root / "models" / "fsmn-vad",
+            "asr": self.model_root / "paraformer-zh",
+            "vad": self.model_root / "fsmn-vad",
         }
         for key, p in defaults.items():
             if not p.exists():

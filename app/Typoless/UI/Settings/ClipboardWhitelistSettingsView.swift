@@ -9,49 +9,49 @@ struct ClipboardWhitelistSettingsView: View {
 
     var body: some View {
         Section {
-            LabeledContent("添加规则") {
-                HStack {
-                    TextField(
-                        "",
+            SettingsFormRow(title: "添加规则") {
+                HStack(spacing: 8) {
+                    SettingsTextInputField(
                         text: $newBundleID,
-                        prompt: Text("Bundle ID 或前缀").foregroundStyle(.secondary)
+                        width: 220,
+                        placeholder: "Bundle ID 或前缀"
                     )
-                    .frame(width: 260)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.regular)
-                    .frame(height: 28)
 
                     Button("添加") {
                         addBundleID()
                     }
+                    .fixedSize()
                     .disabled(newBundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
 
             if pasteboardInjectionBundleIDs.isEmpty {
-                LabeledContent("手动规则") {
+                CompactSettingsFormRow(title: "手动规则") {
                     Text("暂无")
                         .foregroundStyle(.secondary)
                 }
             } else {
-                ForEach(pasteboardInjectionBundleIDs, id: \.self) { bundleID in
-                    HStack {
-                        Text(bundleID)
-                            .font(.system(.body, design: .monospaced))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Spacer()
-                        Button("移除") {
-                            removeBundleID(bundleID)
+                ForEach(Array(pasteboardInjectionBundleIDs.enumerated()), id: \.element) { index, bundleID in
+                    CompactSettingsFormRow(title: index == 0 ? "手动规则" : "") {
+                        HStack(spacing: 12) {
+                            Text(bundleID)
+                                .font(.system(.body, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Button("移除") {
+                                removeBundleID(bundleID)
+                            }
+                            .fixedSize()
                         }
                     }
                 }
             }
 
-            ForEach(GeneralConfig.defaultPasteboardInjectionBundleIDs, id: \.self) { bundleID in
-                BuiltInWhitelistRow(bundleID: bundleID)
+            ForEach(Array(GeneralConfig.defaultPasteboardInjectionBundleIDs.enumerated()), id: \.element) { index, bundleID in
+                BuiltInWhitelistRow(
+                    title: index == 0 ? "内置规则" : "",
+                    bundleID: bundleID
+                )
             }
         } header: {
             Text("剪贴板白名单")
@@ -98,16 +98,35 @@ struct ClipboardWhitelistSettingsView: View {
 }
 
 private struct BuiltInWhitelistRow: View {
+    let title: String
     let bundleID: String
 
     var body: some View {
-        LabeledContent("内置规则") {
+        CompactSettingsFormRow(title: title) {
             Text(bundleID)
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private struct CompactSettingsFormRow<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let labelWidth: CGFloat = 104
+        let rowSpacing: CGFloat = 12
+
+        return HStack(alignment: .center, spacing: rowSpacing) {
+            Text(title)
+                .frame(width: labelWidth, alignment: .leading)
+
+            content()
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 }

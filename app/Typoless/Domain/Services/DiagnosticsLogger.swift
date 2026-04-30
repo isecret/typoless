@@ -57,15 +57,15 @@ final class DiagnosticsLogger: Sendable {
 
     // MARK: - ASR/LLM Comparison
 
-    func asrCompleted(sessionID: String, text: String, durationMs: Int) {
+    func asrCompleted(sessionID: String, text: String, durationMs: Int, coldStart: Bool = false, warmupWaitMs: Int = 0) {
         #if DEBUG
         logger.debug(
-            "[\(sessionID)] asr_completed | text=\"\(text, privacy: .public)\" | duration=\(durationMs)ms"
+            "[\(sessionID)] asr_completed | text=\"\(text, privacy: .public)\" | duration=\(durationMs)ms | cold_start=\(coldStart) | warmup_wait=\(warmupWaitMs)ms"
         )
         #else
         let hash = Self.textHash(text)
         logger.info(
-            "[\(sessionID)] asr_completed | length=\(text.count) | hash=\(hash, privacy: .public) | duration=\(durationMs)ms"
+            "[\(sessionID)] asr_completed | length=\(text.count) | hash=\(hash, privacy: .public) | duration=\(durationMs)ms | cold_start=\(coldStart) | warmup_wait=\(warmupWaitMs)ms"
         )
         #endif
     }
@@ -109,6 +109,16 @@ final class DiagnosticsLogger: Sendable {
         )
     }
 
+    // MARK: - General Events
+
+    func log(sessionID: String, event: String, detail: String? = nil) {
+        if let detail {
+            logger.info("[\(sessionID)] \(event, privacy: .public) | detail=\(detail, privacy: .public)")
+        } else {
+            logger.info("[\(sessionID)] \(event, privacy: .public)")
+        }
+    }
+
     // MARK: - Helpers
 
     private static func textHash(_ text: String) -> String {
@@ -142,11 +152,17 @@ extension TypolessError {
         case .microphonePermissionDenied: "microphone_permission_denied"
         case .accessibilityPermissionDenied: "accessibility_permission_denied"
         case .asrEmptyAudio: "asr_empty_audio"
+        case .asrPlatformNotReady: "asr_platform_not_ready"
         case .asrBinaryNotFound: "asr_binary_not_found"
         case .asrModelMissing: "asr_model_missing"
         case .asrRuntimeMissing: "asr_runtime_missing"
         case .asrProcessFailure: "asr_process_failure"
         case .audioPreprocessFailure: "audio_preprocess_failure"
+        case .cloudASRConfigurationIncomplete: "cloud_asr_configuration_incomplete"
+        case .cloudASRAuthenticationFailure: "cloud_asr_authentication_failure"
+        case .cloudASRNetworkFailure: "cloud_asr_network_failure"
+        case .cloudASREmptyResponse: "cloud_asr_empty_response"
+        case .cloudASRInvalidResponse: "cloud_asr_invalid_response"
         case .llmConfigurationIncomplete: "llm_configuration_incomplete"
         case .invalidLLMConfiguration: "invalid_llm_configuration"
         case .llmNetworkFailure: "llm_network_failure"

@@ -8,6 +8,7 @@ final class ConfigStore {
 
     private(set) var llmConfig = LLMConfig()
     private(set) var generalConfig = GeneralConfig()
+    private(set) var asrConfig = ASRConfig()
 
     // MARK: - 密钥（启动时从配置文件直接加载到内存）
 
@@ -27,6 +28,28 @@ final class ConfigStore {
         !llmConfig.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !llmConfig.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 当前选中的 ASR 平台是否可用
+    var isASRReady: Bool {
+        switch asrConfig.selectedPlatform {
+        case .localFunASR:
+            return Self.localModelsAvailable()
+        case .tencentCloudSentence:
+            return !asrConfig.tencentCloud.secretId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !asrConfig.tencentCloud.secretKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// ASR 平台不可用的原因描述
+    var asrNotReadyReason: String? {
+        guard !isASRReady else { return nil }
+        switch asrConfig.selectedPlatform {
+        case .localFunASR:
+            return "本地模型未下载，请在设置页下载"
+        case .tencentCloudSentence:
+            return "腾讯云 ASR 配置不完整，请填写 SecretId 和 SecretKey"
+        }
     }
 
     // MARK: - 配置文件路径
@@ -57,6 +80,7 @@ final class ConfigStore {
     private struct ConfigFile: Codable {
         var llm: LLMFileConfig = LLMFileConfig()
         var general: GeneralConfig = GeneralConfig()
+        var asr: ASRConfig = ASRConfig()
 
         struct LLMFileConfig: Codable {
             var baseURL: String = ""
@@ -97,6 +121,8 @@ final class ConfigStore {
             // 写入新配置文件（迁移落盘）
             try? writeConfigFile(migrated)
         }
+
+        refreshLocalModelStatusFromDisk()
     }
 
     // MARK: - LLM 配置保存
@@ -151,6 +177,37 @@ final class ConfigStore {
         generalConfig = config
     }
 
+    // MARK: - ASR 配置保存
+
+    func saveASRConfig(_ config: ASRConfig) throws {
+        var configFile = buildConfigFile()
+        configFile.asr = config
+        try writeConfigFile(configFile)
+
+        asrConfig = config
+    }
+
+    func updateLocalModelStatus(_ status: LocalModelStatus, error: String? = nil) throws {
+        asrConfig.local.modelStatus = status
+        asrConfig.local.lastError = error
+        var configFile = buildConfigFile()
+        configFile.asr = asrConfig
+        try writeConfigFile(configFile)
+    }
+
+    func refreshLocalModelStatusFromDisk() {
+        guard asrConfig.local.modelStatus != .downloading else { return }
+
+        let hasLocalModels = Self.localModelsAvailable()
+        let currentStatus = asrConfig.local.modelStatus
+
+        if hasLocalModels, currentStatus != .ready {
+            try? updateLocalModelStatus(.ready)
+        } else if !hasLocalModels, currentStatus == .ready {
+            try? updateLocalModelStatus(.notDownloaded)
+        }
+    }
+
     // MARK: - 内部方法
 
     /// 将 ConfigFile 映射到公开属性
@@ -163,6 +220,7 @@ final class ConfigStore {
         openAIAPIKey = configFile.llm.apiKey
 
         generalConfig = configFile.general
+        asrConfig = configFile.asr
     }
 
     /// 从当前内存状态构建 ConfigFile
@@ -174,7 +232,8 @@ final class ConfigStore {
                 apiKey: openAIAPIKey,
                 thinkingDisabled: llmConfig.thinkingDisabled
             ),
-            general: generalConfig
+            general: generalConfig,
+            asr: asrConfig
         )
     }
 
@@ -182,6 +241,22 @@ final class ConfigStore {
         llmConfig.baseURL != baseURL
             || llmConfig.model != model
             || openAIAPIKey != apiKey
+    }
+
+    private static func localModelsAvailable() -> Bool {
+        let fm = FileManager.default
+        let requiredDirectories = ["paraformer-zh", "fsmn-vad"]
+
+        for directory in requiredDirectories {
+            let modelDir = LocalASRConfig.modelRoot.appendingPathComponent(directory)
+            guard fm.fileExists(atPath: modelDir.path),
+                  let contents = try? fm.contentsOfDirectory(atPath: modelDir.path),
+                  !contents.isEmpty else {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// 原子写入配置文件，确保目录和文件权限正确

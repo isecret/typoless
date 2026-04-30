@@ -19,7 +19,7 @@
 - UI：SwiftUI
 - 系统交互：AppKit
 - 架构：MVVM + Service Layer
-- ASR：本地 Whisper（基于 whisper.cpp）
+- ASR：本地 FunASR 离线识别 / 腾讯云一句话识别（用户手动选择）
 - LLM：OpenAI Chat Completions 兼容接口
 - 音频格式：PCM/WAV 16k mono
 - 配置存储：~/.typoless/config.json（UTF-8 JSON）
@@ -64,18 +64,17 @@ AGENTS.md
 - 设置页
 - 全局快捷键
 - 按住说话，松开处理
-- 本地 Whisper 语音识别（基于 whisper.cpp）
-- OpenAI 兼容 LLM 润色
+- 本地 FunASR 离线语音识别（模型外置到用户目录）
+- 腾讯云一句话识别（用户手动选择）
+- OpenAI 兼容 LLM 润色（必须成功后才注入）
 - 文本注入
 - 麦克风与辅助功能权限引导
 - 注入失败文本临时复制入口
-- LLM 失败回退 ASR 原文
 
 除非用户明确提出，否则以下内容不在范围内：
 
 - macOS 系统级输入法
 - 实时流式识别
-- 多 ASR Provider
 - 多种 LLM 协议
 - 自定义 Prompt
 - 风格模式切换
@@ -88,7 +87,7 @@ AGENTS.md
 - 交互方式固定为单一全局快捷键，`按住说话，松开处理`
 - 单次录音上限固定为 30 秒
 - 默认输出 LLM 润色版
-- LLM 失败或超时时自动回退 ASR 原文
+- LLM 配置不完整或请求失败时直接报错，不注入任何文本
 - 文本注入失败时不自动覆盖剪贴板
 - 注入失败文本保留在内存中，菜单栏显示截断预览，点击可复制到剪贴板，仅当前运行期有效
 - 同一时间只允许一个 active session
@@ -117,7 +116,7 @@ AGENTS.md
 以下修改必须先向用户升级确认：
 
 - 产品从“菜单栏助手”改为“系统输入法”
-- ASR 引擎变更或引入多 Provider
+- 新增 ASR 平台超出已有 localFunASR / tencentCloud 范围
 - LLM 接口协议变更或开放自定义 Prompt / 高级参数
 - 文本注入策略从当前主方案切换到剪贴板主方案
 - 录音保存策略、日志保留策略、隐私边界变化
@@ -130,7 +129,7 @@ AGENTS.md
 - 端到端以手工验收为主，重点验证：
   - 权限缺失
   - 配置错误
-  - LLM 失败回退
+  - LLM 失败报错
   - 注入失败后可从菜单栏复制失败文本
 - 未验证主链路时，不应宣称“可用”或“完成”
 

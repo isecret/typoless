@@ -58,9 +58,17 @@ final class SessionCoordinator {
         currentSessionID = Self.generateSessionID()
 
         do {
+            configStore.refreshLocalModelStatusFromDisk()
             try permissionsManager.ensureMicrophoneAuthorized()
             try ResourceValidator.validateDenoiseResources()
-            try ResourceValidator.validateASRResources()
+            // 录音前检查 ASR 平台可用性
+            guard configStore.isASRReady else {
+                throw TypolessError.asrPlatformNotReady(detail: configStore.asrNotReadyReason ?? "未知")
+            }
+            // 本地 FunASR 额外校验运行时资源
+            if configStore.asrConfig.selectedPlatform == .localFunASR {
+                try ResourceValidator.validateASRResources()
+            }
             state = .recording
             try audioRecorder.startRecording()
             diagnostics.sessionStarted(
@@ -71,6 +79,11 @@ final class SessionCoordinator {
         } catch {
             handleError(mapError(error))
             return
+        }
+
+        // 本地 FunASR 模式下录音开始即后台预热 ASR worker（不阻塞录音）
+        if configStore.asrConfig.selectedPlatform == .localFunASR {
+            asrRuntimeManager.warmup()
         }
 
         // 60 秒超时自动结束
@@ -169,7 +182,9 @@ final class SessionCoordinator {
         diag.recordingMs = recordingMs
         diag.targetBundleID = targetApplicationBundleID
 
-        // 1. 音频降噪
+        let wasColdStart = asrRuntimeManager.warmupState != .warm
+
+        // 1. 音频降噪（与 ASR warmup 并行进行）
         let denoiseStart = Date()
         let processedAudio: Data
         do {
@@ -192,17 +207,43 @@ final class SessionCoordinator {
 
         guard generation == sessionGeneration, !Task.isCancelled else { return }
 
-        // 2. 使用 FunASR 离线识别（默认链路）
-        let hotwords = await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
-        let asrProvider: any ASRProvider = FunASRProvider(
-            runtimeManager: asrRuntimeManager,
-            hotwords: hotwords
-        )
+        // 本地 FunASR：等待预热完成
+        let warmupStart = Date()
+        let selectedPlatform = await MainActor.run { configStore.asrConfig.selectedPlatform }
+        if selectedPlatform == .localFunASR {
+            do {
+                try await asrRuntimeManager.awaitWarmupIfNeeded()
+            } catch {
+                diagnostics.log(sessionID: sessionID, event: "warmup_failed", detail: error.localizedDescription)
+            }
+        }
+        let warmupWaitMs = Int(Date().timeIntervalSince(warmupStart) * 1000)
+
+        guard generation == sessionGeneration, !Task.isCancelled else { return }
+
+        // 2. 按平台选择 ASR Provider
+        let asrProvider: any ASRProvider
+        switch selectedPlatform {
+        case .localFunASR:
+            let hotwords = await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
+            asrProvider = FunASRProvider(
+                runtimeManager: asrRuntimeManager,
+                hotwords: hotwords
+            )
+        case .tencentCloudSentence:
+            let (secretId, secretKey) = await MainActor.run {
+                (configStore.asrConfig.tencentCloud.secretId, configStore.asrConfig.tencentCloud.secretKey)
+            }
+            asrProvider = TencentSentenceASRProvider(secretId: secretId, secretKey: secretKey)
+        }
 
         let asrStart = Date()
         let transcriptResult: TranscriptResult
         do {
             transcriptResult = try await asrProvider.recognize(audioData: processedAudio)
+            if selectedPlatform == .localFunASR {
+                asrRuntimeManager.markRecognitionSucceeded()
+            }
         } catch {
             guard generation == sessionGeneration, !Task.isCancelled else { return }
             let mapped = mapError(error)
@@ -222,7 +263,9 @@ final class SessionCoordinator {
         diagnostics.asrCompleted(
             sessionID: sessionID,
             text: transcriptResult.text,
-            durationMs: asrMs
+            durationMs: asrMs,
+            coldStart: wasColdStart,
+            warmupWaitMs: warmupWaitMs
         )
 
         // 3. LLM 润色必须配置完整且成功，否则直接报错
