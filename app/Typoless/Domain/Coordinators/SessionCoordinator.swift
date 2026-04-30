@@ -158,6 +158,10 @@ final class SessionCoordinator {
             sessionGeneration &+= 1
             processingTask?.cancel()
             processingTask = nil
+            // 取消期间 worker 可能仍在推理，标记为不可信并销毁，防止旧响应污染后续 session
+            if state == .transcribing {
+                asrRuntimeManager.invalidateCurrentWorker()
+            }
             targetApplicationPID = nil
             targetApplicationBundleID = nil
             state = .cancelled
@@ -359,7 +363,7 @@ final class SessionCoordinator {
     private func handleError(_ error: TypolessError) {
         currentError = error
         state = .error
-        onFeedbackEvent?(.processingFailed)
+        onFeedbackEvent?(.processingFailed(error.hudFailureReason))
         scheduleResetToIdle()
     }
 

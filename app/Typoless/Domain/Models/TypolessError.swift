@@ -73,4 +73,27 @@ enum TypolessError: Error, Equatable, Sendable {
             "已取消"
         }
     }
+
+    /// 映射为 HUD 短错误分类
+    var hudFailureReason: HUDFailureReason {
+        switch self {
+        case .microphonePermissionDenied, .accessibilityPermissionDenied:
+            .permissionDenied
+        case .asrBinaryNotFound, .asrModelMissing, .asrRuntimeMissing, .asrPlatformNotReady:
+            .resourceMissing
+        case .asrEmptyAudio, .cloudASREmptyResponse:
+            .notHeard
+        case .asrProcessFailure, .audioPreprocessFailure,
+             .cloudASRConfigurationIncomplete, .cloudASRAuthenticationFailure,
+             .cloudASRNetworkFailure, .cloudASRInvalidResponse:
+            .recognitionFailed
+        case .llmConfigurationIncomplete, .invalidLLMConfiguration,
+             .llmNetworkFailure, .llmEmptyResponse:
+            .polishFailed
+        case .textInjectionFailure:
+            .injectionFailed
+        case .sessionCancelled:
+            .recognitionFailed
+        }
+    }
 }

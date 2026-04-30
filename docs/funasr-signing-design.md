@@ -98,14 +98,12 @@ xcrun stapler validate "${APP_BUNDLE}"
 
 ### 6.2 正式构建
 
-1. 准备 Python runtime（python-build-standalone 或 conda-forge）。
-2. 安装 Python 依赖到 runtime site-packages。
-3. 精简 runtime（移除 `__pycache__`、`*.pyc`、测试目录、文档）。
-4. 签名所有可执行文件和动态库。
-5. 打包到 App bundle。
-6. 签名 App bundle。
-7. 提交公证。
-8. Staple 公证票据。
+1. 运行 `scripts/bundle-funasr-runtime.sh` 下载 python-build-standalone 并安装锁定依赖。
+2. 运行 `scripts/sign-funasr-runtime.sh` 签名所有可执行文件和动态库。
+3. 复制签名后的 bundle 到 App bundle `Contents/Resources/funasr/`。
+4. 签名 App bundle。
+5. 提交公证。
+6. Staple 公证票据。
 
 ### 6.3 Release 检查清单
 

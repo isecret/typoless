@@ -1,6 +1,6 @@
 # E16-I3 签名分发可运行性验证清单
 
-> 对应 Issue: #88
+> 对应 Issue: #88, #98
 > 前置依赖: #84 (签名与公证兼容设计)
 
 ## 目的
@@ -9,8 +9,10 @@
 
 ## 前置条件
 
-1. 使用 `codesign` 签名后的 .app 包（Release 或 Archive 构建）
-2. 参考 `docs/funasr-signing-design.md` 中的签名流程
+1. 已运行 `scripts/bundle-funasr-runtime.sh` 生成 runtime bundle
+2. 已运行 `scripts/sign-funasr-runtime.sh` 签名所有 Mach-O 文件
+3. 使用 `codesign` 签名后的 .app 包（Release 或 Archive 构建）
+4. 参考 `docs/funasr-signing-design.md` 中的签名流程
 
 ## 验证步骤
 
