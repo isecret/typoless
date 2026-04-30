@@ -6,5 +6,5 @@ enum SessionFeedbackEvent: Sendable {
     case recordingStopped
     case processingFinished
     case processingCancelled
-    case processingFailed
+    case processingFailed(HUDFailureReason)
 }

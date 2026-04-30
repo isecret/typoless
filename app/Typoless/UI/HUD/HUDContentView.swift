@@ -292,8 +292,8 @@ struct HUDContentView: View {
         switch state {
         case .success:
             ("check", "完成")
-        case .failure:
-            ("warn", "失败")
+        case .failure(let reason):
+            ("warn", reason.shortLabel)
         case .cancelled:
             ("x", "已取消")
         default:

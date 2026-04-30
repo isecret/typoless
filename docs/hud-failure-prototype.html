@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Typoless HUD 失败态原型</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0d;
+      --panel: rgba(255, 255, 255, 0.05);
+      --panel-border: rgba(255, 255, 255, 0.12);
+      --panel-shadow: rgba(0, 0, 0, 0.45);
+      --text: rgba(255, 255, 255, 0.94);
+      --text-dim: rgba(255, 255, 255, 0.54);
+      --button: rgba(255, 255, 255, 0.08);
+      --button-hover: rgba(255, 255, 255, 0.14);
+      --button-active: rgba(255, 255, 255, 0.2);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "SF Pro Display", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.08), transparent 26%),
+        linear-gradient(180deg, #131316 0%, var(--bg) 58%);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    .playground {
+      position: relative;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .controls {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      width: 360px;
+      padding: 18px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--panel-border);
+      box-shadow: 0 22px 50px var(--panel-shadow);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+    }
+
+    .controls h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .controls p {
+      margin: 0 0 16px;
+      color: var(--text-dim);
+      line-height: 1.4;
+      font-size: 13px;
+    }
+
+    .control-group + .control-group {
+      margin-top: 18px;
+    }
+
+    .control-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-dim);
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .segmented.four-col {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .segmented button {
+      appearance: none;
+      border: 0;
+      color: var(--text);
+      background: var(--button);
+      border-radius: 14px;
+      padding: 10px 8px;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 140ms ease, transform 140ms ease, color 140ms ease;
+    }
+
+    .segmented button:hover {
+      background: var(--button-hover);
+    }
+
+    .segmented button:active {
+      background: var(--button-active);
+      transform: scale(0.98);
+    }
+
+    .segmented button.active {
+      background: rgba(255, 255, 255, 0.92);
+      color: #0d0d0f;
+      font-weight: 600;
+    }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.45;
+    }
+
+    .stage {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 60px;
+    }
+
+    /* HUD Base */
+    .hud {
+      pointer-events: auto;
+      min-width: 72px;
+      height: 24px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06)),
+        rgba(11, 11, 13, 0.84);
+      outline: 0.5px solid rgba(255, 255, 255, 0.06);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transform-origin: center bottom;
+      transition:
+        width 220ms ease,
+        min-width 220ms ease,
+        opacity 220ms ease,
+        transform 220ms ease;
+    }
+
+    .hud.injection-failure {
+      min-width: 110px;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .hud.injection-failure:hover {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.09)),
+        rgba(11, 11, 13, 0.88);
+    }
+
+    .hud.injection-failure:active {
+      transform: scale(0.98);
+    }
+
+    .result-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.92);
+    }
+
+    .result-icon svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 1.2;
+      overflow: visible;
+    }
+
+    .result-text {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.88);
+      white-space: nowrap;
+    }
+
+    .copy-hint {
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: rgba(255, 255, 255, 0.5);
+      white-space: nowrap;
+    }
+
+    .divider {
+      width: 1px;
+      height: 10px;
+      background: rgba(255, 255, 255, 0.16);
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 720px) {
+      .controls {
+        right: 16px;
+        left: 16px;
+        width: auto;
+      }
+      .segmented {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="playground">
+    <section class="controls">
+      <h1>HUD 失败态原型</h1>
+      <p>验证 HUD 失败反馈短文案和注入失败复制入口交互。本原型仅探索 UX 可行性，不代表最终实现方案。</p>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>失败类型</span>
+          <span id="stateLabel">识别失败</span>
+        </div>
+        <div class="segmented four-col" id="failureSwitch">
+          <button data-state="permission" >缺少权限</button>
+          <button data-state="resource">资源缺失</button>
+          <button data-state="notHeard">没听清</button>
+          <button data-state="recognition" class="active">识别失败</button>
+          <button data-state="polish">润色失败</button>
+          <button data-state="injection">写入失败</button>
+          <button data-state="injectionCopy">写入失败+复制</button>
+          <button data-state="copied">已复制</button>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="hint">
+          <strong>产品规则：</strong><br>
+          • 普通失败（权限/资源/没听清/识别/润色）：仅显示短文案，无操作入口<br>
+          • 写入失败：显示短文案 + 可点击复制<br>
+          • 复制动作必须由用户主动触发，不得自动写入剪贴板<br>
+          • 仅「写入失败」允许复制，其他失败类型不提供复制入口<br>
+          • 菜单栏复制入口继续保留
+        </div>
+      </div>
+    </section>
+
+    <section class="stage">
+      <div class="hud" id="hudRoot" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <script>
+    const hudRoot = document.getElementById("hudRoot");
+    const stateLabel = document.getElementById("stateLabel");
+    const failureSwitch = document.getElementById("failureSwitch");
+
+    let currentState = "recognition";
+
+    const stateConfig = {
+      permission:     { label: "缺少权限",   icon: "warn",  copyable: false },
+      resource:       { label: "资源缺失",   icon: "warn",  copyable: false },
+      notHeard:       { label: "没听清",     icon: "warn",  copyable: false },
+      recognition:    { label: "识别失败",   icon: "warn",  copyable: false },
+      polish:         { label: "润色失败",   icon: "warn",  copyable: false },
+      injection:      { label: "写入失败",   icon: "warn",  copyable: true  },
+      injectionCopy:  { label: "写入失败",   icon: "warn",  copyable: true, showCopyHint: true },
+      copied:         { label: "已复制",     icon: "check", copyable: false },
+    };
+
+    function icon(type) {
+      if (type === "warn") {
+        return `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4V12.2"/><circle cx="10" cy="15.95" r="0.78" fill="currentColor" stroke="none"/></svg>`;
+      }
+      if (type === "check") {
+        return `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 10.6L7.6 15.4L17.4 5.2"/></svg>`;
+      }
+      if (type === "copy") {
+        return `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="10" height="11" rx="1.5"/><path d="M4 14V4.5A1.5 1.5 0 015.5 3H13"/></svg>`;
+      }
+      return "";
+    }
+
+    function render() {
+      const config = stateConfig[currentState];
+      hudRoot.className = "hud";
+
+      if (config.copyable) {
+        hudRoot.classList.add("injection-failure");
+        if (config.showCopyHint) {
+          hudRoot.innerHTML = `
+            <span class="result-icon">${icon(config.icon)}</span>
+            <span class="result-text">${config.label}</span>
+            <span class="divider"></span>
+            <span class="copy-hint">点击复制</span>
+          `;
+        } else {
+          hudRoot.innerHTML = `
+            <span class="result-icon">${icon(config.icon)}</span>
+            <span class="result-text">${config.label}</span>
+            <span class="divider"></span>
+            <span class="result-icon">${icon("copy")}</span>
+          `;
+        }
+        hudRoot.onclick = () => {
+          setState("copied");
+          setTimeout(() => setState("injection"), 1200);
+        };
+      } else {
+        hudRoot.onclick = null;
+        hudRoot.innerHTML = `
+          <span class="result-icon">${icon(config.icon)}</span>
+          <span class="result-text">${config.label}</span>
+        `;
+      }
+
+      stateLabel.textContent = config.label;
+      Array.from(failureSwitch.querySelectorAll("button")).forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.state === currentState);
+      });
+    }
+
+    function setState(next) {
+      currentState = next;
+      render();
+    }
+
+    failureSwitch.addEventListener("click", (e) => {
+      const target = e.target.closest("button[data-state]");
+      if (!target) return;
+      setState(target.dataset.state);
+    });
+
+    render();
+  </script>
+</body>
+</html>

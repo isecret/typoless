@@ -62,8 +62,8 @@ final class HUDFeedbackController {
             hudState = .success
             scheduleDismiss(after: 0.8)
 
-        case .processingFailed:
-            hudState = .failure
+        case .processingFailed(let reason):
+            hudState = .failure(reason)
             scheduleDismiss(after: 1.2)
 
         case .processingCancelled:

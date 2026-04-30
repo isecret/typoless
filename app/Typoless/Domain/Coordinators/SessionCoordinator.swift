@@ -363,7 +363,7 @@ final class SessionCoordinator {
     private func handleError(_ error: TypolessError) {
         currentError = error
         state = .error
-        onFeedbackEvent?(.processingFailed)
+        onFeedbackEvent?(.processingFailed(error.hudFailureReason))
         scheduleResetToIdle()
     }
 
