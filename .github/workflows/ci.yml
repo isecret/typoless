@@ -25,25 +25,27 @@ jobs:
       - name: Build
         working-directory: app
         run: |
+          set -o pipefail
           xcodebuild build \
             -project Typoless.xcodeproj \
             -scheme Typoless \
             -destination 'platform=macOS' \
             -derivedDataPath .derivedData \
             CODE_SIGNING_ALLOWED=NO \
-            | xcpretty || true
+            | tee .derivedData/build.log
 
       - name: Test
         working-directory: app
         run: |
+          set -o pipefail
           xcodebuild test \
             -project Typoless.xcodeproj \
-            -scheme TypolessTests \
+            -scheme Typoless \
             -destination 'platform=macOS' \
             -derivedDataPath .derivedData \
             -resultBundlePath .derivedData/TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            | xcpretty || true
+            | tee .derivedData/test.log
 
       - name: Upload test results on failure
         if: failure()
@@ -59,6 +61,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
-          path: app/.derivedData/Logs/Build/*.xcactivitylog
+          path: |
+            app/.derivedData/build.log
+            app/.derivedData/test.log
+            app/.derivedData/Logs/Build
           retention-days: 7
           if-no-files-found: ignore

@@ -21,6 +21,7 @@ jobs:
       - name: Archive
         working-directory: app
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project Typoless.xcodeproj \
             -scheme Typoless \
@@ -28,7 +29,7 @@ jobs:
             -archivePath .derivedData/Typoless.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="-" \
-            | xcpretty || true
+            | tee .derivedData/archive.log
 
       - name: Package .app from archive
         working-directory: app
@@ -61,6 +62,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-build-logs
-          path: app/.derivedData/Logs/Build/*.xcactivitylog
+          path: |
+            app/.derivedData/archive.log
+            app/.derivedData/Logs/Build
           retention-days: 7
           if-no-files-found: ignore

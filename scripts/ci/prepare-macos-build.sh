@@ -3,7 +3,7 @@
 #
 # 职责:
 #   1. 确保 xcodegen 可用
-#   2. 准备 RNNoise 动态库（Homebrew 安装并复制到 Resources）
+#   2. 准备 RNNoise 动态库（优先使用仓库资源，缺失时源码编译）
 #   3. 生成 Xcode 工程
 #
 # 用法:
@@ -11,6 +11,7 @@
 #
 # 环境变量:
 #   SKIP_RNNOISE    设为 1 可跳过 RNNoise 准备（适用于已有资源的场景）
+#   RNNOISE_GIT_REF RNNoise 拉取版本，默认 v0.2
 
 set -euo pipefail
 
@@ -36,26 +37,34 @@ echo ""
 # --- 2. 准备 RNNoise ---
 echo "--- Step 2: 准备 RNNoise 资源 ---"
 RNNOISE_RESOURCE_DIR="${APP_DIR}/Typoless/Resources/rnnoise/lib"
+RNNOISE_GIT_REF="${RNNOISE_GIT_REF:-v0.2}"
 
 if [ "${SKIP_RNNOISE:-0}" = "1" ]; then
     echo "  → SKIP_RNNOISE=1, skipping RNNoise setup"
 elif [ -f "${RNNOISE_RESOURCE_DIR}/librnnoise.dylib" ]; then
     echo "  ✓ RNNoise 已存在，跳过"
 else
-    echo "  → Installing RNNoise via Homebrew..."
-    brew install rnnoise
+    echo "  → RNNoise 资源缺失，开始源码编译..."
+    BUILD_ROOT="${PROJECT_ROOT}/build/ci-rnnoise"
+    SRC_DIR="${BUILD_ROOT}/rnnoise-src"
+    rm -rf "${BUILD_ROOT}"
+    mkdir -p "${BUILD_ROOT}"
 
-    BREW_PREFIX="$(brew --prefix)"
-    RNNOISE_LIB="${BREW_PREFIX}/lib/librnnoise.dylib"
+    git clone --depth 1 --branch "${RNNOISE_GIT_REF}" https://github.com/xiph/rnnoise.git "${SRC_DIR}"
+    cd "${SRC_DIR}"
+    ./autogen.sh
+    ./configure
+    make -j"$(sysctl -n hw.ncpu)"
 
+    RNNOISE_LIB="${SRC_DIR}/.libs/librnnoise.dylib"
     if [ ! -f "${RNNOISE_LIB}" ]; then
-        echo "  error: librnnoise.dylib not found at ${RNNOISE_LIB}"
+        echo "  error: 源码编译完成后仍未找到 librnnoise.dylib"
         exit 1
     fi
 
     mkdir -p "${RNNOISE_RESOURCE_DIR}"
     cp "${RNNOISE_LIB}" "${RNNOISE_RESOURCE_DIR}/librnnoise.dylib"
-    echo "  ✓ RNNoise 已复制到 Resources"
+    echo "  ✓ RNNoise 已编译并复制到 Resources"
 fi
 echo ""
 
