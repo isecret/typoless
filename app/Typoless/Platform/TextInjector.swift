@@ -268,8 +268,9 @@ struct TextInjector: Sendable {
     }
 
     private static func resolvePasteShortcut() -> (keyCode: CGKeyCode, flags: CGEventFlags) {
-        let modifiers = pasteMenuItem?.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask) ?? .command
-        let keyEquivalent = normalizedKeyEquivalent(from: pasteMenuItem?.keyEquivalent) ?? "v"
+        let pasteShortcut = currentPasteShortcut()
+        let modifiers = pasteShortcut.modifiers.intersection(.deviceIndependentFlagsMask)
+        let keyEquivalent = normalizedKeyEquivalent(from: pasteShortcut.keyEquivalent) ?? "v"
         let keyboardLayout = KeyboardLayout.current
 
         let keyCode: CGKeyCode
@@ -285,6 +286,27 @@ struct TextInjector: Sendable {
         return (keyCode, flags)
     }
 
+    private static func currentPasteShortcut() -> (keyEquivalent: String?, modifiers: NSEvent.ModifierFlags) {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                guard let item = pasteMenuItem else {
+                    return (nil, .command)
+                }
+                return (item.keyEquivalent, item.keyEquivalentModifierMask)
+            }
+        }
+
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                guard let item = pasteMenuItem else {
+                    return (nil, .command)
+                }
+                return (item.keyEquivalent, item.keyEquivalentModifierMask)
+            }
+        }
+    }
+
+    @MainActor
     private static var pasteMenuItem: NSMenuItem? {
         NSApp.mainMenu?.items
             .flatMap { $0.submenu?.items ?? [] }
