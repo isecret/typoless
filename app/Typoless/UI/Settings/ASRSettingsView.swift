@@ -13,9 +13,9 @@ struct ASRSettingsView: View {
     var body: some View {
         Section {
             // 平台选择
-            Picker("识别平台", selection: $selectedPlatform) {
-                Text("本地 FunASR").tag(ASRPlatform.localFunASR)
-                Text("腾讯云一句话识别").tag(ASRPlatform.tencentCloudSentence)
+            Picker("语音引擎", selection: $selectedPlatform) {
+                Text("本地").tag(ASRPlatform.localFunASR)
+                Text("腾讯云").tag(ASRPlatform.tencentCloudSentence)
             }
             .pickerStyle(.segmented)
 
@@ -46,75 +46,20 @@ struct ASRSettingsView: View {
     @ViewBuilder
     private var localFunASRPanel: some View {
         let status = configStore.asrConfig.local.modelStatus
+        let error = localModelError(for: status)
 
-        LabeledContent("模型状态") {
-            HStack(spacing: 6) {
-                statusIcon(for: status)
-                Text(statusText(for: status))
-                    .foregroundStyle(statusColor(for: status))
-            }
-        }
+        SettingsFormRow(title: "引擎状态") {
+            VStack(alignment: .trailing, spacing: 4) {
+                localModelStatusContent(for: status)
 
-        if let manager = downloadManager, manager.isDownloading {
-            LabeledContent("下载进度") {
-                HStack(spacing: 8) {
-                    ProgressView(value: manager.progress)
-                        .frame(width: 160)
-                    Text("\(Int(manager.progress * 100))%")
+                if let error {
+                    Text(error)
                         .font(.caption)
-                        .monospacedDigit()
-                    Button("取消") {
-                        manager.cancelDownload()
-                    }
-                    .controlSize(.small)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                        .frame(width: 320, alignment: .trailing)
                 }
             }
-        } else {
-            LabeledContent("操作") {
-                HStack(spacing: 8) {
-                    switch status {
-                    case .notDownloaded, .failed:
-                        Button("下载模型") {
-                            ensureDownloadManager().startDownload()
-                        }
-                    case .ready:
-                        Button("重新下载") {
-                            ensureDownloadManager().redownload()
-                        }
-                        Button("删除模型", role: .destructive) {
-                            ensureDownloadManager().deleteModels()
-                        }
-                    case .downloading:
-                        EmptyView()
-                    }
-                }
-                .controlSize(.small)
-            }
-        }
-
-        if let error = configStore.asrConfig.local.lastError ?? downloadManager?.lastError {
-            LabeledContent("错误") {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-                    .frame(width: 320, alignment: .leading)
-            }
-        }
-
-        LabeledContent("模型路径") {
-            Text(LocalASRConfig.modelRoot.path)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(width: 320, alignment: .leading)
-        }
-
-        LabeledContent("模型版本") {
-            Text("v\(LocalASRConfig.modelVersion)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -122,25 +67,27 @@ struct ASRSettingsView: View {
 
     @ViewBuilder
     private var tencentCloudPanel: some View {
-        LabeledContent("SecretId") {
-            TextField("", text: $secretId)
-                .settingsASRInputStyle()
+        SettingsFormRow(title: "SecretId") {
+            SettingsTextInputField(text: $secretId)
         }
 
-        LabeledContent("SecretKey") {
-            SecureField("", text: $secretKey)
-                .settingsASRInputStyle()
+        SettingsFormRow(title: "SecretKey") {
+            SettingsSecureInputField(text: $secretKey)
         }
 
-        LabeledContent("配置状态") {
+        SettingsFormRow(title: "引擎状态") {
             if configStore.isASRReady && selectedPlatform == .tencentCloudSentence {
-                Label("已配置", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.caption)
+                statusIndicator(
+                    text: "已就绪",
+                    systemImage: "checkmark.circle.fill",
+                    color: .green
+                )
             } else {
-                Label("未配置", systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                    .font(.caption)
+                statusIndicator(
+                    text: "未就绪",
+                    systemImage: "exclamationmark.triangle.fill",
+                    color: .orange
+                )
             }
         }
     }
@@ -155,54 +102,79 @@ struct ASRSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .tencentCloudSentence:
-            Text("腾讯云模式：语音数据会发送到腾讯云进行识别。请确保已了解相关隐私政策。")
+            Text("腾讯云模式：用于一句话识别。")
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(.secondary)
         }
     }
 
     // MARK: - 状态辅助
 
-    private func statusIcon(for status: LocalModelStatus) -> some View {
-        Group {
-            switch status {
-            case .notDownloaded:
-                Image(systemName: "arrow.down.circle")
-                    .foregroundStyle(.secondary)
-            case .downloading:
-                Image(systemName: "arrow.down.circle.dotted")
-                    .foregroundStyle(.blue)
-            case .ready:
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            case .failed:
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+    @ViewBuilder
+    private func localModelStatusContent(for status: LocalModelStatus) -> some View {
+        switch status {
+        case .notDownloaded:
+            HStack(spacing: 10) {
+                statusIndicator(
+                    text: "未就绪",
+                    systemImage: "exclamationmark.triangle.fill",
+                    color: .orange
+                )
+
+                Button("下载") {
+                    ensureDownloadManager().startDownload()
+                }
             }
+            .accessibilityLabel("下载模型")
+            .accessibilityValue("未下载")
+            .help("下载模型")
+        case .downloading:
+            if let manager = downloadManager {
+                HStack(spacing: 10) {
+                    ProgressView(value: manager.progress)
+                        .frame(width: 180)
+
+                    Button {
+                        manager.cancelDownload()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("取消下载")
+                    .accessibilityValue("下载中")
+                    .help("取消下载")
+                }
+            }
+        case .ready:
+            statusIndicator(
+                text: "已就绪",
+                systemImage: "checkmark.circle.fill",
+                color: .green
+            )
+                .accessibilityLabel("模型已就绪")
+                .accessibilityValue("已就绪")
+                .help("模型已就绪")
+        case .failed:
+            Button("重试下载") {
+                ensureDownloadManager().startDownload()
+            }
+            .accessibilityLabel("重试下载")
+            .accessibilityValue("下载失败")
+            .help("重试下载")
         }
     }
 
-    private func statusText(for status: LocalModelStatus) -> String {
-        switch status {
-        case .notDownloaded: return "未下载"
-        case .downloading: return "下载中"
-        case .ready: return "已就绪"
-        case .failed: return "下载失败"
-        }
-    }
-
-    private func statusColor(for status: LocalModelStatus) -> Color {
-        switch status {
-        case .notDownloaded: return .secondary
-        case .downloading: return .blue
-        case .ready: return .green
-        case .failed: return .red
-        }
+    private func localModelError(for status: LocalModelStatus) -> String? {
+        guard status == .failed else { return nil }
+        return configStore.asrConfig.local.lastError ?? downloadManager?.lastError
     }
 
     // MARK: - 保存逻辑
 
     private func loadDraft() {
+        configStore.refreshLocalModelStatusFromDisk()
         selectedPlatform = configStore.asrConfig.selectedPlatform
         secretId = configStore.asrConfig.tencentCloud.secretId
         secretKey = configStore.asrConfig.tencentCloud.secretKey
@@ -255,17 +227,13 @@ struct ASRSettingsView: View {
         downloadManager = manager
         return manager
     }
-}
 
-// MARK: - Style Helpers
-
-private extension View {
-    func settingsASRInputStyle() -> some View {
-        frame(width: 320)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .textFieldStyle(.roundedBorder)
-            .controlSize(.regular)
-            .frame(height: 28)
+    @ViewBuilder
+    private func statusIndicator(text: String, systemImage: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .foregroundStyle(color)
     }
 }

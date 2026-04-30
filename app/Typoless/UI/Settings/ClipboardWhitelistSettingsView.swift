@@ -9,29 +9,24 @@ struct ClipboardWhitelistSettingsView: View {
 
     var body: some View {
         Section {
-            LabeledContent("添加规则") {
-                HStack {
-                    TextField(
-                        "",
+            settingsRow("添加规则") {
+                HStack(spacing: 8) {
+                    SettingsTextInputField(
                         text: $newBundleID,
-                        prompt: Text("Bundle ID 或前缀").foregroundStyle(.secondary)
+                        width: 220,
+                        placeholder: "Bundle ID 或前缀"
                     )
-                    .frame(width: 260)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.regular)
-                    .frame(height: 28)
 
                     Button("添加") {
                         addBundleID()
                     }
+                    .fixedSize()
                     .disabled(newBundleID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
 
             if pasteboardInjectionBundleIDs.isEmpty {
-                LabeledContent("手动规则") {
+                settingsRow("手动规则") {
                     Text("暂无")
                         .foregroundStyle(.secondary)
                 }
@@ -94,6 +89,15 @@ struct ClipboardWhitelistSettingsView: View {
 
     private func removeBundleID(_ bundleID: String) {
         pasteboardInjectionBundleIDs.removeAll { $0 == bundleID }
+    }
+
+    @ViewBuilder
+    private func settingsRow<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
+            Spacer(minLength: 16)
+            content()
+        }
     }
 }
 
