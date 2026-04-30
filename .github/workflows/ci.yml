@@ -1,0 +1,64 @@
+name: macOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        run: ./scripts/ci/prepare-macos-build.sh
+
+      - name: Build
+        working-directory: app
+        run: |
+          xcodebuild build \
+            -project Typoless.xcodeproj \
+            -scheme Typoless \
+            -destination 'platform=macOS' \
+            -derivedDataPath .derivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || true
+
+      - name: Test
+        working-directory: app
+        run: |
+          xcodebuild test \
+            -project Typoless.xcodeproj \
+            -scheme TypolessTests \
+            -destination 'platform=macOS' \
+            -derivedDataPath .derivedData \
+            -resultBundlePath .derivedData/TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty || true
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/.derivedData/TestResults.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: app/.derivedData/Logs/Build/*.xcactivitylog
+          retention-days: 7
+          if-no-files-found: ignore

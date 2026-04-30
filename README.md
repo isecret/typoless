@@ -281,6 +281,32 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 
 或在 Xcode 中打开 `Typoless.xcodeproj` 后按 `⌘R` 运行。
 
+## CI / CD
+
+项目使用 GitHub Actions 进行持续集成和构建产物生成。
+
+### CI（`.github/workflows/ci.yml`）
+
+- **触发条件**：`main` 分支 push、PR 提交
+- **执行内容**：`xcodegen generate` → `xcodebuild build` → `xcodebuild test`
+- **失败诊断**：自动上传 `xcresult` 和构建日志
+
+### Release Build（`.github/workflows/release-build.yml`）
+
+- **触发条件**：手动触发（`workflow_dispatch`）、`v*` tag push
+- **执行内容**：`xcodegen generate` → `xcodebuild archive`（未签名）→ 打包 `.app` zip
+- **产物**：可从 Actions 下载 `Typoless-unsigned.zip` 和 `.xcarchive`
+- **不依赖**：Developer ID 签名、Apple notarization、GitHub Secrets
+
+### 构建准备脚本
+
+```bash
+# CI 和本地均可使用
+./scripts/ci/prepare-macos-build.sh
+```
+
+脚本自动完成：安装 `xcodegen`、准备 RNNoise 库、生成 Xcode 工程。
+
 ## 当前状态
 
 - `PRD`: 已更新至 v1.2（FunASR 收敛）

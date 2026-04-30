@@ -1,0 +1,66 @@
+name: Release Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  archive:
+    name: Build Unsigned Archive
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        run: ./scripts/ci/prepare-macos-build.sh
+
+      - name: Archive
+        working-directory: app
+        run: |
+          xcodebuild archive \
+            -project Typoless.xcodeproj \
+            -scheme Typoless \
+            -destination 'generic/platform=macOS' \
+            -archivePath .derivedData/Typoless.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="-" \
+            | xcpretty || true
+
+      - name: Package .app from archive
+        working-directory: app
+        run: |
+          APP_PATH=".derivedData/Typoless.xcarchive/Products/Applications/Typoless.app"
+          if [ ! -d "${APP_PATH}" ]; then
+            echo "error: Typoless.app not found in archive"
+            ls -la .derivedData/Typoless.xcarchive/Products/ 2>/dev/null || true
+            exit 1
+          fi
+
+          mkdir -p .derivedData/artifacts
+          ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" .derivedData/artifacts/Typoless-unsigned.zip
+          cp -R .derivedData/Typoless.xcarchive .derivedData/artifacts/Typoless.xcarchive
+
+          echo "=== Artifact contents ==="
+          ls -lh .derivedData/artifacts/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: typoless-unsigned-${{ github.sha }}
+          path: |
+            app/.derivedData/artifacts/Typoless-unsigned.zip
+            app/.derivedData/artifacts/Typoless.xcarchive
+          retention-days: 30
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-logs
+          path: app/.derivedData/Logs/Build/*.xcactivitylog
+          retention-days: 7
+          if-no-files-found: ignore
