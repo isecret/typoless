@@ -50,6 +50,11 @@ else
     rm -rf "${BUILD_ROOT}"
     mkdir -p "${BUILD_ROOT}"
 
+    if ! command -v autoreconf &>/dev/null || ! command -v libtoolize &>/dev/null; then
+        echo "  → Installing autotools dependencies via Homebrew..."
+        brew install autoconf automake libtool
+    fi
+
     git clone --depth 1 --branch "${RNNOISE_GIT_REF}" https://github.com/xiph/rnnoise.git "${SRC_DIR}"
     cd "${SRC_DIR}"
     ./autogen.sh
