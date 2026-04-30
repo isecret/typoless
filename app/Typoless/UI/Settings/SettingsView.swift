@@ -8,11 +8,12 @@ struct SettingsView: View {
             GeneralSettingsView(configStore: appCoordinator.configStore, onHotkeyChanged: {
                 appCoordinator.setupHotkey()
             })
+            ASRSettingsView(configStore: appCoordinator.configStore)
             LLMSettingsView(configStore: appCoordinator.configStore)
             PermissionsSettingsView(permissionsManager: appCoordinator.permissionsManager)
             ClipboardWhitelistSettingsView(configStore: appCoordinator.configStore)
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 600)
+        .frame(width: 520, height: 680)
     }
 }

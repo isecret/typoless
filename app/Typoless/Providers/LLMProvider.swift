@@ -121,7 +121,7 @@ struct LLMProvider: Sendable {
             }
             .joined(separator: "\n")
 
-        return baseSystemPrompt + "\n\n## 术语参考\n\n以下为用户维护的专有名词，校对时优先使用这些写法。若 ASR 输出中出现与"发音提示"读音相近的中文片段，应恢复为对应术语的正确写法：\n\n\(termsList)"
+        return baseSystemPrompt + "\n\n## 术语参考\n\n以下为用户维护的专有名词，校对时优先使用这些写法。若 ASR 输出中出现与\"发音提示\"读音相近的中文片段，应恢复为对应术语的正确写法：\n\n\(termsList)"
     }
 
     private func sendChatCompletionRequest(

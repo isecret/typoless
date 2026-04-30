@@ -94,25 +94,24 @@ final class ASRRuntimeManager: @unchecked Sendable {
     @discardableResult
     func warmup() -> Task<Void, Error> {
         lock.lock()
+        defer { lock.unlock() }
 
         cancelIdleShutdownLocked(reason: "warmup requested")
 
         if warmupState == .warm, process?.isRunning == true {
-            lock.unlock()
             return Task { }
         }
 
         if let existing = warmupTask {
-            lock.unlock()
             return existing
         }
 
         let task = Task { [weak self] in
-            try await self?.performWarmup()
+            guard let self else { return }
+            try await self.performWarmup()
         }
         warmupTask = task
         warmupState = .warming
-        lock.unlock()
 
         logger.info("FunASR warmup started")
         return task
@@ -120,10 +119,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
 
     /// 等待预热完成（如果正在进行）。已 warm 或 cold 状态不阻塞。
     func awaitWarmupIfNeeded() async throws {
-        let task: Task<Void, Error>?
-        lock.lock()
-        task = warmupTask
-        lock.unlock()
+        let task = lock.withLock { warmupTask }
 
         if let task {
             try await task.value
@@ -135,10 +131,10 @@ final class ASRRuntimeManager: @unchecked Sendable {
         do {
             try lock.withLock { try startLocked() }
         } catch {
-            lock.lock()
-            warmupState = .cold
-            warmupTask = nil
-            lock.unlock()
+            lock.withLock {
+                warmupState = .cold
+                warmupTask = nil
+            }
             throw error
         }
 
@@ -152,20 +148,20 @@ final class ASRRuntimeManager: @unchecked Sendable {
             _ = try await sendRequest(request)
         } catch {
             // warmup 失败不阻塞后续 recognize（recognize 会自行重试启动）
-            lock.lock()
-            warmupState = .cold
-            warmupTask = nil
-            lock.unlock()
+            lock.withLock {
+                warmupState = .cold
+                warmupTask = nil
+            }
             logger.warning("FunASR warmup failed: \(error.localizedDescription, privacy: .public)")
             throw error
         }
 
-        lock.lock()
-        warmupState = .warm
-        warmupTask = nil
-        currentIdlePolicy = .warmupOnly
-        scheduleIdleShutdownLocked()
-        lock.unlock()
+        lock.withLock {
+            warmupState = .warm
+            warmupTask = nil
+            currentIdlePolicy = .warmupOnly
+            scheduleIdleShutdownLocked()
+        }
 
         logger.info("FunASR warmup completed | idle_policy=warmupOnly")
     }
@@ -194,8 +190,8 @@ final class ASRRuntimeManager: @unchecked Sendable {
         let (writeHandle, readHandle) = try prepareRequestHandles()
         defer { finishRequest() }
 
-        var line = requestData
-        line.append(contentsOf: "\n".utf8)
+        var requestLine = requestData
+        requestLine.append(contentsOf: "\n".utf8)
 
         // 串行化 RPC：等待信号量确保同一时间只有一个请求在读写 stdio
         return try await withCheckedThrowingContinuation { continuation in
@@ -208,7 +204,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
                 defer { self.rpcSemaphore.signal() }
 
                 do {
-                    try writeHandle.write(contentsOf: line)
+                    try writeHandle.write(contentsOf: requestLine)
                 } catch {
                     continuation.resume(throwing: TypolessError.asrProcessFailure(message: "Failed to write to worker: \(error.localizedDescription)"))
                     return
