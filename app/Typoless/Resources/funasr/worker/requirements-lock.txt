@@ -1,0 +1,31 @@
+# FunASR worker dependencies — LOCKED for release builds
+# Architecture: macOS arm64 (Apple Silicon)
+# Python: 3.11.x (python-build-standalone)
+#
+# This file pins exact versions for reproducible release builds.
+# Development can use requirements.txt with relaxed constraints.
+#
+# To regenerate: pip install --platform macosx_14_0_arm64 --only-binary :all: \
+#   -r requirements.txt && pip freeze > requirements-lock.txt
+#
+# Last updated: 2026-04-30
+
+funasr==1.2.6
+torch==2.4.1
+torchaudio==2.4.1
+numpy==1.26.4
+soundfile==0.12.1
+modelscope==1.20.1
+
+# Transitive dependencies (pinned for reproducibility)
+onnxruntime==1.19.2
+librosa==0.10.2.post1
+scipy==1.14.1
+pyyaml==6.0.2
+tqdm==4.66.5
+huggingface-hub==0.25.2
+tokenizers==0.20.0
+safetensors==0.4.5
+jieba==0.42.1
+zhconv==1.4.3
+opencc==1.1.9
