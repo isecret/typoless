@@ -284,7 +284,7 @@ final class ModelDownloadManager {
             delegateQueue: nil
         )
         defer {
-            session.invalidateAndCancel()
+            session.finishTasksAndInvalidate()
         }
 
         let tempURL = try await withTaskCancellationHandler {
@@ -387,6 +387,7 @@ private final class DownloadProgressReporter: NSObject, URLSessionDownloadDelega
     private var continuation: CheckedContinuation<URL, Error>?
     private var progressHandler: (@Sendable (Int64, Int64) -> Void)?
     private weak var activeTask: URLSessionDownloadTask?
+    private let fileManager = FileManager.default
 
     func download(
         from remoteURL: URL,
@@ -426,7 +427,17 @@ private final class DownloadProgressReporter: NSObject, URLSessionDownloadDelega
         didFinishDownloadingTo location: URL
     ) {
         activeTask = nil
-        continuation?.resume(returning: location)
+        do {
+            let preservedURL = fileManager.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+            if fileManager.fileExists(atPath: preservedURL.path) {
+                try fileManager.removeItem(at: preservedURL)
+            }
+            try fileManager.moveItem(at: location, to: preservedURL)
+            continuation?.resume(returning: preservedURL)
+        } catch {
+            continuation?.resume(throwing: error)
+        }
         continuation = nil
         progressHandler = nil
     }

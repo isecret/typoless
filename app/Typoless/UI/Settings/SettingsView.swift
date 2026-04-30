@@ -21,6 +21,7 @@ struct SettingsView: View {
 private enum SettingsFormLayout {
     static let labelWidth: CGFloat = 104
     static let rowSpacing: CGFloat = 12
+    static let rowMinHeight: CGFloat = 28
 }
 
 struct SettingsFormRow<Content: View>: View {
@@ -28,12 +29,14 @@ struct SettingsFormRow<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        HStack(alignment: .center, spacing: SettingsFormLayout.rowSpacing) {
+        HStack(alignment: .top, spacing: SettingsFormLayout.rowSpacing) {
             Text(title)
-                .frame(width: SettingsFormLayout.labelWidth, height: 28, alignment: .leading)
+                .frame(width: SettingsFormLayout.labelWidth, alignment: .leading)
+                .frame(minHeight: SettingsFormLayout.rowMinHeight, alignment: .leading)
 
             content()
                 .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(minHeight: SettingsFormLayout.rowMinHeight, alignment: .trailing)
         }
     }
 }
@@ -45,7 +48,7 @@ struct SettingsTextInputField: View {
 
     var body: some View {
         SettingsTextFieldRepresentable(text: $text, width: width, placeholder: placeholder)
-            .frame(width: width, height: 28)
+            .frame(width: width, height: SettingsFormLayout.rowMinHeight)
     }
 }
 
@@ -55,7 +58,7 @@ struct SettingsSecureInputField: View {
 
     var body: some View {
         SettingsSecureTextFieldRepresentable(text: $text, width: width)
-            .frame(width: width, height: 28)
+            .frame(width: width, height: SettingsFormLayout.rowMinHeight)
     }
 }
 

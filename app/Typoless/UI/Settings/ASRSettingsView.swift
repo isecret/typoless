@@ -12,12 +12,16 @@ struct ASRSettingsView: View {
 
     var body: some View {
         Section {
-            // 平台选择
-            Picker("语音引擎", selection: $selectedPlatform) {
-                Text("本地").tag(ASRPlatform.localFunASR)
-                Text("腾讯云").tag(ASRPlatform.tencentCloudSentence)
+            SettingsFormRow(title: "语音引擎") {
+                Picker("语音引擎", selection: $selectedPlatform) {
+                    Text("本地").tag(ASRPlatform.localFunASR)
+                    Text("腾讯云").tag(ASRPlatform.tencentCloudSentence)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: 220, alignment: .trailing)
             }
-            .pickerStyle(.segmented)
 
             // 根据选中平台显示对应面板
             switch selectedPlatform {
@@ -124,6 +128,7 @@ struct ASRSettingsView: View {
                 Button("下载") {
                     ensureDownloadManager().startDownload()
                 }
+                .fixedSize()
             }
             .accessibilityLabel("下载模型")
             .accessibilityValue("未下载")
@@ -160,6 +165,7 @@ struct ASRSettingsView: View {
             Button("重试下载") {
                 ensureDownloadManager().startDownload()
             }
+            .fixedSize()
             .accessibilityLabel("重试下载")
             .accessibilityValue("下载失败")
             .help("重试下载")

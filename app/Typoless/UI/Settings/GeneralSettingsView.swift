@@ -9,9 +9,7 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Section {
-            HStack {
-                Text("全局快捷键")
-                Spacer()
+            SettingsFormRow(title: "全局快捷键") {
                 HotkeyRecorderView(hotkey: $hotkey)
             }
         } header: {
