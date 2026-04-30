@@ -241,10 +241,24 @@ struct LLMProvider: Sendable {
             throw TypolessError.llmEmptyResponse
         }
 
-        return PolishResult(
-            text: content.trimmingCharacters(in: .whitespacesAndNewlines),
-            source: .llm
-        )
+        // 尝试结构化解析
+        let parseResult = StructuredPolishParser.parse(content: content)
+
+        switch parseResult {
+        case .structured(let structuredResponse):
+            let renderedText = StructuredPolishRenderer.render(response: structuredResponse)
+            return PolishResult(
+                text: renderedText,
+                source: .llm,
+                structured: structuredResponse.toStructuredResult()
+            )
+
+        case .invalidStructure(let fallbackText):
+            return PolishResult(text: fallbackText, source: .llm)
+
+        case .plainText(let text):
+            return PolishResult(text: text, source: .llm)
+        }
     }
 }
 
