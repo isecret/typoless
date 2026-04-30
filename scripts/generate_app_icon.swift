@@ -1,11 +1,11 @@
 #!/usr/bin/env swift
 // generate_app_icon.swift
 //
-// 基于项目根目录 svg.svg 生成 macOS App Icon 全套 PNG 资源。
+// 基于项目根目录 typoless.svg 生成 macOS App Icon 全套 PNG 资源。
 // 风格：白底卡片 + 圆角底板 + 居中 SVG 图形 + 内边距
 //
 // 用法：swift scripts/generate_app_icon.swift <svg_path> <output_dir>
-// 示例：swift scripts/generate_app_icon.swift svg.svg app/Typoless/Resources/Assets.xcassets/AppIcon.appiconset
+// 示例：swift scripts/generate_app_icon.swift typoless.svg app/Typoless/Resources/Assets.xcassets/AppIcon.appiconset
 
 import AppKit
 import Foundation
