@@ -1,12 +1,10 @@
-# Typoless
+<p align="center">
+  <img src="./typoless.svg" alt="Typoless" width="160" />
+</p>
 
-![Typoless](./typoless.svg)
+<h1 align="center">Typoless</h1>
 
-Typoless 是一个面向 macOS 的菜单栏语音 + AI 输入助手。
-
-当前主链路：
-
-`录音 -> RNNoise 本地降噪 -> FunASR / 腾讯云 ASR -> OpenAI 兼容 LLM 润色 -> 写回当前焦点应用`
+<p align="center">Typoless 是一个面向 macOS 的菜单栏语音 + AI 输入助手。</p>
 
 ## 当前范围
 
