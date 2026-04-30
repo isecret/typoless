@@ -3,15 +3,14 @@
 #
 # 职责:
 #   1. 确保 xcodegen 可用
-#   2. 准备 RNNoise 动态库（优先使用仓库资源，缺失时源码编译）
+#   2. 校验仓库内 RNNoise 动态库是否就绪
 #   3. 生成 Xcode 工程
 #
 # 用法:
 #   ./scripts/ci/prepare-macos-build.sh
 #
 # 环境变量:
-#   SKIP_RNNOISE    设为 1 可跳过 RNNoise 准备（适用于已有资源的场景）
-#   RNNOISE_GIT_REF RNNoise 拉取版本，默认 v0.2
+#   SKIP_RNNOISE    设为 1 可跳过 RNNoise 校验（适用于特殊调试场景）
 
 set -euo pipefail
 
@@ -37,39 +36,15 @@ echo ""
 # --- 2. 准备 RNNoise ---
 echo "--- Step 2: 准备 RNNoise 资源 ---"
 RNNOISE_RESOURCE_DIR="${APP_DIR}/Typoless/Resources/rnnoise/lib"
-RNNOISE_GIT_REF="${RNNOISE_GIT_REF:-v0.2}"
 
 if [ "${SKIP_RNNOISE:-0}" = "1" ]; then
     echo "  → SKIP_RNNOISE=1, skipping RNNoise setup"
 elif [ -f "${RNNOISE_RESOURCE_DIR}/librnnoise.dylib" ]; then
     echo "  ✓ RNNoise 已存在，跳过"
 else
-    echo "  → RNNoise 资源缺失，开始源码编译..."
-    BUILD_ROOT="${PROJECT_ROOT}/build/ci-rnnoise"
-    SRC_DIR="${BUILD_ROOT}/rnnoise-src"
-    rm -rf "${BUILD_ROOT}"
-    mkdir -p "${BUILD_ROOT}"
-
-    if ! command -v autoreconf &>/dev/null || ! command -v libtoolize &>/dev/null; then
-        echo "  → Installing autotools dependencies via Homebrew..."
-        brew install autoconf automake libtool
-    fi
-
-    git clone --depth 1 --branch "${RNNOISE_GIT_REF}" https://github.com/xiph/rnnoise.git "${SRC_DIR}"
-    cd "${SRC_DIR}"
-    ./autogen.sh
-    ./configure
-    make -j"$(sysctl -n hw.ncpu)"
-
-    RNNOISE_LIB="${SRC_DIR}/.libs/librnnoise.dylib"
-    if [ ! -f "${RNNOISE_LIB}" ]; then
-        echo "  error: 源码编译完成后仍未找到 librnnoise.dylib"
-        exit 1
-    fi
-
-    mkdir -p "${RNNOISE_RESOURCE_DIR}"
-    cp "${RNNOISE_LIB}" "${RNNOISE_RESOURCE_DIR}/librnnoise.dylib"
-    echo "  ✓ RNNoise 已编译并复制到 Resources"
+    echo "  error: RNNoise 资源缺失: ${RNNOISE_RESOURCE_DIR}/librnnoise.dylib"
+    echo "  error: 请先运行 ./scripts/setup-rnnoise.sh 并将结果提交到仓库"
+    exit 1
 fi
 echo ""
 

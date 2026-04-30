@@ -77,6 +77,9 @@ app/Typoless/Resources/whisper/models/ggml-small.bin
 
 # RNNoise resources (set up via scripts/setup-rnnoise.sh)
 app/Typoless/Resources/rnnoise/
+!app/Typoless/Resources/rnnoise/
+!app/Typoless/Resources/rnnoise/lib/
+!app/Typoless/Resources/rnnoise/lib/librnnoise.dylib
 
 # sherpa-onnx resources (set up via scripts/setup-sherpa.sh, models too large for git)
 app/Typoless/Resources/sherpa/
