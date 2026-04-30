@@ -320,6 +320,13 @@ final class SessionCoordinator {
             source: polishResult.source.rawValue,
             durationMs: llmMs
         )
+        diagnostics.structuredProcessingCompleted(
+            sessionID: sessionID,
+            mode: polishResult.structured?.mode.rawValue,
+            correctionApplied: polishResult.structured?.correctionApplied ?? false,
+            parseSuccess: polishResult.structured != nil,
+            fallback: polishResult.structured == nil
+        )
 
         // 4. 文本注入
         state = .injecting

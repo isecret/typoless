@@ -97,3 +97,15 @@ targets:
             [ -f "${FUNASR_DST}/runtime/python3" ] && chmod +x "${FUNASR_DST}/runtime/python3"
             [ -f "${FUNASR_DST}/worker/funasr_worker.py" ] && chmod +x "${FUNASR_DST}/worker/funasr_worker.py"
           fi
+
+  TypolessTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: TypolessTests
+    dependencies:
+      - target: Typoless
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.isecret.typoless.tests
+        GENERATE_INFOPLIST_FILE: YES

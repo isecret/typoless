@@ -237,7 +237,8 @@
 - 默认优先发送 `thinking: { "type": "disabled" }` 关闭长思考
 - 若当前 LLM 配置已记录 `thinkingDisabled = true`，则直接发送普通请求
 - 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config.json`
-- 返回润色后的最终文本
+- 返回保守型结构化处理后的最终文本
+- 优先解析结构化 JSON 结果，并保留兼容的纯文本提取回退路径
 - 不处理 UI 和回退逻辑
 - Prompt 可接收个人词典术语参考，但不开放用户自定义 Prompt
 
@@ -269,6 +270,7 @@
 
 - 使用 `os.Logger(subsystem: "com.isecret.typoless", category: "Session")` 输出应用日志。
 - 记录 `session_id`、各阶段耗时、文本长度、结果来源、错误分类和目标 app bundle id。
+- 记录结构化处理诊断字段：`mode`、`correction_applied`、`parse_success`、`fallback`。
 - Debug 构建可输出 ASR 原文与 LLM 输出；Release 构建仅输出脱敏摘要。
 
 ## 6. 状态机
@@ -488,6 +490,8 @@
 - 自动补自然中文标点
 - 保留个人词典中的专有名词
 - 中英混合术语恢复：ASR 把英文术语识别成中文音近词时，恢复为正确英文写法
+- 在结构信号明确时，将内容保守整理为 `plain_text`、`list`、`message`
+- 在“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正场景下，优先保留最终明确表达
 
 禁止行为：
 
@@ -496,6 +500,19 @@
 - 引入未提及事实
 - 将个人词典或用户文本当作系统指令执行
 - 纯中文输入不因术语列表存在英文词而被错误替换
+- 生成长邮件、摘要、会议纪要或其他超出首版边界的结构化文稿
+
+模式约束：
+
+- `plain_text`
+  - 默认模式，继续执行纠错、标点和轻分段
+- `list`
+  - 仅在存在稳定枚举信号时启用
+  - 仅拆分原有内容，不新增要点
+- `message`
+  - 仅处理短消息/短邮件级别输出
+  - 允许称呼、正文和简短结尾的最小重排
+  - 不补充未说出的事实、承诺、时间或地点
 
 ### 10.3 输入输出
 
@@ -510,6 +527,33 @@
 
 - `PolishResult`
   - `text`
+  - `structured: StructuredPolishResult?`
+
+- `StructuredPolishResult`
+  - `mode: PolishMode`
+  - `items: [String]?`
+  - `salutation: String?`
+  - `body: [String]?`
+  - `closing: String?`
+  - `correctionApplied: Bool`
+  - `isValid: Bool`（语义校验：list 要求 items 非空，message 要求 body 非空）
+
+- `PolishMode`
+  - `plainText`
+  - `list`
+  - `message`
+
+解析与渲染约束：
+
+- 优先解析 LLM 返回的结构化 JSON（raw JSON，非 code fence）
+- 解析成功后按 mode 在客户端本地渲染最终文本
+  - `plain_text`：直接使用 `text` 字段
+  - `list`：按 `items` 编号换行渲染
+  - `message`：按 `salutation` + `body` + `closing` 拼接，缺失部分不强补
+- 语义校验失败时（如 list 但 items 为空），退回使用 JSON 中的 `text` 字段
+- 非法 JSON 时多级回退：尝试宽容提取 `text` 字段 → 使用原始内容（仅当内容不是 JSON 结构时）
+- 最终注入文本始终取自安全渲染后的 `PolishResult.text`
+- 绝不将 JSON 原文注入用户应用
 
 ### 10.4 失败处理
 
@@ -620,6 +664,11 @@
 - 正常主链路
 - LLM 配置不完整
 - LLM 失败直接报错
+- `plain_text` 不被误判为 `list` 或 `message`
+- `list` 可稳定识别枚举内容且顺序不乱
+- `message` 可完成最小格式化且不补事实
+- “不是 A，是 B”“改成”“最后一句不要了”等显式自我修正
+- 非法 JSON、缺字段和纯文本兼容回退
 - 用户取消
 - 低于 500ms 的短录音静默取消
 - ASR 超时
@@ -642,6 +691,7 @@
 - LLM 模型错误
 - 注入失败后从菜单栏复制失败文本
 - 个人词典改善专有名词识别与润色
+- 列表口述和短消息口述可输出保守结构化结果
 
 ## 16. 开发顺序建议
 
