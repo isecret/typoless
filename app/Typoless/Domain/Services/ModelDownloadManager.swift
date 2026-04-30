@@ -9,6 +9,12 @@ import os.log
 @Observable
 final class ModelDownloadManager {
 
+    private struct RemoteModelFile {
+        let name: String
+        let path: String
+        let size: Int64?
+    }
+
     private(set) var progress: Double = 0
     private(set) var isDownloading: Bool = false
     private(set) var lastError: String?
@@ -16,6 +22,9 @@ final class ModelDownloadManager {
     private let logger = Logger(subsystem: "com.isecret.typoless", category: "ModelDownload")
     private var downloadTask: Task<Void, Never>?
     private weak var configStore: ConfigStore?
+    private var downloadedBytes: Int64 = 0
+    private var totalBytesExpected: Int64 = 0
+    private var currentFileExpectedBytes: Int64 = 0
 
     /// 固定模型下载列表
     private static let models: [(name: String, repoId: String)] = [
@@ -36,6 +45,9 @@ final class ModelDownloadManager {
         isDownloading = true
         progress = 0
         lastError = nil
+        downloadedBytes = 0
+        totalBytesExpected = 0
+        currentFileExpectedBytes = 0
         try? configStore?.updateLocalModelStatus(.downloading)
 
         downloadTask = Task { [weak self] in
@@ -49,7 +61,11 @@ final class ModelDownloadManager {
         downloadTask = nil
         isDownloading = false
         progress = 0
-        try? configStore?.updateLocalModelStatus(.notDownloaded, error: "用户取消")
+        downloadedBytes = 0
+        totalBytesExpected = 0
+        currentFileExpectedBytes = 0
+        removeIncompleteModels()
+        try? configStore?.updateLocalModelStatus(.notDownloaded)
     }
 
     /// 重新下载（先删除再下载）
@@ -64,9 +80,11 @@ final class ModelDownloadManager {
         downloadTask = nil
         isDownloading = false
         progress = 0
+        downloadedBytes = 0
+        totalBytesExpected = 0
+        currentFileExpectedBytes = 0
 
-        let modelRoot = LocalASRConfig.modelRoot
-        try? FileManager.default.removeItem(at: modelRoot)
+        removeIncompleteModels()
 
         try? configStore?.updateLocalModelStatus(.notDownloaded)
         logger.info("Models deleted")
@@ -109,6 +127,7 @@ final class ModelDownloadManager {
         let mirrorSource = configStore?.asrConfig.local.mirrorSource
 
         let totalModels = Double(Self.models.count)
+        var pendingDownloads: [(model: (name: String, repoId: String), destination: URL, files: [RemoteModelFile])] = []
 
         for (index, model) in Self.models.enumerated() {
             guard !Task.isCancelled else { return }
@@ -125,16 +144,33 @@ final class ModelDownloadManager {
 
             logger.info("Downloading model: \(model.name, privacy: .public)")
 
+            if let files = try? await fetchRemoteFileList(repoId: model.repoId, mirrorSource: mirrorSource),
+               !files.isEmpty {
+                pendingDownloads.append((model, modelDir, files))
+            } else {
+                logger.info("Falling back to git clone for model: \(model.name, privacy: .public)")
+                pendingDownloads.append((model, modelDir, []))
+            }
+        }
+
+        totalBytesExpected = pendingDownloads
+            .flatMap(\.files)
+            .compactMap(\.size)
+            .reduce(0, +)
+
+        for (index, item) in pendingDownloads.enumerated() {
+            guard !Task.isCancelled else { return }
+
             do {
                 try await downloadModel(
-                    name: model.name,
-                    repoId: model.repoId,
-                    destination: modelDir,
-                    mirrorSource: mirrorSource
+                    repoId: item.model.repoId,
+                    destination: item.destination,
+                    mirrorSource: mirrorSource,
+                    files: item.files
                 )
             } catch {
                 guard !Task.isCancelled else { return }
-                await handleDownloadFailure("下载 \(model.name) 失败：\(error.localizedDescription)")
+                await handleDownloadFailure("下载 \(item.model.name) 失败：\(error.localizedDescription)")
                 return
             }
 
@@ -155,29 +191,49 @@ final class ModelDownloadManager {
     }
 
     private func downloadModel(
-        name: String,
         repoId: String,
         destination: URL,
-        mirrorSource: String?
+        mirrorSource: String?,
+        files: [RemoteModelFile]
     ) async throws {
-        // 构建下载脚本命令：使用 Python modelscope snapshot_download
         let baseURL = mirrorSource ?? "https://modelscope.cn"
-        let script = """
-        import sys
-        sys.path.insert(0, '')
-        from modelscope.hub.snapshot_download import snapshot_download
-        snapshot_download('\(repoId)', cache_dir='\(destination.deletingLastPathComponent().path)', local_dir='\(destination.path)')
-        """
+        let fm = FileManager.default
+        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
 
-        // 使用简化的 HTTP 下载方式替代 modelscope SDK
-        // 直接从 ModelScope 下载模型快照
+        guard !files.isEmpty else {
+            try await downloadViaGitLFS(repoId: repoId, destination: destination, baseURL: baseURL)
+            return
+        }
+
+        for file in files {
+            guard !Task.isCancelled else { throw CancellationError() }
+
+            let downloadURL = "\(baseURL)/api/v1/models/\(repoId)/repo?Revision=master&FilePath=\(file.path)"
+            guard let fileURL = URL(string: downloadURL) else { continue }
+
+            let destFile = destination.appendingPathComponent(file.name)
+
+            // 确保父目录存在
+            try fm.createDirectory(at: destFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try await downloadFile(
+                from: fileURL,
+                to: destFile,
+                expectedSize: file.size
+            )
+        }
+    }
+
+    private func fetchRemoteFileList(
+        repoId: String,
+        mirrorSource: String?
+    ) async throws -> [RemoteModelFile] {
+        let baseURL = mirrorSource ?? "https://modelscope.cn"
         let snapshotURL = "\(baseURL)/api/v1/models/\(repoId)/repo/files"
 
         guard let url = URL(string: snapshotURL) else {
             throw NSError(domain: "ModelDownload", code: -1, userInfo: [NSLocalizedDescriptionKey: "无效的下载 URL"])
         }
 
-        // 获取文件列表
         var request = URLRequest(url: url)
         request.timeoutInterval = 30
 
@@ -186,33 +242,105 @@ final class ModelDownloadManager {
             throw NSError(domain: "ModelDownload", code: -2, userInfo: [NSLocalizedDescriptionKey: "无法获取模型文件列表"])
         }
 
-        // 解析文件列表并下载
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let files = json["Data"] as? [String: Any],
-              let fileList = files["Files"] as? [[String: Any]] else {
-            // 如果 API 格式不匹配，尝试直接用 git clone 方式
-            try await downloadViaGitLFS(repoId: repoId, destination: destination, baseURL: baseURL)
-            return
+              let payload = json["Data"] as? [String: Any],
+              let fileList = payload["Files"] as? [[String: Any]] else {
+            throw NSError(domain: "ModelDownload", code: -3, userInfo: [NSLocalizedDescriptionKey: "模型文件列表格式异常"])
         }
 
-        let fm = FileManager.default
-        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-
-        for file in fileList {
-            guard !Task.isCancelled else { throw CancellationError() }
-
+        return fileList.compactMap { file in
             guard let fileName = file["Name"] as? String,
-                  let filePath = file["Path"] as? String else { continue }
+                  let filePath = file["Path"] as? String else { return nil }
 
-            let downloadURL = "\(baseURL)/api/v1/models/\(repoId)/repo?Revision=master&FilePath=\(filePath)"
-            guard let fileURL = URL(string: downloadURL) else { continue }
+            let sizeValue = file["Size"] ?? file["size"]
+            let size: Int64?
+            switch sizeValue {
+            case let int as Int:
+                size = Int64(int)
+            case let int64 as Int64:
+                size = int64
+            case let double as Double:
+                size = Int64(double)
+            case let string as String:
+                size = Int64(string)
+            default:
+                size = nil
+            }
 
-            let (fileData, _) = try await URLSession.shared.data(from: fileURL)
-            let destFile = destination.appendingPathComponent(fileName)
+            return RemoteModelFile(name: fileName, path: filePath, size: size)
+        }
+    }
 
-            // 确保父目录存在
-            try fm.createDirectory(at: destFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fileData.write(to: destFile, options: .atomic)
+    private func downloadFile(
+        from remoteURL: URL,
+        to destinationURL: URL,
+        expectedSize: Int64?
+    ) async throws {
+        currentFileExpectedBytes = max(expectedSize ?? 0, 0)
+        let progressReporter = DownloadProgressReporter()
+        let session = URLSession(
+            configuration: .default,
+            delegate: progressReporter,
+            delegateQueue: nil
+        )
+        defer {
+            session.invalidateAndCancel()
+        }
+
+        let tempURL = try await withTaskCancellationHandler {
+            try await progressReporter.download(
+                from: remoteURL,
+                using: session
+            ) { [weak self] written, total in
+                Task { @MainActor [weak self] in
+                    self?.updateProgress(
+                        bytesWritten: written,
+                        totalBytesExpectedForFile: total,
+                        fallbackExpectedSize: expectedSize
+                    )
+                }
+            }
+        } onCancel: {
+            progressReporter.cancel()
+            session.invalidateAndCancel()
+        }
+
+        try? FileManager.default.removeItem(at: destinationURL)
+        try FileManager.default.moveItem(at: tempURL, to: destinationURL)
+        finalizeProgressForFile(destinationURL: destinationURL)
+    }
+
+    private func updateProgress(
+        bytesWritten: Int64,
+        totalBytesExpectedForFile: Int64,
+        fallbackExpectedSize: Int64?
+    ) {
+        let resolvedExpected = totalBytesExpectedForFile > 0 ? totalBytesExpectedForFile : (fallbackExpectedSize ?? 0)
+        let expectedForFile = max(resolvedExpected, 0)
+        if expectedForFile > currentFileExpectedBytes {
+            totalBytesExpected += expectedForFile - currentFileExpectedBytes
+            currentFileExpectedBytes = expectedForFile
+        }
+        guard totalBytesExpected > 0, currentFileExpectedBytes > 0 else { return }
+
+        let clampedWritten = min(max(bytesWritten, 0), currentFileExpectedBytes)
+        let aggregate = downloadedBytes + clampedWritten
+        progress = min(Double(aggregate) / Double(totalBytesExpected), 0.999)
+    }
+
+    private func finalizeProgressForFile(destinationURL: URL) {
+        let fallbackSize = (try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        let finalizedBytes = max(currentFileExpectedBytes, fallbackSize)
+        guard finalizedBytes > 0 else { return }
+
+        if finalizedBytes > currentFileExpectedBytes {
+            totalBytesExpected += finalizedBytes - currentFileExpectedBytes
+        }
+
+        downloadedBytes += finalizedBytes
+        currentFileExpectedBytes = 0
+        if totalBytesExpected > 0 {
+            progress = min(Double(downloadedBytes) / Double(totalBytesExpected), 0.999)
         }
     }
 
@@ -244,7 +372,70 @@ final class ModelDownloadManager {
     private func handleDownloadFailure(_ message: String) async {
         isDownloading = false
         lastError = message
+        currentFileExpectedBytes = 0
         try? configStore?.updateLocalModelStatus(.failed, error: message)
         logger.error("Download failed: \(message, privacy: .public)")
+    }
+
+    private func removeIncompleteModels() {
+        let modelRoot = LocalASRConfig.modelRoot
+        try? FileManager.default.removeItem(at: modelRoot)
+    }
+}
+
+private final class DownloadProgressReporter: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private var continuation: CheckedContinuation<URL, Error>?
+    private var progressHandler: (@Sendable (Int64, Int64) -> Void)?
+    private weak var activeTask: URLSessionDownloadTask?
+
+    func download(
+        from remoteURL: URL,
+        using session: URLSession,
+        progress: @escaping @Sendable (Int64, Int64) -> Void
+    ) async throws -> URL {
+        progressHandler = progress
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let task = session.downloadTask(with: remoteURL)
+            activeTask = task
+            task.resume()
+        }
+    }
+
+    func cancel() {
+        activeTask?.cancel()
+        activeTask = nil
+        continuation?.resume(throwing: CancellationError())
+        continuation = nil
+        progressHandler = nil
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        progressHandler?(totalBytesWritten, totalBytesExpectedToWrite)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        activeTask = nil
+        continuation?.resume(returning: location)
+        continuation = nil
+        progressHandler = nil
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        activeTask = nil
+        guard let error else { return }
+        continuation?.resume(throwing: error)
+        continuation = nil
+        progressHandler = nil
     }
 }
