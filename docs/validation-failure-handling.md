@@ -9,7 +9,7 @@
 
 ## 前置条件
 
-1. App 已正确打包 FunASR 资源
+1. App 已正确打包 FunASR 运行资源（manifest.json、worker、Python runtime），且用户目录模型默认可用
 2. 麦克风和辅助功能权限已授予
 
 ## 验证步骤

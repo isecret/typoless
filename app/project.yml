@@ -32,7 +32,13 @@ targets:
       - path: Typoless/Resources/rnnoise
         buildPhase: resources
         optional: true
-      - path: Typoless/Resources/funasr
+      - path: Typoless/Resources/funasr/manifest.json
+        buildPhase: resources
+        optional: true
+      - path: Typoless/Resources/funasr/runtime
+        buildPhase: resources
+        optional: true
+      - path: Typoless/Resources/funasr/worker
         buildPhase: resources
         optional: true
     dependencies:
@@ -57,7 +63,7 @@ targets:
             exit 1
           fi
 
-          # FunASR runtime 和模型（默认链路）
+          # FunASR runtime 和 worker（模型外置到用户目录）
           FUNASR_DIR="${SRCROOT}/Typoless/Resources/funasr"
           if [ ! -f "${FUNASR_DIR}/manifest.json" ]; then
             echo "error: FunASR manifest not found. Run ./scripts/setup-funasr.sh first."
@@ -65,10 +71,6 @@ targets:
           fi
           if [ ! -f "${FUNASR_DIR}/worker/funasr_worker.py" ]; then
             echo "error: FunASR worker not found. Run ./scripts/setup-funasr.sh first."
-            exit 1
-          fi
-          if [ ! -d "${FUNASR_DIR}/models/paraformer-zh" ]; then
-            echo "error: FunASR paraformer model not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
     postBuildScripts:
@@ -88,7 +90,10 @@ targets:
           if [ -d "${FUNASR_SRC}" ]; then
             mkdir -p "$(dirname "${FUNASR_DST}")"
             rm -rf "${FUNASR_DST}"
-            ditto "${FUNASR_SRC}" "${FUNASR_DST}"
+            mkdir -p "${FUNASR_DST}"
+            [ -f "${FUNASR_SRC}/manifest.json" ] && ditto "${FUNASR_SRC}/manifest.json" "${FUNASR_DST}/manifest.json"
+            [ -d "${FUNASR_SRC}/runtime" ] && ditto "${FUNASR_SRC}/runtime" "${FUNASR_DST}/runtime"
+            [ -d "${FUNASR_SRC}/worker" ] && ditto "${FUNASR_SRC}/worker" "${FUNASR_DST}/worker"
             [ -f "${FUNASR_DST}/runtime/python3" ] && chmod +x "${FUNASR_DST}/runtime/python3"
             [ -f "${FUNASR_DST}/worker/funasr_worker.py" ] && chmod +x "${FUNASR_DST}/worker/funasr_worker.py"
           fi

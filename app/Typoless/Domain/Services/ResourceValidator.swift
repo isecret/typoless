@@ -5,9 +5,10 @@ struct ResourceValidator: Sendable {
 
     /// 校验 FunASR 默认链路所需资源是否存在
     /// 资源缺失时抛出对应的 TypolessError
-    /// 优先校验用户目录 ~/.typoless/models/funasr，再校验 App bundle
+    /// 本地模型必须存在于用户目录 ~/.typoless/models/funasr，App bundle 不提供模型兜底
     static func validateASRResources() throws {
         let funasrRoot = funasrResourceRoot()
+        let modelRoot = LocalASRConfig.modelRoot
         let fm = FileManager.default
 
         // manifest.json
@@ -23,12 +24,10 @@ struct ResourceValidator: Sendable {
             for (_, model) in models {
                 let required = model["required"] as? Bool ?? false
                 if required, let path = model["path"] as? String {
-                    // 优先从用户模型目录查找
-                    let userModelPath = LocalASRConfig.modelRoot.appendingPathComponent(
+                    let userModelPath = modelRoot.appendingPathComponent(
                         URL(fileURLWithPath: path).lastPathComponent
                     ).path
-                    let bundlePath = funasrRoot.appendingPathComponent(path).path
-                    guard fm.fileExists(atPath: userModelPath) || fm.fileExists(atPath: bundlePath) else {
+                    guard fm.fileExists(atPath: userModelPath) else {
                         throw TypolessError.asrModelMissing
                     }
                 }

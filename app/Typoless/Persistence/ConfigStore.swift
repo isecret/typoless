@@ -34,7 +34,7 @@ final class ConfigStore {
     var isASRReady: Bool {
         switch asrConfig.selectedPlatform {
         case .localFunASR:
-            return asrConfig.local.modelStatus == .ready
+            return Self.localModelsAvailable()
         case .tencentCloudSentence:
             return !asrConfig.tencentCloud.secretId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && !asrConfig.tencentCloud.secretKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -121,6 +121,8 @@ final class ConfigStore {
             // 写入新配置文件（迁移落盘）
             try? writeConfigFile(migrated)
         }
+
+        refreshLocalModelStatusFromDisk()
     }
 
     // MARK: - LLM 配置保存
@@ -193,6 +195,19 @@ final class ConfigStore {
         try writeConfigFile(configFile)
     }
 
+    func refreshLocalModelStatusFromDisk() {
+        guard asrConfig.local.modelStatus != .downloading else { return }
+
+        let hasLocalModels = Self.localModelsAvailable()
+        let currentStatus = asrConfig.local.modelStatus
+
+        if hasLocalModels, currentStatus != .ready {
+            try? updateLocalModelStatus(.ready)
+        } else if !hasLocalModels, currentStatus == .ready {
+            try? updateLocalModelStatus(.notDownloaded)
+        }
+    }
+
     // MARK: - 内部方法
 
     /// 将 ConfigFile 映射到公开属性
@@ -226,6 +241,22 @@ final class ConfigStore {
         llmConfig.baseURL != baseURL
             || llmConfig.model != model
             || openAIAPIKey != apiKey
+    }
+
+    private static func localModelsAvailable() -> Bool {
+        let fm = FileManager.default
+        let requiredDirectories = ["paraformer-zh", "fsmn-vad"]
+
+        for directory in requiredDirectories {
+            let modelDir = LocalASRConfig.modelRoot.appendingPathComponent(directory)
+            guard fm.fileExists(atPath: modelDir.path),
+                  let contents = try? fm.contentsOfDirectory(atPath: modelDir.path),
+                  !contents.isEmpty else {
+                return false
+            }
+        }
+
+        return true
     }
 
     /// 原子写入配置文件，确保目录和文件权限正确

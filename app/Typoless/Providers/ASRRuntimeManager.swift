@@ -330,6 +330,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
         proc.arguments = ["-u", workerEntry]  // unbuffered
         proc.environment = [
             "FUNASR_RESOURCE_PATH": resourceRoot.path,
+            "FUNASR_MODEL_ROOT": LocalASRConfig.modelRoot.path,
             "PYTHONUNBUFFERED": "1",
         ]
 

@@ -760,6 +760,8 @@
 - 下载进度通过 `AsyncStream` 实时报告
 - 支持配置镜像源
 - 模型状态跟踪（notDownloaded / downloading / ready / failed）
+- 设置页以单一状态区承载状态与操作：未下载显示下载，下载中显示进度与取消，已就绪仅显示完成态
+- 设置页不向用户暴露模型路径、模型版本、重新下载或删除入口
 - `ResourceValidator` 支持从用户目录校验模型
 
 #### S17.3 腾讯云一句话识别集成
@@ -769,7 +771,7 @@
 验收标准：
 
 - `TencentSentenceASRProvider` 实现 `ASRProvider` 协议
-- 使用 TC3-HMAC-SHA256 签名，引擎 `16k_zh_en`
+- 使用 TC3-HMAC-SHA256 签名，引擎 `16k_zh-PY`
 - 超时 15 秒
 - 配置项：SecretId、SecretKey
 - 错误映射完整：配置不全、鉴权失败、网络错误、空响应、响应无效

@@ -58,6 +58,7 @@ final class SessionCoordinator {
         currentSessionID = Self.generateSessionID()
 
         do {
+            configStore.refreshLocalModelStatusFromDisk()
             try permissionsManager.ensureMicrophoneAuthorized()
             try ResourceValidator.validateDenoiseResources()
             // 录音前检查 ASR 平台可用性

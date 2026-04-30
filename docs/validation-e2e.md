@@ -9,7 +9,7 @@
 
 ## 前置条件
 
-1. App 已正确打包 FunASR 资源（manifest.json、模型、worker、Python runtime）
+1. App 已正确打包 FunASR 运行资源（manifest.json、worker、Python runtime），且用户目录模型已下载完成
 2. 麦克风和辅助功能权限已授予
 3. LLM 配置有效（API Key / Endpoint）
 

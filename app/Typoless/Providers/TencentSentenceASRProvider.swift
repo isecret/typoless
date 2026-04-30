@@ -15,7 +15,9 @@ final class TencentSentenceASRProvider: ASRProvider, @unchecked Sendable {
     private static let action = "SentenceRecognition"
     private static let version = "2019-06-14"
     private static let region = "ap-guangzhou"
-    private static let engineModelType = "16k_zh_en"
+    // Tencent SentenceRecognition no longer supports `16k_zh_en`.
+    // `16k_zh-PY` is the closest supported engine for Chinese-first mixed-language input.
+    private static let engineModelType = "16k_zh-PY"
 
     private let logger = Logger(subsystem: "com.isecret.typoless", category: "TencentASR")
     private let secretId: String

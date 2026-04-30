@@ -41,7 +41,7 @@
 
 - 音频预处理：`RNNoise` 本地降噪
 - ASR 本地：`FunASR` 本地离线识别（通过 Python sidecar 运行 paraformer-zh + fsmn-vad）
-- ASR 云端：`腾讯云一句话识别`（直接调用 Cloud API，中英混合 16k_zh_en）
+- ASR 云端：`腾讯云一句话识别`（直接调用 Cloud API，使用 `16k_zh-PY` 引擎）
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -198,7 +198,7 @@
 #### 5.5.4 TencentSentenceASRProvider
 
 - 腾讯云一句话识别（SentenceRecognition API）。
-- 引擎 `16k_zh_en`，支持中英混合识别。
+- 引擎 `16k_zh-PY`，用于中文优先的混合语音识别。
 - 使用 TC3-HMAC-SHA256 签名算法，通过 CommonCrypto 实现。
 - 音频 base64 编码后通过 POST 请求发送。
 - 超时固定 15 秒。
@@ -416,7 +416,7 @@
 ### 9.5 腾讯云一句话识别
 
 - `TencentSentenceASRProvider` 直接调用腾讯云 `SentenceRecognition` API。
-- 引擎 `16k_zh_en`（中英混合）。
+- 引擎 `16k_zh-PY`。
 - TC3-HMAC-SHA256 签名。
 - 配置：SecretId、SecretKey，存于 `~/.typoless/config.json` 的 `asr.tencentCloud`。
 - 超时 15 秒。
