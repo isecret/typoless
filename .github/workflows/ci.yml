@@ -13,7 +13,7 @@ concurrency:
 jobs:
   build-and-test:
     name: Build & Test
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout
@@ -22,9 +22,13 @@ jobs:
       - name: Prepare build environment
         run: ./scripts/ci/prepare-macos-build.sh
 
+      - name: Show Xcode version
+        run: xcodebuild -version
+
       - name: Build
         working-directory: app
         run: |
+          mkdir -p .derivedData
           set -o pipefail
           xcodebuild build \
             -project Typoless.xcodeproj \

@@ -9,7 +9,7 @@ on:
 jobs:
   archive:
     name: Build Unsigned Archive
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout
@@ -18,9 +18,13 @@ jobs:
       - name: Prepare build environment
         run: ./scripts/ci/prepare-macos-build.sh
 
+      - name: Show Xcode version
+        run: xcodebuild -version
+
       - name: Archive
         working-directory: app
         run: |
+          mkdir -p .derivedData
           set -o pipefail
           xcodebuild archive \
             -project Typoless.xcodeproj \
