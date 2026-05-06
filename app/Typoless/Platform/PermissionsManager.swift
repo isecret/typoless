@@ -42,6 +42,7 @@ final class PermissionsManager {
 
     private(set) var microphoneStatus: MicrophonePermission = .notDetermined
     private(set) var accessibilityStatus: AccessibilityPermission = .requiresManualEnable
+    private(set) var isRequestingMicrophonePermission = false
 
     init() {
         refreshAll()
@@ -57,15 +58,13 @@ final class PermissionsManager {
     // MARK: - Microphone
 
     func checkMicrophonePermission() {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .notDetermined:
+        switch AVAudioApplication.shared.recordPermission {
+        case .undetermined:
             microphoneStatus = .notDetermined
-        case .authorized:
+        case .granted:
             microphoneStatus = .granted
         case .denied:
             microphoneStatus = .denied
-        case .restricted:
-            microphoneStatus = .restricted
         @unknown default:
             microphoneStatus = .denied
         }
@@ -73,8 +72,28 @@ final class PermissionsManager {
 
     /// 请求麦克风权限（仅 .notDetermined 时有效）
     func requestMicrophonePermission() async {
-        let granted = await AVCaptureDevice.requestAccess(for: .audio)
-        microphoneStatus = granted ? .granted : .denied
+        checkMicrophonePermission()
+        guard microphoneStatus == .notDetermined, !isRequestingMicrophonePermission else { return }
+
+        isRequestingMicrophonePermission = true
+        NSApp.activate(ignoringOtherApps: true)
+        await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { _ in
+                continuation.resume()
+            }
+        }
+        isRequestingMicrophonePermission = false
+        checkMicrophonePermission()
+    }
+
+    // MARK: - Enforcement APIs (供 E4/E7/E8 使用)
+
+    /// 确保麦克风权限已授予，否则抛出错误
+    func ensureMicrophoneAuthorized() throws {
+        checkMicrophonePermission()
+        guard microphoneStatus == .granted else {
+            throw PermissionError.microphonePermissionDenied
+        }
     }
 
     // MARK: - Accessibility
@@ -96,16 +115,6 @@ final class PermissionsManager {
     func openMicrophoneSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
             NSWorkspace.shared.open(url)
-        }
-    }
-
-    // MARK: - Enforcement APIs (供 E4/E7/E8 使用)
-
-    /// 确保麦克风权限已授予，否则抛出错误
-    func ensureMicrophoneAuthorized() throws {
-        checkMicrophonePermission()
-        guard microphoneStatus == .granted else {
-            throw PermissionError.microphonePermissionDenied
         }
     }
 

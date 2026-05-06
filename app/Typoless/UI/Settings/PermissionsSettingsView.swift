@@ -4,7 +4,6 @@ struct PermissionsSettingsView: View {
     let permissionsManager: PermissionsManager
 
     var body: some View {
-        // MARK: - 麦克风权限
         Section("麦克风权限") {
             HStack(spacing: 8) {
                 PermissionStatusBadge(granted: permissionsManager.microphoneStatus == .granted)
@@ -12,12 +11,11 @@ struct PermissionsSettingsView: View {
                 Spacer()
                 microphoneActionButton
             }
-            Text("用于录制语音并发送至 ASR 服务进行识别。")
+            Text(microphoneDescription)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
 
-        // MARK: - 辅助功能权限
         Section("辅助功能权限") {
             HStack(spacing: 8) {
                 PermissionStatusBadge(granted: permissionsManager.accessibilityStatus == .granted)
@@ -29,9 +27,7 @@ struct PermissionsSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
-        .onAppear {
-            permissionsManager.refreshAll()
-        }
+        .onAppear { permissionsManager.refreshAll() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             permissionsManager.refreshAll()
         }
@@ -48,15 +44,29 @@ struct PermissionsSettingsView: View {
         }
     }
 
+    private var microphoneDescription: String {
+        switch permissionsManager.microphoneStatus {
+        case .notDetermined:
+            "用于录制语音并发送至 ASR 服务进行识别。"
+        case .denied:
+            "系统当前已拒绝 Typoless 的麦克风权限。请前往系统设置恢复授权后再返回应用。"
+        case .restricted:
+            "麦克风权限受系统策略控制，Typoless 无法直接发起授权。"
+        case .granted:
+            "用于录制语音并发送至 ASR 服务进行识别。"
+        }
+    }
+
     @ViewBuilder
     private var microphoneActionButton: some View {
         switch permissionsManager.microphoneStatus {
         case .notDetermined:
-            Button("请求权限") {
+            Button(permissionsManager.isRequestingMicrophonePermission ? "请求中…" : "请求权限") {
                 Task {
                     await permissionsManager.requestMicrophonePermission()
                 }
             }
+            .disabled(permissionsManager.isRequestingMicrophonePermission)
         case .denied, .restricted:
             Button("打开系统设置") {
                 permissionsManager.openMicrophoneSettings()
