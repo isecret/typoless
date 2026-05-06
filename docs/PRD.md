@@ -299,7 +299,6 @@ LLM 文本处理边界如下：
 - `openai_api_key`
 - `openai_model`
 - `global_hotkey`
-- `pasteboard_injection_bundle_ids`
 
 存储规则：
 
@@ -429,7 +428,6 @@ HUD 短错误分类映射：
 - 高级模型参数
 - ASR 高级运行参数
 - 音频历史
-- 自动复制剪贴板兜底
 
 ## 16. 结论
 

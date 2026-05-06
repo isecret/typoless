@@ -11,6 +11,14 @@ struct TextInjector: Sendable {
     private static let pasteCommandSettleDelay: TimeInterval = 0.35
     private static let slowPasteboardRestoreDelay: TimeInterval = 1.5
     private static let frontmostRetryIntervals: [TimeInterval] = [0.03, 0.05, 0.08, 0.12]
+    private static let pasteboardPreferredBundleIDs = [
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "com.todesktop.230313mzl4w4u92",
+        "com.microsoft.VSCode",
+        "com.jetbrains.*",
+        "abnerworks.Typora"
+    ]
     private static let slowPasteboardBundleIDs = [
         "com.apple.Terminal",
         "com.googlecode.iterm2",
@@ -23,17 +31,13 @@ struct TextInjector: Sendable {
     func inject(
         text: String,
         targetPID: pid_t?,
-        targetBundleID: String?,
-        pasteboardPreferredBundleIDs: [String]
+        targetBundleID: String?
     ) throws {
         guard AXIsProcessTrusted() else {
             throw TypolessError.accessibilityPermissionDenied
         }
 
-        if shouldUsePasteboardInjection(
-            targetBundleID: targetBundleID,
-            preferredBundleIDs: pasteboardPreferredBundleIDs
-        ) {
+        if shouldUsePasteboardInjection(targetBundleID: targetBundleID) {
             try pasteViaClipboard(text: text, targetBundleID: targetBundleID)
             return
         }
@@ -126,13 +130,10 @@ struct TextInjector: Sendable {
         return app.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
     }
 
-    private func shouldUsePasteboardInjection(
-        targetBundleID: String?,
-        preferredBundleIDs: [String]
-    ) -> Bool {
+    private func shouldUsePasteboardInjection(targetBundleID: String?) -> Bool {
         guard let targetBundleID else { return false }
 
-        return preferredBundleIDs.contains { entry in
+        return Self.pasteboardPreferredBundleIDs.contains { entry in
             let normalizedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalizedEntry.isEmpty else { return false }
 

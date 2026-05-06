@@ -32,10 +32,7 @@ struct GeneralSettingsView: View {
 
     private func immediateSaveWithHotkey() {
         guard isLoaded else { return }
-        let config = GeneralConfig(
-            hotkey: hotkey,
-            pasteboardInjectionBundleIDs: configStore.generalConfig.pasteboardInjectionBundleIDs.sorted()
-        )
+        let config = GeneralConfig(hotkey: hotkey)
         try? configStore.saveGeneralConfig(config)
         onHotkeyChanged?()
     }

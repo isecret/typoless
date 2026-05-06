@@ -343,7 +343,6 @@
 - `openai_base_url`
 - `openai_model`
 - `global_hotkey`
-- `pasteboard_injection_bundle_ids`
 
 ### 8.2 敏感配置
 

@@ -339,8 +339,7 @@ final class SessionCoordinator {
             try textInjector.inject(
                 text: polishResult.text,
                 targetPID: targetApplicationPID,
-                targetBundleID: targetApplicationBundleID,
-                pasteboardPreferredBundleIDs: configStore.generalConfig.effectivePasteboardInjectionBundleIDs
+                targetBundleID: targetApplicationBundleID
             )
         } catch {
             guard generation == sessionGeneration else { return }

@@ -57,39 +57,18 @@ struct TencentASRConfig: Codable, Equatable, Sendable {
 
 struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
-    var pasteboardInjectionBundleIDs: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case hotkey
-        case pasteboardInjectionBundleIDs
     }
 
-    init(
-        hotkey: HotkeyCombo = .default,
-        pasteboardInjectionBundleIDs: [String] = []
-    ) {
+    init(hotkey: HotkeyCombo = .default) {
         self.hotkey = hotkey
-        self.pasteboardInjectionBundleIDs = pasteboardInjectionBundleIDs
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         hotkey = try container.decodeIfPresent(HotkeyCombo.self, forKey: .hotkey) ?? .default
-        pasteboardInjectionBundleIDs = try container.decodeIfPresent([String].self, forKey: .pasteboardInjectionBundleIDs) ?? []
-    }
-
-    static let defaultPasteboardInjectionBundleIDs = [
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.todesktop.230313mzl4w4u92",
-        "com.microsoft.VSCode",
-        "com.jetbrains.*",
-        "abnerworks.Typora"
-    ]
-
-    var effectivePasteboardInjectionBundleIDs: [String] {
-        Array(Set(Self.defaultPasteboardInjectionBundleIDs + pasteboardInjectionBundleIDs))
-            .sorted()
     }
 }
 

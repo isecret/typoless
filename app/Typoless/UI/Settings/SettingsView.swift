@@ -11,7 +11,6 @@ struct SettingsView: View {
             ASRSettingsView(configStore: appCoordinator.configStore)
             LLMSettingsView(configStore: appCoordinator.configStore)
             PermissionsSettingsView(permissionsManager: appCoordinator.permissionsManager)
-            ClipboardWhitelistSettingsView(configStore: appCoordinator.configStore)
         }
         .formStyle(.grouped)
         .frame(width: 520, height: 680)
