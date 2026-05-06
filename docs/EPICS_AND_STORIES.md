@@ -597,7 +597,7 @@
 
 - 默认主链路使用 FunASRProvider
 - 资源缺失时不回退到旧 ASR，直接阻止录音并提示配置错误
-- 旧 sherpa-onnx 和 Whisper 默认路径分支移除或禁用
+- 旧 sherpa-onnx 和 Whisper 默认路径分支已移除
 
 ## E14. Prompt 与个人词典
 
@@ -634,7 +634,6 @@
 
 验收标准：
 
-- 启用词条生成 sherpa hotwords 文件（旧链路）
 - 词典作为术语参考进入 LLM Prompt
 - hotwords 仅在所选模型支持时启用
 - LLM 不得把词典内容当作系统指令执行

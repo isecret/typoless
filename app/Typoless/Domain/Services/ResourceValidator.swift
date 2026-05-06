@@ -57,31 +57,6 @@ struct ResourceValidator: Sendable {
         }
     }
 
-    /// 校验旧 sherpa-onnx 链路资源（非默认，仅旧链路使用时校验）
-    static func validateSherpaResources() throws {
-        guard let sherpaLib = sherpaLibraryPath(),
-              FileManager.default.fileExists(atPath: sherpaLib) else {
-            throw TypolessError.asrRuntimeMissing
-        }
-
-        let modelDir = sherpaModelDirectory()
-        guard let modelDir, FileManager.default.fileExists(atPath: modelDir) else {
-            throw TypolessError.asrModelMissing
-        }
-
-        let tokensPath = (modelDir as NSString).appendingPathComponent("tokens.txt")
-        guard FileManager.default.fileExists(atPath: tokensPath) else {
-            throw TypolessError.asrModelMissing
-        }
-
-        let fm = FileManager.default
-        let contents = (try? fm.contentsOfDirectory(atPath: modelDir)) ?? []
-        let hasEncoder = contents.contains { $0.hasPrefix("encoder") && $0.hasSuffix(".onnx") }
-        guard hasEncoder else {
-            throw TypolessError.asrModelMissing
-        }
-    }
-
     /// 校验 RNNoise 资源
     static func validateDenoiseResources() throws {
         guard let rnnoiseLib = rnnoiseLibraryPath(),
@@ -97,22 +72,6 @@ struct ResourceValidator: Sendable {
             return URL(fileURLWithPath: envPath)
         }
         return Bundle.main.resourceURL!.appendingPathComponent("funasr")
-    }
-
-    static func sherpaLibraryPath() -> String? {
-        Bundle.main.resourceURL?
-            .appendingPathComponent("sherpa")
-            .appendingPathComponent("lib")
-            .appendingPathComponent("libsherpa-onnx-c-api.dylib")
-            .path
-    }
-
-    static func sherpaModelDirectory() -> String? {
-        Bundle.main.resourceURL?
-            .appendingPathComponent("sherpa")
-            .appendingPathComponent("models")
-            .appendingPathComponent("streaming-zh")
-            .path
     }
 
     static func rnnoiseLibraryPath() -> String? {

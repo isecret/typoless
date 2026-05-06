@@ -17,11 +17,6 @@ struct TextInjector: Sendable {
         "abnerworks.Typora"
     ]
 
-    enum InjectionMethod: String, Sendable {
-        case pasteboardPrimary = "pasteboard_primary"
-        case axFallback = "ax_fallback"
-    }
-
     // MARK: - Public API
 
     /// 将文本注入到当前焦点应用的输入区域
@@ -166,10 +161,6 @@ struct TextInjector: Sendable {
         guard result == .success else { return nil }
 
         return valueRef as? String
-    }
-
-    static func primaryInjectionMethod(targetBundleID _: String?) -> InjectionMethod {
-        .pasteboardPrimary
     }
 
     static func shouldFallbackToAX(

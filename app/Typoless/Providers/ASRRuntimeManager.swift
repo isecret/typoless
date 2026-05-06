@@ -334,8 +334,7 @@ final class ASRRuntimeManager: @unchecked Sendable {
         let (writeHandle, readHandle, gen) = try prepareRequestHandles()
         defer { finishRequest() }
 
-        var requestLine = requestData
-        requestLine.append(contentsOf: "\n".utf8)
+        let requestLine = requestData + Data("\n".utf8)
 
         return try await withCheckedThrowingContinuation { continuation in
             rpcQueue.async { [weak self] in

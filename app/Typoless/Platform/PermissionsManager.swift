@@ -92,13 +92,6 @@ final class PermissionsManager {
         checkAccessibilityPermission()
     }
 
-    /// 直接打开系统设置 → 隐私与安全 → 辅助功能
-    func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     /// 打开系统设置 → 隐私与安全 → 麦克风
     func openMicrophoneSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {

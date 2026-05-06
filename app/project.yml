@@ -24,9 +24,7 @@ targets:
       - path: Typoless
         excludes:
           - "**/.gitkeep"
-          - "Resources/whisper"
           - "Resources/rnnoise"
-          - "Resources/sherpa"
           - "Resources/funasr"
     resources:
       - path: Typoless/Resources/rnnoise
@@ -55,6 +53,8 @@ targets:
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Typoless 需要麦克风权限来进行语音输入"
     preBuildScripts:
       - name: "Validate Source Resources"
+        outputFiles:
+          - "$(DERIVED_FILE_DIR)/validate-source-resources.stamp"
         script: |
           # RNNoise (required for new pipeline)
           RNNOISE_DIR="${SRCROOT}/Typoless/Resources/rnnoise"
@@ -73,8 +73,11 @@ targets:
             echo "error: FunASR worker not found. Run ./scripts/setup-funasr.sh first."
             exit 1
           fi
+          touch "${SCRIPT_OUTPUT_FILE_0}"
     postBuildScripts:
       - name: "Copy Resources and Fix Permissions"
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/.resources-copied.stamp"
         script: |
           # RNNoise
           RNNOISE_SRC="${SRCROOT}/Typoless/Resources/rnnoise"
@@ -97,6 +100,7 @@ targets:
             [ -f "${FUNASR_DST}/runtime/python3" ] && chmod +x "${FUNASR_DST}/runtime/python3"
             [ -f "${FUNASR_DST}/worker/funasr_worker.py" ] && chmod +x "${FUNASR_DST}/worker/funasr_worker.py"
           fi
+          touch "${SCRIPT_OUTPUT_FILE_0}"
 
   TypolessTests:
     type: bundle.unit-test

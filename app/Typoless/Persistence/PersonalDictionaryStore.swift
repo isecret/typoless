@@ -61,14 +61,6 @@ final class PersonalDictionaryStore {
 
     // MARK: - Hotwords 生成
 
-    /// 为 sherpa-onnx 生成 hotwords 文件内容（每行一个词条，旧链路）
-    func generateHotwordsContent() -> String {
-        enabledEntries
-            .map(\.term)
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-    }
-
     /// 为 FunASR 生成 hotwords 参数字符串（空格分隔）
     ///
     /// 优先使用 `pronunciationHint`（帮助 ASR 识别发音），若缺失则退回 `term`。
@@ -82,22 +74,6 @@ final class PersonalDictionaryStore {
                 return entry.term.isEmpty ? nil : entry.term
             }
             .joined(separator: " ")
-    }
-
-    /// 将 hotwords 写入临时文件并返回路径
-    func writeHotwordsFile() throws -> URL? {
-        let content = generateHotwordsContent()
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !content.isEmpty else {
-            return nil
-        }
-
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("typoless-hotwords.txt")
-
-        try content.write(to: url, atomically: true, encoding: .utf8)
-        return url
     }
 
     /// 为 LLM Prompt 提供结构化术语参考（包含 term 和 pronunciationHint）

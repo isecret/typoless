@@ -86,10 +86,6 @@
   负责 FunASR 离线识别，通过 stdio JSON-RPC 与 Python sidecar 通信，输出转写结果
 - `ASRRuntimeManager`
   负责 Python sidecar 生命周期管理、warmup、健康检查与异常恢复
-- `StreamingASRProvider`
-  保留旧 sherpa-onnx 流式识别实现，不作为默认 ASR 路径，也不随正式包分发旧资源
-- `WhisperProvider`
-  保留旧本地 Whisper 子进程调用能力，不作为默认 ASR 路径，也不随正式包分发旧资源
 - `LLMProvider`
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
@@ -218,18 +214,6 @@
 - 模型验证：检查关键文件（model.onnx / model.bin）是否存在。
 - 删除操作：清理整个模型目录。
 - 状态跟踪：`LocalModelStatus`（notDownloaded / downloading / ready / failed）。
-
-#### 5.5.6 StreamingASRProvider（旧实现）
-
-- 作为旧 sherpa-onnx 流式识别实现保留。
-- 不作为默认路径。
-- 不作为 FunASR 资源缺失时的自动回退。
-
-#### 5.5.7 WhisperProvider（旧实现）
-
-- 作为旧离线识别实现保留。
-- 不作为默认路径。
-- 不作为资源缺失时的自动回退。
 
 ### 5.6 LLMProvider
 
@@ -388,7 +372,6 @@
 - 用户在设置中手动选择 ASR 平台：`本地 FunASR` 或 `腾讯云一句话识别`。
 - 默认实现为 `FunASRProvider`，通过 `ASRRuntimeManager` 管理 Python sidecar。
 - `TencentSentenceASRProvider` 调用腾讯云 API。
-- `StreamingASRProvider` 和 `WhisperProvider` 保留为旧实现，不做自动回退。
 - 不做平台间自动回退；所选平台不可用时直接报错阻止录音。
 
 ### 9.2 RNNoise 降噪
