@@ -107,24 +107,12 @@ struct LLMProvider: Sendable {
     // MARK: - Public API
 
     func polish(text: String) async throws -> PolishResult {
-        let url = try buildURL()
+        try await performRequest(text: text, responseHandler: parseResponse)
+    }
 
-        if thinkingDisabled {
-            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
-            return try parseResponse(data)
-        }
-
-        do {
-            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .thinkingDisabled)
-            return try parseResponse(data)
-        } catch let error as TypolessError {
-            if case let .llmNetworkFailure(message) = error,
-               shouldRetryWithoutThinking(message: message) {
-                await onThinkingUnsupported?()
-                let fallbackData = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
-                return try parseResponse(fallbackData)
-            }
-            throw error
+    func validateConfiguration() async throws {
+        _ = try await performRequest(text: "请回复 ok。") { data in
+            _ = try parseResponse(data)
         }
     }
 
@@ -152,6 +140,31 @@ struct LLMProvider: Sendable {
             body["thinking"] = ["type": "disabled"]
         }
         return try JSONSerialization.data(withJSONObject: body)
+    }
+
+    private func performRequest<T>(
+        text: String,
+        responseHandler: (Data) throws -> T
+    ) async throws -> T {
+        let url = try buildURL()
+
+        if thinkingDisabled {
+            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
+            return try responseHandler(data)
+        }
+
+        do {
+            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .thinkingDisabled)
+            return try responseHandler(data)
+        } catch let error as TypolessError {
+            if case let .llmNetworkFailure(message) = error,
+               shouldRetryWithoutThinking(message: message) {
+                await onThinkingUnsupported?()
+                let fallbackData = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
+                return try responseHandler(fallbackData)
+            }
+            throw error
+        }
     }
 
     /// 构建系统 Prompt，如有术语参考则附加到提示末尾（包含发音提示）
