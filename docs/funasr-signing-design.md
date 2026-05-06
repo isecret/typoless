@@ -41,8 +41,8 @@ done
 ### 3.3 Hardened Runtime 约束
 
 - 启用 Hardened Runtime（`--options runtime`）时，Python 需要 `com.apple.security.cs.allow-unsigned-executable-memory` entitlement（PyTorch 等库需要 JIT）。
-- 如使用 MPS，可能需要 `com.apple.security.cs.disable-library-validation`。
-- 这些 entitlement 应定义在 App 的 `.entitlements` 文件中。
+- Typoless 首版固定启用 `com.apple.security.cs.disable-library-validation`，用于兼容 MPS / 动态库加载场景。
+- 上述 entitlement 固定定义在 `app/Typoless/Typoless.entitlements`，并随正式签名一并注入 App。
 
 ## 4. App Sandbox 约束
 
@@ -101,9 +101,10 @@ xcrun stapler validate "${APP_BUNDLE}"
 1. 运行 `scripts/bundle-funasr-runtime.sh` 下载 python-build-standalone 并安装锁定依赖。
 2. 运行 `scripts/sign-funasr-runtime.sh` 签名所有可执行文件和动态库。
 3. 复制签名后的 bundle 到 App bundle `Contents/Resources/funasr/`。
-4. 签名 App bundle。
-5. 提交公证。
-6. Staple 公证票据。
+4. 运行 `scripts/ci/sign-macos-app.sh` 签名 App bundle，并补签 `RNNoise` 动态库。
+5. 运行 `scripts/ci/create-dmg.sh` 生成并签名正式分发用 `DMG`。
+6. 运行 `scripts/ci/notarize-dmg.sh` 提交公证并 staple；支持 App Store Connect API Key，或 `Apple ID + app-specific password`。
+7. 运行 `scripts/ci/verify-macos-release.sh` 做 `codesign` / `stapler` / `spctl` 自动校验。
 
 ### 6.3 Release 检查清单
 

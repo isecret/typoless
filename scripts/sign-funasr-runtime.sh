@@ -2,12 +2,13 @@
 # sign-funasr-runtime.sh — Sign all Mach-O binaries in the FunASR bundle.
 #
 # Usage:
-#   ./scripts/sign-funasr-runtime.sh [--identity <id>] [--bundle-dir <dir>]
+#   ./scripts/sign-funasr-runtime.sh [--identity <id>] [--bundle-dir <dir>] [--timestamp]
 #
 # Environment variables:
 #   SIGNING_IDENTITY    Code signing identity (default: "-" for ad-hoc)
-#   BUNDLE_DIR          FunASR bundle directory to sign
+#   BUNDLE_DIR          FunASR resource root to sign (must contain runtime/)
 #   ENTITLEMENTS        Path to entitlements plist (optional)
+#   TIMESTAMP           Set to 1 to add a trusted timestamp during signing
 #
 # This script finds and signs all Mach-O executables, .dylib, and .so files
 # within the FunASR runtime bundle. It must be run BEFORE the final App
@@ -26,6 +27,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
 BUNDLE_DIR="${BUNDLE_DIR:-$PROJECT_ROOT/build/funasr-bundle}"
 ENTITLEMENTS="${ENTITLEMENTS:-}"
+TIMESTAMP="${TIMESTAMP:-0}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -41,6 +43,10 @@ while [[ $# -gt 0 ]]; do
         --entitlements)
             ENTITLEMENTS="$2"
             shift 2
+            ;;
+        --timestamp)
+            TIMESTAMP="1"
+            shift
             ;;
         *)
             echo "Unknown option: $1"
@@ -61,6 +67,9 @@ echo "    Identity: $SIGNING_IDENTITY"
 if [[ -n "$ENTITLEMENTS" ]]; then
     echo "    Entitlements: $ENTITLEMENTS"
 fi
+if [[ "$TIMESTAMP" == "1" ]]; then
+    echo "    Timestamp: enabled"
+fi
 echo ""
 
 # Build codesign arguments
@@ -68,15 +77,20 @@ CODESIGN_ARGS=(--force --options runtime --sign "$SIGNING_IDENTITY")
 if [[ -n "$ENTITLEMENTS" ]]; then
     CODESIGN_ARGS+=(--entitlements "$ENTITLEMENTS")
 fi
+if [[ "$TIMESTAMP" == "1" ]]; then
+    CODESIGN_ARGS+=(--timestamp)
+fi
 
 # Find all Mach-O files (executables, .dylib, .so)
 SIGNED_COUNT=0
 FAILED_COUNT=0
+TARGET_COUNT=0
 
 sign_file() {
     local file="$1"
     local rel_path="${file#$BUNDLE_DIR/}"
 
+    ((TARGET_COUNT++))
     if codesign "${CODESIGN_ARGS[@]}" "$file" 2>/dev/null; then
         ((SIGNED_COUNT++))
     else
@@ -110,7 +124,7 @@ done < <(find "$BUNDLE_DIR" -name "*.so" -print0 2>/dev/null)
 echo "    ✓ Signed $SIGNED_COUNT .so files"
 
 SO_COUNT=$SIGNED_COUNT
-TOTAL=$((DYLIB_COUNT + SO_COUNT + 1))
+TOTAL=$TARGET_COUNT
 
 echo ""
 

@@ -1,27 +1,59 @@
 name: Release Build
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  archive:
-    name: Build Unsigned Archive
+  release:
+    name: Sign, Notarize, and Publish DMG
     runs-on: macos-15
+    env:
+      APP_NAME: Typoless
+      APP_DIR: app
+      DERIVED_DATA_DIR: app/.derivedData
+      ARCHIVE_PATH: app/.derivedData/Typoless.xcarchive
+      APP_PATH: app/.derivedData/Typoless.xcarchive/Products/Applications/Typoless.app
+      ARTIFACTS_DIR: app/.derivedData/artifacts
+      DMG_PATH: app/.derivedData/artifacts/Typoless-${{ github.ref_name }}.dmg
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+      APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
+      APPLE_NOTARY_APP_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Prepare build environment
+        env:
+          RELEASE_BUILD: "1"
         run: ./scripts/ci/prepare-macos-build.sh
 
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Archive
+      - name: Import Apple signing assets
+        id: signing
+        env:
+          APPLE_DEVELOPER_ID_APP_CERT_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APP_CERT_BASE64 }}
+          APPLE_DEVELOPER_ID_APP_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APP_CERT_PASSWORD }}
+          APPLE_NOTARY_API_KEY_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: ./scripts/ci/import-apple-signing-assets.sh
+
+      - name: Archive app
         working-directory: app
         run: |
           mkdir -p .derivedData
@@ -35,31 +67,69 @@ jobs:
             CODE_SIGN_IDENTITY="-" \
             | tee .derivedData/archive.log
 
-      - name: Package .app from archive
-        working-directory: app
+      - name: Sign archived app
         run: |
-          APP_PATH=".derivedData/Typoless.xcarchive/Products/Applications/Typoless.app"
-          if [ ! -d "${APP_PATH}" ]; then
-            echo "error: Typoless.app not found in archive"
-            ls -la .derivedData/Typoless.xcarchive/Products/ 2>/dev/null || true
-            exit 1
+          ./scripts/ci/sign-macos-app.sh \
+            --app "$APP_PATH" \
+            --identity "$APPLE_SIGNING_IDENTITY" \
+            --entitlements "app/Typoless/Typoless.entitlements" \
+            --timestamp
+
+      - name: Create signed DMG
+        run: |
+          mkdir -p "$ARTIFACTS_DIR"
+          ./scripts/ci/create-dmg.sh \
+            --app "$APP_PATH" \
+            --output "$DMG_PATH" \
+            --volume-name "$APP_NAME" \
+            --identity "$APPLE_SIGNING_IDENTITY" \
+            --timestamp
+
+      - name: Notarize and staple DMG
+        run: |
+          if [ -n "${{ steps.signing.outputs.notary-key-path }}" ] && [ -n "$APPLE_NOTARY_KEY_ID" ] && [ -n "$APPLE_NOTARY_ISSUER_ID" ]; then
+            ./scripts/ci/notarize-dmg.sh \
+              --dmg "$DMG_PATH" \
+              --key-path "${{ steps.signing.outputs.notary-key-path }}" \
+              --key-id "$APPLE_NOTARY_KEY_ID" \
+              --issuer "$APPLE_NOTARY_ISSUER_ID"
+          else
+            ./scripts/ci/notarize-dmg.sh \
+              --dmg "$DMG_PATH" \
+              --apple-id "$APPLE_NOTARY_APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_NOTARY_APP_PASSWORD"
           fi
 
-          mkdir -p .derivedData/artifacts
-          ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" .derivedData/artifacts/Typoless-unsigned.zip
-          cp -R .derivedData/Typoless.xcarchive .derivedData/artifacts/Typoless.xcarchive
+      - name: Verify release artifacts
+        run: |
+          ./scripts/ci/verify-macos-release.sh \
+            --app "$APP_PATH" \
+            --dmg "$DMG_PATH" \
+            --team-id "$APPLE_TEAM_ID"
 
-          echo "=== Artifact contents ==="
-          ls -lh .derivedData/artifacts/
-
-      - name: Upload artifacts
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: typoless-unsigned-${{ github.sha }}
+          name: typoless-release-${{ github.ref_name }}
           path: |
-            app/.derivedData/artifacts/Typoless-unsigned.zip
-            app/.derivedData/artifacts/Typoless.xcarchive
+            ${{ env.DMG_PATH }}
+            ${{ env.ARCHIVE_PATH }}
           retention-days: 30
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TITLE="${TAG}"
+          NOTES="Automated macOS release artifact for ${TAG}."
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "$DMG_PATH" --clobber
+          else
+            gh release create "${TAG}" "$DMG_PATH" --title "$TITLE" --notes "$NOTES"
+          fi
 
       - name: Upload build logs on failure
         if: failure()
@@ -71,3 +141,13 @@ jobs:
             app/.derivedData/Logs/Build
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Clean up temporary signing assets
+        if: always()
+        run: |
+          if [ -n "${{ steps.signing.outputs.keychain-path }}" ]; then
+            security delete-keychain "${{ steps.signing.outputs.keychain-path }}" || true
+          fi
+          if [ -n "${{ steps.signing.outputs.workspace-dir }}" ]; then
+            rm -rf "${{ steps.signing.outputs.workspace-dir }}"
+          fi

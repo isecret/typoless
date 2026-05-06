@@ -148,6 +148,7 @@
 - 设备优先使用 MPS（Metal Performance Shaders）推理，不可用时回退 CPU。
 - ASR 超时固定 15 秒，超时后取消请求并清理 sidecar 状态。
 - 资源缺失时返回明确配置错误，阻止录音。
+- 正式分发时，内嵌 Python runtime、`.dylib`、`.so` 必须在 App 签名前完成显式签名；App 使用 Hardened Runtime，并固定启用 `com.apple.security.cs.allow-unsigned-executable-memory` 与 `com.apple.security.cs.disable-library-validation` entitlement。
 
 #### 5.5.2 ASRRuntimeManager
 

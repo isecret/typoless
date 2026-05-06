@@ -56,6 +56,20 @@ scripts/  资源准备、构建、签名相关脚本
 ./scripts/sign-funasr-runtime.sh
 ```
 
+如需本地演练正式分发链路，相关辅助脚本位于：
+
+```bash
+./scripts/ci/import-apple-signing-assets.sh
+./scripts/ci/sign-macos-app.sh
+./scripts/ci/create-dmg.sh
+./scripts/ci/notarize-dmg.sh
+./scripts/ci/verify-macos-release.sh
+```
+
+公证认证支持两种方式：
+- `App Store Connect API Key`
+- `Apple ID + app-specific password`
+
 生成工程并构建：
 
 ```bash
