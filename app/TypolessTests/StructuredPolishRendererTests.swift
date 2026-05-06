@@ -29,6 +29,51 @@ final class StructuredPolishRendererTests: XCTestCase {
         XCTAssertEqual(rendered, "1. 买菜\n2. 做饭\n3. 洗碗")
     }
 
+    func testListRenderingPreservesIntro() {
+        let response = makeLLMResponse(
+            mode: .list,
+            text: "我明天要出差，提醒我带一些东西：\n1. 身份证\n2. 充电宝",
+            intro: "我明天要出差，提醒我带一些东西：",
+            items: ["身份证", "充电宝"]
+        )
+        let rendered = StructuredPolishRenderer.render(response: response)
+        XCTAssertEqual(rendered, "我明天要出差，提醒我带一些东西：\n1. 身份证\n2. 充电宝")
+    }
+
+    func testListRenderingPreservesOutro() {
+        let response = makeLLMResponse(
+            mode: .list,
+            text: "我明天要出差，提醒我带一些东西：\n1. 身份证\n2. 充电宝\n另外明天航班是早上九点的，记得提醒我出门。",
+            intro: "我明天要出差，提醒我带一些东西：",
+            items: ["身份证", "充电宝"],
+            outro: "另外明天航班是早上九点的，记得提醒我出门。"
+        )
+        let rendered = StructuredPolishRenderer.render(response: response)
+        XCTAssertEqual(rendered, "我明天要出差，提醒我带一些东西：\n1. 身份证\n2. 充电宝\n另外明天航班是早上九点的，记得提醒我出门。")
+    }
+
+    func testListRenderingSupportsOutroWithoutIntro() {
+        let response = makeLLMResponse(
+            mode: .list,
+            text: "1. 身份证\n2. 充电宝\n另外明天航班是早上九点的，记得提醒我出门。",
+            items: ["身份证", "充电宝"],
+            outro: "另外明天航班是早上九点的，记得提醒我出门。"
+        )
+        let rendered = StructuredPolishRenderer.render(response: response)
+        XCTAssertEqual(rendered, "1. 身份证\n2. 充电宝\n另外明天航班是早上九点的，记得提醒我出门。")
+    }
+
+    func testListRenderingAddsColonToIntroWhenMissing() {
+        let response = makeLLMResponse(
+            mode: .list,
+            text: "我明天要出差，提醒我带一些东西：\n1. 身份证",
+            intro: "我明天要出差，提醒我带一些东西",
+            items: ["身份证"]
+        )
+        let rendered = StructuredPolishRenderer.render(response: response)
+        XCTAssertEqual(rendered, "我明天要出差，提醒我带一些东西：\n1. 身份证")
+    }
+
     func testListWithEmptyItemsFallsBackToText() {
         let response = makeLLMResponse(
             mode: .list,
@@ -116,7 +161,9 @@ final class StructuredPolishRendererTests: XCTestCase {
     private func makeLLMResponse(
         mode: PolishMode,
         text: String,
+        intro: String? = nil,
         items: [String]? = nil,
+        outro: String? = nil,
         salutation: String? = nil,
         body: [String]? = nil,
         closing: String? = nil,
@@ -126,7 +173,9 @@ final class StructuredPolishRendererTests: XCTestCase {
         let dict: [String: Any?] = [
             "mode": mode.rawValue,
             "text": text,
+            "intro": intro,
             "items": items,
+            "outro": outro,
             "salutation": salutation,
             "body": body,
             "closing": closing,

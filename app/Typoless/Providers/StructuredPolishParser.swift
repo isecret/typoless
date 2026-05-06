@@ -101,14 +101,16 @@ enum StructuredPolishParser {
 struct LLMStructuredResponse: Decodable, Equatable, Sendable {
     let mode: PolishMode
     let text: String
+    let intro: String?
     let items: [String]?
+    let outro: String?
     let salutation: String?
     let body: [String]?
     let closing: String?
     let correctionApplied: Bool
 
     enum CodingKeys: String, CodingKey {
-        case mode, text, items, salutation, body, closing
+        case mode, text, intro, items, outro, salutation, body, closing
         case correctionApplied = "correction_applied"
     }
 
@@ -116,7 +118,9 @@ struct LLMStructuredResponse: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         mode = try container.decode(PolishMode.self, forKey: .mode)
         text = try container.decode(String.self, forKey: .text)
+        intro = try container.decodeIfPresent(String.self, forKey: .intro)
         items = try container.decodeIfPresent([String].self, forKey: .items)
+        outro = try container.decodeIfPresent(String.self, forKey: .outro)
         salutation = try container.decodeIfPresent(String.self, forKey: .salutation)
         body = try container.decodeIfPresent([String].self, forKey: .body)
         closing = try container.decodeIfPresent(String.self, forKey: .closing)
@@ -127,7 +131,9 @@ struct LLMStructuredResponse: Decodable, Equatable, Sendable {
     func toStructuredResult() -> StructuredPolishResult {
         StructuredPolishResult(
             mode: mode,
+            intro: intro,
             items: items,
+            outro: outro,
             salutation: salutation,
             body: body,
             closing: closing,

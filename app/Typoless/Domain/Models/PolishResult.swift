@@ -14,8 +14,12 @@ enum PolishMode: String, Decodable, Equatable, Sendable {
 /// 结构化润色结果，由 LLM JSON 响应解析得到
 struct StructuredPolishResult: Decodable, Equatable, Sendable {
     let mode: PolishMode
+    /// list 模式的前言/场景句
+    let intro: String?
     /// list 模式的条目
     let items: [String]?
+    /// list 模式的尾句/补充说明
+    let outro: String?
     /// message 模式的称呼
     let salutation: String?
     /// message 模式的正文段落
@@ -27,7 +31,9 @@ struct StructuredPolishResult: Decodable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case mode
+        case intro
         case items
+        case outro
         case salutation
         case body
         case closing

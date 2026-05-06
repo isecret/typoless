@@ -320,8 +320,8 @@
 
 验收标准：
 
-- 优先通过焦点元素 `AX` 写值注入文本
-- `AX` 写值失败时回退到键盘事件输入
+- 默认通过剪贴板 + 粘贴快捷键注入文本
+- 粘贴未生效时回退到焦点元素 `AX` 写值
 - 适配常见场景：浏览器输入框、备忘录、聊天应用
 
 #### S7.2 实现注入失败处理
@@ -832,7 +832,7 @@
 验收标准：
 
 - 新增内部枚举 `PolishMode`，至少包含 `plainText`、`list`、`message`
-- 新增 `StructuredPolishResult`，可承载 `mode`、`items`、`salutation`、`body`、`closing`、`correctionApplied`，并提供 `isValid` 语义校验
+- 新增 `StructuredPolishResult`，可承载 `mode`、`intro`、`items`、`outro`、`salutation`、`body`、`closing`、`correctionApplied`，并提供 `isValid` 语义校验
 - `PolishResult` 保留现有 `text`，并新增可选 `structured`
 - `LLMProvider -> SessionCoordinator` 的兼容消费路径明确，既有只消费 `text` 的调用方不被破坏
 
@@ -844,7 +844,7 @@
 
 - Prompt 保持固定内置，不开放用户自定义
 - `plain_text` 继续覆盖纠错、同音词、赘词、标点和轻度书面化
-- `list` 可识别明显枚举信号并输出条目结构，信号不足时回退 `plain_text`
+- `list` 可识别明显枚举信号并输出条目结构；若原话包含列表前言或列表后补充说明，应一并保留；信号不足时回退 `plain_text`
 - `message` 可识别短消息信号并整理称呼、正文、简短结尾，不补充未说出的事实、承诺、时间或地点
 - Prompt 明确支持“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正
 - 个人词典继续作为术语参考进入 Prompt，且不被视为可执行指令

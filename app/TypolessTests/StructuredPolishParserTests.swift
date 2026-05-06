@@ -7,7 +7,7 @@ final class StructuredPolishParserTests: XCTestCase {
 
     func testPlainTextParsesSuccessfully() {
         let json = """
-        {"mode":"plain_text","text":"今天天气不错。","items":null,"salutation":null,"body":null,"closing":null,"correction_applied":false}
+        {"mode":"plain_text","text":"今天天气不错。","intro":null,"items":null,"outro":null,"salutation":null,"body":null,"closing":null,"correction_applied":false}
         """
 
         let result = StructuredPolishParser.parse(content: json)
@@ -24,7 +24,7 @@ final class StructuredPolishParserTests: XCTestCase {
 
     func testListParsesSuccessfully() {
         let json = """
-        {"mode":"list","text":"1. 苹果\\n2. 香蕉\\n3. 橙子","items":["苹果","香蕉","橙子"],"salutation":null,"body":null,"closing":null,"correction_applied":false}
+        {"mode":"list","text":"出差要带的东西：\\n1. 苹果\\n2. 香蕉\\n3. 橙子\\n另外明天九点出门。","intro":"出差要带的东西","items":["苹果","香蕉","橙子"],"outro":"另外明天九点出门。","salutation":null,"body":null,"closing":null,"correction_applied":false}
         """
 
         let result = StructuredPolishParser.parse(content: json)
@@ -33,12 +33,29 @@ final class StructuredPolishParserTests: XCTestCase {
             return
         }
         XCTAssertEqual(response.mode, .list)
+        XCTAssertEqual(response.intro, "出差要带的东西")
         XCTAssertEqual(response.items, ["苹果", "香蕉", "橙子"])
+        XCTAssertEqual(response.outro, "另外明天九点出门。")
+    }
+
+    func testListWithoutIntroRemainsCompatible() {
+        let json = """
+        {"mode":"list","text":"1. 苹果\\n2. 香蕉","items":["苹果","香蕉"],"salutation":null,"body":null,"closing":null,"correction_applied":false}
+        """
+
+        let result = StructuredPolishParser.parse(content: json)
+        guard case .structured(let response) = result else {
+            XCTFail("Expected structured result")
+            return
+        }
+        XCTAssertNil(response.intro)
+        XCTAssertEqual(response.items, ["苹果", "香蕉"])
+        XCTAssertNil(response.outro)
     }
 
     func testListWithEmptyItemsFallsBack() {
         let json = """
-        {"mode":"list","text":"没有列表","items":[],"salutation":null,"body":null,"closing":null,"correction_applied":false}
+        {"mode":"list","text":"没有列表","intro":"前言","items":[],"outro":"尾句","salutation":null,"body":null,"closing":null,"correction_applied":false}
         """
 
         let result = StructuredPolishParser.parse(content: json)
@@ -53,7 +70,7 @@ final class StructuredPolishParserTests: XCTestCase {
 
     func testMessageParsesSuccessfully() {
         let json = """
-        {"mode":"message","text":"张总，明天上午十点开会，请准时。谢谢","salutation":"张总，","body":["明天上午十点开会，请准时。"],"closing":"谢谢","correction_applied":false}
+        {"mode":"message","text":"张总，明天上午十点开会，请准时。谢谢","intro":null,"outro":null,"salutation":"张总，","body":["明天上午十点开会，请准时。"],"closing":"谢谢","correction_applied":false}
         """
 
         let result = StructuredPolishParser.parse(content: json)
@@ -69,7 +86,7 @@ final class StructuredPolishParserTests: XCTestCase {
 
     func testMessageWithEmptyBodyFallsBack() {
         let json = """
-        {"mode":"message","text":"你好","salutation":"你好","body":[],"closing":null,"correction_applied":false}
+        {"mode":"message","text":"你好","intro":null,"outro":null,"salutation":"你好","body":[],"closing":null,"correction_applied":false}
         """
 
         let result = StructuredPolishParser.parse(content: json)
@@ -84,7 +101,7 @@ final class StructuredPolishParserTests: XCTestCase {
 
     func testCorrectionApplied() {
         let json = """
-        {"mode":"plain_text","text":"我要去北京。","items":null,"salutation":null,"body":null,"closing":null,"correction_applied":true}
+        {"mode":"plain_text","text":"我要去北京。","intro":null,"items":null,"outro":null,"salutation":null,"body":null,"closing":null,"correction_applied":true}
         """
 
         let result = StructuredPolishParser.parse(content: json)
@@ -143,7 +160,7 @@ final class StructuredPolishParserTests: XCTestCase {
     func testCodeFenceWrappedJSON() {
         let content = """
         ```json
-        {"mode":"plain_text","text":"从代码块中提取。","items":null,"salutation":null,"body":null,"closing":null,"correction_applied":false}
+        {"mode":"plain_text","text":"从代码块中提取。","intro":null,"items":null,"outro":null,"salutation":null,"body":null,"closing":null,"correction_applied":false}
         ```
         """
 

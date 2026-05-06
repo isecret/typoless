@@ -28,7 +28,7 @@ enum StructuredPolishRenderer {
             return response.text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
-        let rendered = items
+        let renderedItems = items
             .enumerated()
             .map { index, item in
                 let trimmed = item.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -36,7 +36,19 @@ enum StructuredPolishRenderer {
             }
             .joined(separator: "\n")
 
-        return rendered
+        if let intro = normalizedListIntro(from: response.intro) {
+            var parts = [intro, renderedItems]
+            if let outro = normalizedListOutro(from: response.outro) {
+                parts.append(outro)
+            }
+            return parts.joined(separator: "\n")
+        }
+
+        if let outro = normalizedListOutro(from: response.outro) {
+            return "\(renderedItems)\n\(outro)"
+        }
+
+        return renderedItems
     }
 
     /// message 模式：称呼 + 正文 + 结尾，缺失部分不强补
@@ -66,5 +78,29 @@ enum StructuredPolishRenderer {
         }
 
         return parts.joined(separator: "\n")
+    }
+
+    private static func normalizedListIntro(from intro: String?) -> String? {
+        guard let intro else { return nil }
+
+        let trimmed = intro.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let terminalPunctuation = CharacterSet(charactersIn: "：:。！？!?；;")
+        if let scalar = trimmed.unicodeScalars.last,
+           terminalPunctuation.contains(scalar) {
+            return trimmed
+        }
+
+        return trimmed + "："
+    }
+
+    private static func normalizedListOutro(from outro: String?) -> String? {
+        guard let outro else { return nil }
+
+        let trimmed = outro.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        return trimmed
     }
 }

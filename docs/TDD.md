@@ -244,8 +244,9 @@
 
 ### 5.7 TextInjector
 
-- 优先定位当前焦点元素并尝试 `AX` 写值
-- 当 `AX` 写值不可用时回退为键盘事件输入
+- 默认通过剪贴板写入 + 粘贴快捷键将文本注入当前焦点应用
+- 若粘贴路径明确失败或可判断为未生效，再回退到焦点元素 `AX` 写值
+- 不再把键盘事件逐字符输入作为常规第二优先级
 - 返回统一注入结果和错误
 
 ### 5.8 ConfigStore
@@ -530,7 +531,9 @@
 
 - `StructuredPolishResult`
   - `mode: PolishMode`
+  - `intro: String?`
   - `items: [String]?`
+  - `outro: String?`
   - `salutation: String?`
   - `body: [String]?`
   - `closing: String?`
@@ -547,7 +550,7 @@
 - 优先解析 LLM 返回的结构化 JSON（raw JSON，非 code fence）
 - 解析成功后按 mode 在客户端本地渲染最终文本
   - `plain_text`：直接使用 `text` 字段
-  - `list`：按 `items` 编号换行渲染
+  - `list`：若有 `intro`，先输出 `intro`；按 `items` 编号换行渲染；若有 `outro`，再输出 `outro`
   - `message`：按 `salutation` + `body` + `closing` 拼接，缺失部分不强补
 - 语义校验失败时（如 list 但 items 为空），退回使用 JSON 中的 `text` 字段
 - 非法 JSON 时多级回退：尝试宽容提取 `text` 字段 → 使用原始内容（仅当内容不是 JSON 结构时）

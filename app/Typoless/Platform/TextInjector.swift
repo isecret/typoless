@@ -4,26 +4,23 @@ import Carbon
 import CoreGraphics
 import Foundation
 
-/// 文本注入器：优先通过 AX 写入焦点元素，失败时回退到键盘事件输入
+/// 文本注入器：默认通过剪贴板粘贴注入，失败时回退到 AX 写入
 struct TextInjector: Sendable {
     private static let focusRetryIntervals: [TimeInterval] = [0.03, 0.05, 0.08, 0.12, 0.18]
     private static let pasteboardPropagationDelay: TimeInterval = 0.12
     private static let pasteCommandSettleDelay: TimeInterval = 0.35
     private static let slowPasteboardRestoreDelay: TimeInterval = 1.5
     private static let frontmostRetryIntervals: [TimeInterval] = [0.03, 0.05, 0.08, 0.12]
-    private static let pasteboardPreferredBundleIDs = [
-        "com.apple.Terminal",
-        "com.googlecode.iterm2",
-        "com.todesktop.230313mzl4w4u92",
-        "com.microsoft.VSCode",
-        "com.jetbrains.*",
-        "abnerworks.Typora"
-    ]
     private static let slowPasteboardBundleIDs = [
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "abnerworks.Typora"
     ]
+
+    enum InjectionMethod: String, Sendable {
+        case pasteboardPrimary = "pasteboard_primary"
+        case axFallback = "ax_fallback"
+    }
 
     // MARK: - Public API
 
@@ -37,20 +34,36 @@ struct TextInjector: Sendable {
             throw TypolessError.accessibilityPermissionDenied
         }
 
-        if shouldUsePasteboardInjection(targetBundleID: targetBundleID) {
+        if let targetPID {
+            _ = restoreTargetApplication(pid: targetPID)
+        }
+
+        let focusedElementBeforePaste = tryGetInjectableElement(targetPID: targetPID)
+        let snapshotBeforePaste = focusedElementBeforePaste.flatMap(snapshotValue(for:))
+
+        do {
             try pasteViaClipboard(text: text, targetBundleID: targetBundleID)
-            return
+            let focusedElementAfterPaste = tryGetInjectableElement(targetPID: targetPID)
+            let snapshotAfterPaste = focusedElementAfterPaste.flatMap(snapshotValue(for:))
+
+            if !Self.shouldFallbackToAX(
+                beforeValue: snapshotBeforePaste,
+                afterValue: snapshotAfterPaste
+            ) {
+                return
+            }
+        } catch {
+            // 粘贴主路径失败时，继续尝试 AX 回退
         }
 
         if let focusedElement = tryGetInjectableElement(targetPID: targetPID) {
-            // 优先使用 AXSelectedText 在光标位置插入（非破坏性）
+            // 粘贴未生效时，使用 AXSelectedText 在光标位置插入（非破坏性）
             if tryInsertViaAX(element: focusedElement, text: text) {
                 return
             }
         }
 
-        // 焦点元素缺失或 AX 写入失败时，回退到键盘事件输入
-        try typeViaKeyboard(text: text, targetPID: targetPID)
+        throw TypolessError.textInjectionFailure(detail: "文本未能成功写入当前焦点输入区域")
     }
 
     // MARK: - AX Element Discovery
@@ -130,22 +143,6 @@ struct TextInjector: Sendable {
         return app.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
     }
 
-    private func shouldUsePasteboardInjection(targetBundleID: String?) -> Bool {
-        guard let targetBundleID else { return false }
-
-        return Self.pasteboardPreferredBundleIDs.contains { entry in
-            let normalizedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalizedEntry.isEmpty else { return false }
-
-            if normalizedEntry.hasSuffix("*") {
-                let prefix = String(normalizedEntry.dropLast())
-                return targetBundleID.hasPrefix(prefix)
-            }
-
-            return targetBundleID == normalizedEntry
-        }
-    }
-
     // MARK: - AX Insertion
 
     /// 尝试通过 AXSelectedText 在光标位置插入文本
@@ -158,7 +155,32 @@ struct TextInjector: Sendable {
         return result == .success
     }
 
-    // MARK: - Keyboard Fallback
+    private func snapshotValue(for element: AXUIElement) -> String? {
+        var valueRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXValueAttribute as CFString,
+            &valueRef
+        )
+
+        guard result == .success else { return nil }
+
+        return valueRef as? String
+    }
+
+    static func primaryInjectionMethod(targetBundleID _: String?) -> InjectionMethod {
+        .pasteboardPrimary
+    }
+
+    static func shouldFallbackToAX(
+        beforeValue: String?,
+        afterValue: String?
+    ) -> Bool {
+        guard let beforeValue, let afterValue else { return false }
+        return beforeValue == afterValue
+    }
+
+    // MARK: - Pasteboard Primary
 
     private func pasteViaClipboard(text: String, targetBundleID: String?) throws {
         let pasteboard = NSPasteboard.general
@@ -210,35 +232,6 @@ struct TextInjector: Sendable {
                 item.setData(data, forType: type)
             }
             pasteboard.writeObjects([item])
-        }
-    }
-
-    /// 通过 CGEvent Unicode 键盘事件逐块输入文本
-    /// 终端类应用对 postToPid 支持不稳定，恢复目标应用焦点后统一走全局 HID 事件更可靠。
-    private func typeViaKeyboard(text: String, targetPID: pid_t?) throws {
-        if let targetPID {
-            _ = restoreTargetApplication(pid: targetPID)
-        }
-
-        let source = CGEventSource(stateID: .hidSystemState)
-        let utf16Units = Array(text.utf16)
-        let chunkSize = 20
-
-        for offset in stride(from: 0, to: utf16Units.count, by: chunkSize) {
-            let end = min(offset + chunkSize, utf16Units.count)
-            var chunk = Array(utf16Units[offset..<end])
-
-            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
-            else {
-                throw TypolessError.textInjectionFailure(detail: "无法创建键盘事件")
-            }
-
-            keyDown.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
-            keyUp.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: &chunk)
-
-            keyDown.post(tap: .cghidEventTap)
-            keyUp.post(tap: .cghidEventTap)
         }
     }
 

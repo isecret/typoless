@@ -14,12 +14,14 @@ struct LLMProvider: Sendable {
         你必须且只能输出一个合法的 JSON 对象，不要输出任何其他内容（不要 markdown 代码块、不要注释、不要前后缀文字）。
 
         JSON 结构如下：
-        {"mode":"<plain_text|list|message>","text":"<最终文本>","items":[],"salutation":"","body":[],"closing":"","correction_applied":false}
+        {"mode":"<plain_text|list|message>","text":"<最终文本>","intro":"","items":[],"outro":"","salutation":"","body":[],"closing":"","correction_applied":false}
 
         字段说明：
         - mode：必填，三选一
         - text：必填，最终可直接使用的完整文本
+        - intro：仅 list 模式可选，列表前的场景句、引导句或前言
         - items：仅 list 模式必填，数组中每个元素为一个条目
+        - outro：仅 list 模式可选，列表后的补充说明、提醒句或尾句
         - salutation：仅 message 模式可选，称呼部分
         - body：仅 message 模式必填，正文段落数组
         - closing：仅 message 模式可选，结尾部分
@@ -36,6 +38,11 @@ struct LLMProvider: Sendable {
 
         ### list
         - 仅当输入中出现明显枚举信号时使用（如"第一…第二…"、"首先…其次…"、"有几个…"）
+        - 如果用户先交代场景、目的或提醒背景，再开始枚举条目，应把这部分保留到 intro
+        - intro 只允许保留原话中已经说出的列表引子，不得补充背景信息
+        - 如果列表后还有非枚举的补充说明、提醒句或备注，应把这部分保留到 outro
+        - outro 只允许保留原话中列表后的非枚举内容，不得扩写，不得强行改写成新的列表项
+        - 只有仍在继续枚举的内容才进入 items
         - 只拆分原有内容为条目，不新增用户未说出的要点
         - 信号不足时回退 plain_text
 
