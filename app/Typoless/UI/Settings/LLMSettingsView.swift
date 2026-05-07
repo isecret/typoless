@@ -135,14 +135,7 @@ struct LLMSettingsView: View {
                     systemImage: "exclamationmark.triangle.fill",
                     color: .orange
                 )
-            case .checking:
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("检查中")
-                }
-                .foregroundStyle(.secondary)
-            case .ready:
+            case .checking, .ready:
                 statusIndicator(
                     text: "已就绪",
                     systemImage: "checkmark.circle.fill",
