@@ -11,6 +11,7 @@ final class HUDFeedbackController {
     private(set) var hudState: HUDState = .hidden
     private(set) var barHeights: [CGFloat] = Array(repeating: 1, count: 7)
     private(set) var barOpacities: [Double] = Array(repeating: 0.28, count: 7)
+    private(set) var isHUDPresented = false
 
     // MARK: - Callbacks (由 AppCoordinator 注入)
 
@@ -63,7 +64,15 @@ final class HUDFeedbackController {
             scheduleDismiss(after: 0.8)
 
         case .processingFailed(let reason):
+            stopLevelPolling()
+            stopEscMonitor()
+            resetBars()
             hudState = .failure(reason)
+            if isHUDPresented {
+                updateMouseInteraction()
+            } else {
+                showHUD()
+            }
             scheduleDismiss(after: 1.2)
 
         case .processingCancelled:
@@ -204,6 +213,7 @@ final class HUDFeedbackController {
         updateMouseInteraction()
         hudWindow?.alphaValue = 0
         hudWindow?.orderFrontRegardless()
+        isHUDPresented = true
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.2
@@ -223,6 +233,7 @@ final class HUDFeedbackController {
                 self.hudWindow?.orderOut(nil)
                 self.hudWindow?.ignoresMouseEvents = true
                 self.hudState = .hidden
+                self.isHUDPresented = false
             }
         })
     }
