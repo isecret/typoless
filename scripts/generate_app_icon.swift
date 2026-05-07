@@ -78,31 +78,16 @@ func renderAppIcon(svgImage: NSImage, pixels: Int) throws -> Data {
     NSColor.clear.setFill()
     canvasRect.fill()
 
-    // 2. 圆角底板 —— 白底卡片风格
+    // 2. 圆角底板 —— 保持白底风格，但避免和 Finder 背景完全贴合
     let cornerRadius = s * 0.2237 // macOS 标准圆角比例
     let iconPath = macOSIconPath(in: canvasRect, cornerRadius: cornerRadius)
 
-    // 渐变：顶部纯白 → 底部极浅灰，营造卡片质感
-    let topColor = NSColor(calibratedWhite: 1.0, alpha: 1.0)
-    let bottomColor = NSColor(calibratedWhite: 0.94, alpha: 1.0)
-    let gradient = NSGradient(starting: topColor, ending: bottomColor)!
+    // 轻微偏冷灰白，避免暖黄感，同时保留与 Finder 背景的分离度
+    NSColor(calibratedRed: 0.972, green: 0.976, blue: 0.982, alpha: 1.0).setFill()
+    iconPath.fill()
 
-    NSGraphicsContext.saveGraphicsState()
-    iconPath.addClip()
-    gradient.draw(in: canvasRect, angle: 270) // 从上到下
-
-    NSGraphicsContext.restoreGraphicsState()
-
-    // 3. 底板边框（浅灰描边，增加卡片轮廓感）
-    NSGraphicsContext.saveGraphicsState()
-    let borderColor = NSColor(calibratedWhite: 0.0, alpha: 0.10)
-    borderColor.setStroke()
-    iconPath.lineWidth = max(1, s * 0.006)
-    iconPath.stroke()
-    NSGraphicsContext.restoreGraphicsState()
-
-    // 4. 绘制 SVG 图形，居中 + 内边距 16%
-    let padding = s * 0.16
+    // 3. 放大主体，减少四周纯白留白
+    let padding = s * 0.12
     let iconAreaSize = s - padding * 2
 
     // SVG 原始尺寸为 756x756，等比例缩放
@@ -115,19 +100,12 @@ func renderAppIcon(svgImage: NSImage, pixels: Int) throws -> Data {
     let drawX = (s - drawW) / 2
     let drawY = (s - drawH) / 2
 
-    // 略微上移使视觉重心居中（SVG 底部有留白）
-    let visualOffset = s * 0.01
+    // 进一步上移，让眼镜更贴近边缘，减弱“白卡片”感
+    let visualOffset = s * 0.02
     let drawRect = NSRect(x: drawX, y: drawY + visualOffset, width: drawW, height: drawH)
 
     NSGraphicsContext.saveGraphicsState()
     iconPath.addClip()
-
-    // 5. 图形微弱投影（白底上适当加深）
-    let shadow = NSShadow()
-    shadow.shadowOffset = NSSize(width: 0, height: -s * 0.006)
-    shadow.shadowBlurRadius = s * 0.015
-    shadow.shadowColor = NSColor(calibratedWhite: 0.0, alpha: 0.20)
-    shadow.set()
 
     svgImage.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0)
 
