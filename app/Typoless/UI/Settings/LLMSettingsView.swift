@@ -7,6 +7,7 @@ struct LLMSettingsView: View {
     @State private var apiKey: String = ""
     @State private var model: String = ""
     @State private var validationService: LLMValidationService?
+    @State private var hasTriggeredValidation = false
     @State private var isLoaded = false
     @State private var saveTask: Task<Void, Never>?
 
@@ -25,7 +26,8 @@ struct LLMSettingsView: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     validationStatusView
 
-                    if let errorMessage = validationService?.lastErrorMessage,
+                    if hasTriggeredValidation,
+                       let errorMessage = validationService?.lastErrorMessage,
                        validationService?.status == .failed {
                         Text(errorMessage)
                             .font(.caption)
@@ -46,7 +48,6 @@ struct LLMSettingsView: View {
             loadDraft()
             _ = ensureValidationService()
             isLoaded = true
-            validationService?.validate(currentValidationInput(), force: true)
         }
         .onDisappear { flushPendingSave() }
         .onChange(of: baseURL) { debouncedSave() }
@@ -58,6 +59,7 @@ struct LLMSettingsView: View {
         baseURL = configStore.llmConfig.baseURL
         apiKey = configStore.openAIAPIKey
         model = configStore.llmConfig.model
+        hasTriggeredValidation = false
     }
 
     private func debouncedSave() {
@@ -79,6 +81,7 @@ struct LLMSettingsView: View {
     private func trySaveAndValidate() {
         let validationService = ensureValidationService()
         let config = LLMConfig(baseURL: baseURL, model: model)
+        hasTriggeredValidation = true
 
         do {
             try configStore.saveLLMConfig(config, apiKey: apiKey)
@@ -118,32 +121,40 @@ struct LLMSettingsView: View {
 
     @ViewBuilder
     private var validationStatusView: some View {
-        switch validationService?.status ?? .incomplete {
-        case .incomplete:
+        if !hasTriggeredValidation {
             statusIndicator(
-                text: "配置未完成",
-                systemImage: "exclamationmark.triangle.fill",
-                color: .orange
+                text: currentValidationInput().isComplete ? "已就绪" : "未就绪",
+                systemImage: currentValidationInput().isComplete ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                color: currentValidationInput().isComplete ? .green : .orange
             )
-        case .checking:
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("检查中")
+        } else {
+            switch validationService?.status ?? .incomplete {
+            case .incomplete:
+                statusIndicator(
+                    text: "未就绪",
+                    systemImage: "exclamationmark.triangle.fill",
+                    color: .orange
+                )
+            case .checking:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("检查中")
+                }
+                .foregroundStyle(.secondary)
+            case .ready:
+                statusIndicator(
+                    text: "已就绪",
+                    systemImage: "checkmark.circle.fill",
+                    color: .green
+                )
+            case .failed:
+                statusIndicator(
+                    text: "未就绪",
+                    systemImage: "xmark.circle.fill",
+                    color: .red
+                )
             }
-            .foregroundStyle(.secondary)
-        case .ready:
-            statusIndicator(
-                text: "已就绪",
-                systemImage: "checkmark.circle.fill",
-                color: .green
-            )
-        case .failed:
-            statusIndicator(
-                text: "未就绪",
-                systemImage: "xmark.circle.fill",
-                color: .red
-            )
         }
     }
 
