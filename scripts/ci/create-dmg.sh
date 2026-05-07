@@ -9,6 +9,8 @@ VOLUME_NAME="Typoless"
 SIGNING_IDENTITY=""
 TIMESTAMP=0
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 usage() {
     cat <<'EOF'
 Usage:
@@ -68,18 +70,79 @@ fi
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/typoless-dmg.XXXXXX")"
-trap 'rm -rf "$STAGING_DIR"' EXIT
+RW_DMG_BASE="$(mktemp -u "${TMPDIR:-/tmp}/typoless-rw.XXXXXX")"
+RW_DMG_PATH="${RW_DMG_BASE}.dmg"
+BACKGROUND_DIR="$STAGING_DIR/.background"
+BACKGROUND_PATH="$BACKGROUND_DIR/installer-background.png"
+APP_NAME="$(basename "$APP_PATH")"
+MOUNT_POINT="/Volumes/$VOLUME_NAME"
+OUTPUT_BASE="${OUTPUT_PATH%.dmg}"
 
-ditto "$APP_PATH" "$STAGING_DIR/$(basename "$APP_PATH")"
+cleanup() {
+    hdiutil detach "$MOUNT_POINT" -quiet >/dev/null 2>&1 || true
+    hdiutil detach "${MOUNT_POINT} 1" -quiet >/dev/null 2>&1 || true
+    hdiutil detach "${MOUNT_POINT} 2" -quiet >/dev/null 2>&1 || true
+    hdiutil detach "${MOUNT_POINT} 3" -quiet >/dev/null 2>&1 || true
+    rm -rf "$STAGING_DIR"
+    rm -f "$RW_DMG_PATH"
+}
+trap cleanup EXIT
+
+cleanup
+
+mkdir -p "$BACKGROUND_DIR"
+cp -R "$APP_PATH" "$STAGING_DIR/$APP_NAME"
+ln -s /Applications "$STAGING_DIR/Applications"
+"$SCRIPT_DIR/render-dmg-background.swift" "$BACKGROUND_PATH"
+
 rm -f "$OUTPUT_PATH"
 
-echo "Creating DMG..."
+echo "Creating writable DMG..."
 hdiutil create \
     -volname "$VOLUME_NAME" \
     -srcfolder "$STAGING_DIR" \
     -ov \
-    -format UDZO \
-    "$OUTPUT_PATH"
+    -format UDRW \
+    "$RW_DMG_PATH"
+
+echo "Mounting writable DMG..."
+hdiutil attach "$RW_DMG_PATH" -nobrowse -quiet
+
+echo "Configuring Finder layout..."
+osascript <<EOF
+tell application "Finder"
+    tell disk "$VOLUME_NAME"
+        open
+        delay 1
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set bounds of container window to {140, 140, 780, 540}
+        set zoomed of container window to false
+        set sidebar width of container window to 0
+        set theViewOptions to the icon view options of container window
+        set arrangement of theViewOptions to not arranged
+        set icon size of theViewOptions to 116
+        set text size of theViewOptions to 16
+        set background picture of theViewOptions to file ".background:installer-background.png"
+        set position of item "$APP_NAME" of container window to {170, 210}
+        set position of item "Applications" of container window to {470, 210}
+        close
+        open
+        delay 1
+        set bounds of container window to {140, 140, 780, 540}
+        set zoomed of container window to false
+        update without registering applications
+        delay 1
+    end tell
+end tell
+EOF
+
+sync
+hdiutil detach "$MOUNT_POINT" -quiet
+
+echo "Converting DMG..."
+hdiutil convert "$RW_DMG_PATH" -ov -format UDZO -o "$OUTPUT_BASE" -quiet
 
 if [[ -n "$SIGNING_IDENTITY" ]]; then
     CODESIGN_ARGS=(--force --sign "$SIGNING_IDENTITY")
