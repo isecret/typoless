@@ -105,13 +105,7 @@ struct HUDContentView: View {
         return HStack(spacing: 2) {
             ForEach(0..<controller.barHeights.count, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 999)
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.white, Color.white.opacity(0.34)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
+                    .fill(Color.white)
                     .frame(width: 3, height: controller.barHeights[i])
                     .opacity(controller.barOpacities[i])
             }
