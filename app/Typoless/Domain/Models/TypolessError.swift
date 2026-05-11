@@ -3,6 +3,7 @@ import Foundation
 /// 统一错误模型，覆盖主链路所有可预期的失败场景
 enum TypolessError: Error, Equatable, Sendable {
     case microphonePermissionDenied
+    case audioRecordingUnavailable(detail: String)
     case accessibilityPermissionDenied
     // ASR 通用错误
     case asrEmptyAudio
@@ -33,6 +34,8 @@ enum TypolessError: Error, Equatable, Sendable {
         switch self {
         case .microphonePermissionDenied:
             "麦克风权限未开启，无法录音"
+        case .audioRecordingUnavailable:
+            "无法开始录音，请检查麦克风设备或系统输入设置"
         case .accessibilityPermissionDenied:
             "辅助功能权限未开启，无法注入文本"
         case .asrEmptyAudio:
@@ -83,7 +86,7 @@ enum TypolessError: Error, Equatable, Sendable {
             .resourceMissing
         case .asrEmptyAudio, .cloudASREmptyResponse:
             .notHeard
-        case .asrProcessFailure, .audioPreprocessFailure,
+        case .audioRecordingUnavailable, .asrProcessFailure, .audioPreprocessFailure,
              .cloudASRConfigurationIncomplete, .cloudASRAuthenticationFailure,
              .cloudASRNetworkFailure, .cloudASRInvalidResponse:
             .recognitionFailed

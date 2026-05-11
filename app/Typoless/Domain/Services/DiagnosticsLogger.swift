@@ -183,6 +183,7 @@ extension TypolessError {
     var diagnosticClassification: String {
         switch self {
         case .microphonePermissionDenied: "microphone_permission_denied"
+        case .audioRecordingUnavailable: "audio_recording_unavailable"
         case .accessibilityPermissionDenied: "accessibility_permission_denied"
         case .asrEmptyAudio: "asr_empty_audio"
         case .asrPlatformNotReady: "asr_platform_not_ready"

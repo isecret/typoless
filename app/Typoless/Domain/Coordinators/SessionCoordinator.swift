@@ -381,6 +381,9 @@ final class SessionCoordinator {
             case .accessibilityPermissionDenied: return .accessibilityPermissionDenied
             }
         }
+        if let recorderError = error as? AudioRecorderError {
+            return .audioRecordingUnavailable(detail: recorderError.localizedDescription)
+        }
         return .textInjectionFailure(detail: error.localizedDescription)
     }
 
