@@ -32,36 +32,18 @@ final class ConfigStore {
 
     /// 当前选中的 ASR 平台是否可用
     var isASRReady: Bool {
-        switch asrConfig.selectedPlatform {
-        case .localFunASR:
-            return Self.localModelsAvailable()
-        case .tencentCloudSentence:
-            return !asrConfig.tencentCloud.secretId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                && !asrConfig.tencentCloud.secretKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
+        asrConfig.isReady(localModelsAvailable: Self.localModelsAvailable())
     }
 
     /// ASR 平台不可用的原因描述
     var asrNotReadyReason: String? {
-        guard !isASRReady else { return nil }
-        switch asrConfig.selectedPlatform {
-        case .localFunASR:
-            return "本地模型未下载，请在设置页下载"
-        case .tencentCloudSentence:
-            return "腾讯云 ASR 配置不完整，请填写 SecretId 和 SecretKey"
-        }
+        asrConfig.notReadyReason(localModelsAvailable: Self.localModelsAvailable())
     }
 
     // MARK: - 配置文件路径
 
-    private static let configDirectory: URL = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".typoless", isDirectory: true)
-    }()
-
-    private static let configFileURL: URL = {
-        configDirectory.appendingPathComponent("config.json")
-    }()
+    private let configDirectory: URL
+    private let configFileURL: URL
 
     // MARK: - 旧存储键（仅用于迁移）
 
@@ -92,14 +74,17 @@ final class ConfigStore {
 
     // MARK: - 初始化
 
-    init() {
+    init(configDirectory: URL? = nil) {
+        self.configDirectory = configDirectory ?? FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".typoless", isDirectory: true)
+        self.configFileURL = self.configDirectory.appendingPathComponent("config.json")
         loadAll()
     }
 
     // MARK: - 加载
 
     func loadAll() {
-        let fileURL = Self.configFileURL
+        let fileURL = configFileURL
 
         if FileManager.default.fileExists(atPath: fileURL.path) {
             // 配置文件已存在，尝试加载
@@ -262,8 +247,8 @@ final class ConfigStore {
     /// 原子写入配置文件，确保目录和文件权限正确
     private func writeConfigFile(_ configFile: ConfigFile) throws {
         let fm = FileManager.default
-        let dirURL = Self.configDirectory
-        let fileURL = Self.configFileURL
+        let dirURL = configDirectory
+        let fileURL = configFileURL
 
         // 确保目录存在且权限为 0700
         if !fm.fileExists(atPath: dirURL.path) {

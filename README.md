@@ -11,7 +11,7 @@
 - 菜单栏常驻应用，不是系统级输入法
 - 单一全局快捷键，按一次开始录音，再按一次结束录音
 - 本地 `FunASR` 离线识别，模型外置到 `~/.typoless/models/funasr/`
-- 腾讯云一句话识别，用户手动切换
+- 云端 ASR 支持 `腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`，用户手动切换
 - `OpenAI Chat Completions` 兼容接口
 - 默认输出 LLM 润色结果
 - 文本注入优先走 `Accessibility API`，失败后回退键盘事件
@@ -25,6 +25,7 @@
 - `MVVM + Service Layer`
 - `RNNoise`
 - `FunASR` Python sidecar
+- 云端 ASR：`Tencent Cloud API` / `Aliyun NLS` / `Volcengine ASR` / `Xunfei IAT`
 - `OpenAI Chat Completions` 兼容接口
 
 ## 仓库结构

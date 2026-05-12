@@ -53,9 +53,9 @@ enum TypolessError: Error, Equatable, Sendable {
         case .audioPreprocessFailure(let message):
             "音频预处理失败：\(message)"
         case .cloudASRConfigurationIncomplete:
-            "云端 ASR 配置未完成，请填写 SecretId 和 SecretKey"
+            "云端 ASR 配置未完成，请检查当前平台配置"
         case .cloudASRAuthenticationFailure:
-            "云端 ASR 认证失败，请检查 SecretId 和 SecretKey"
+            "云端 ASR 认证失败，请检查当前平台凭据"
         case .cloudASRNetworkFailure:
             "云端 ASR 请求失败，请检查网络"
         case .cloudASREmptyResponse:

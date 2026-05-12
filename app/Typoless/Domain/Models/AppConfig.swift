@@ -14,6 +14,39 @@ struct LLMConfig: Codable, Equatable, Sendable {
 enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
     case localFunASR = "localFunASR"
     case tencentCloudSentence = "tencentCloudSentence"
+    case aliyunSentence = "aliyunSentence"
+    case volcengineSentence = "volcengineSentence"
+    case xunfeiSentence = "xunfeiSentence"
+
+    var displayName: String {
+        switch self {
+        case .localFunASR:
+            "本地 FunASR"
+        case .tencentCloudSentence:
+            "腾讯云"
+        case .aliyunSentence:
+            "阿里云"
+        case .volcengineSentence:
+            "火山引擎"
+        case .xunfeiSentence:
+            "科大讯飞"
+        }
+    }
+
+    var cloudConfigSummary: String {
+        switch self {
+        case .localFunASR:
+            "本地模式：语音数据仅在本机处理，不会发送到云端 ASR 服务。"
+        case .tencentCloudSentence:
+            "腾讯云模式：语音会发送到腾讯云一句话识别服务。"
+        case .aliyunSentence:
+            "阿里云模式：语音会发送到阿里云语音识别服务。"
+        case .volcengineSentence:
+            "火山引擎模式：语音会发送到火山引擎语音识别服务。"
+        case .xunfeiSentence:
+            "科大讯飞模式：语音会发送到科大讯飞语音识别服务。"
+        }
+    }
 }
 
 /// ASR 总配置
@@ -21,6 +54,62 @@ struct ASRConfig: Codable, Equatable, Sendable {
     var selectedPlatform: ASRPlatform = .localFunASR
     var local: LocalASRConfig = LocalASRConfig()
     var tencentCloud: TencentASRConfig = TencentASRConfig()
+    var aliyun: AliyunASRConfig = AliyunASRConfig()
+    var volcengine: VolcengineASRConfig = VolcengineASRConfig()
+    var xunfei: XunfeiASRConfig = XunfeiASRConfig()
+
+    enum CodingKeys: String, CodingKey {
+        case selectedPlatform
+        case local
+        case tencentCloud
+        case aliyun
+        case volcengine
+        case xunfei
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selectedPlatform = try container.decodeIfPresent(ASRPlatform.self, forKey: .selectedPlatform) ?? .localFunASR
+        local = try container.decodeIfPresent(LocalASRConfig.self, forKey: .local) ?? LocalASRConfig()
+        tencentCloud = try container.decodeIfPresent(TencentASRConfig.self, forKey: .tencentCloud) ?? TencentASRConfig()
+        aliyun = try container.decodeIfPresent(AliyunASRConfig.self, forKey: .aliyun) ?? AliyunASRConfig()
+        volcengine = try container.decodeIfPresent(VolcengineASRConfig.self, forKey: .volcengine) ?? VolcengineASRConfig()
+        xunfei = try container.decodeIfPresent(XunfeiASRConfig.self, forKey: .xunfei) ?? XunfeiASRConfig()
+    }
+
+    func isReady(localModelsAvailable: Bool) -> Bool {
+        switch selectedPlatform {
+        case .localFunASR:
+            return localModelsAvailable
+        case .tencentCloudSentence:
+            return tencentCloud.isComplete
+        case .aliyunSentence:
+            return aliyun.isComplete
+        case .volcengineSentence:
+            return volcengine.isComplete
+        case .xunfeiSentence:
+            return xunfei.isComplete
+        }
+    }
+
+    func notReadyReason(localModelsAvailable: Bool) -> String? {
+        guard !isReady(localModelsAvailable: localModelsAvailable) else { return nil }
+
+        switch selectedPlatform {
+        case .localFunASR:
+            return "本地模型未下载，请在设置页下载"
+        case .tencentCloudSentence:
+            return "腾讯云 ASR 配置不完整，请填写 SecretId 和 SecretKey"
+        case .aliyunSentence:
+            return "阿里云 ASR 配置不完整，请填写 AccessKey ID、AccessKey Secret 和 AppKey"
+        case .volcengineSentence:
+            return "火山引擎 ASR 配置不完整，请填写 API Key"
+        case .xunfeiSentence:
+            return "科大讯飞 ASR 配置不完整，请填写 AppID、API Key 和 API Secret"
+        }
+    }
 }
 
 /// 本地 FunASR 模型状态
@@ -51,6 +140,46 @@ struct LocalASRConfig: Codable, Equatable, Sendable {
 struct TencentASRConfig: Codable, Equatable, Sendable {
     var secretId: String = ""
     var secretKey: String = ""
+
+    var isComplete: Bool {
+        !secretId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !secretKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// 阿里云一句话识别配置
+struct AliyunASRConfig: Codable, Equatable, Sendable {
+    var accessKeyId: String = ""
+    var accessKeySecret: String = ""
+    var appKey: String = ""
+
+    var isComplete: Bool {
+        !accessKeyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !accessKeySecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !appKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// 火山引擎文件识别配置
+struct VolcengineASRConfig: Codable, Equatable, Sendable {
+    var apiKey: String = ""
+
+    var isComplete: Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// 科大讯飞语音听写配置
+struct XunfeiASRConfig: Codable, Equatable, Sendable {
+    var appID: String = ""
+    var apiKey: String = ""
+    var apiSecret: String = ""
+
+    var isComplete: Bool {
+        !appID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !apiSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 // MARK: - 通用配置

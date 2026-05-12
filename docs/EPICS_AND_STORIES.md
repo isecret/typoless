@@ -31,7 +31,7 @@
 | E14 | Prompt 与个人词典 | 优化 LLM 纠错边界，并引入术语词典提升专名稳定性 |
 | E15 | FunASR 运行时与模型资源 | 管理内置 Python runtime、FunASR 模型与降噪资源 |
 | E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
-| E17 | ASR 平台选择与模型外置 | 支持本地 FunASR 外置模型下载和腾讯云 ASR |
+| E17 | ASR 平台选择与模型外置 | 支持本地 FunASR 外置模型下载和多云 ASR 平台 |
 | E18 | LLM 保守型结构化处理 | 在不扩写、不改原意前提下提升列表化、消息化和自我修正处理稳定性 |
 
 ## 3. Epic 详情
@@ -763,17 +763,17 @@
 
 ### 目标
 
-将 FunASR 模型从 App Bundle 迁移到用户目录外置下载，并新增腾讯云一句话识别作为可选 ASR 平台。
+将 FunASR 模型从 App Bundle 迁移到用户目录外置下载，并新增腾讯云、阿里云、火山引擎、科大讯飞作为可选云 ASR 平台。
 
 ### Stories
 
 #### S17.1 ASR 配置模型与平台切换
 
-作为用户，我希望在设置页选择 ASR 平台（本地 FunASR 或 腾讯云），以便根据需求选择合适的识别方式。
+作为用户，我希望在设置页选择 ASR 平台（本地 FunASR 或四种云 ASR），以便根据需求选择合适的识别方式。
 
 验收标准：
 
-- `AppConfig` 新增 `ASRPlatform`、`ASRConfig`、`LocalASRConfig`、`TencentASRConfig` 模型
+- `AppConfig` 新增 `ASRPlatform`、`ASRConfig`、`LocalASRConfig`、`TencentASRConfig`、`AliyunASRConfig`、`VolcengineASRConfig`、`XunfeiASRConfig` 模型
 - `ConfigStore` 提供 `asrConfig` 读写和 `isASRReady` 判断
 - 平台切换通过 `selectedPlatform` 字段控制
 - 配置不完整时 `isASRReady` 返回 `false` 并携带原因描述
@@ -793,16 +793,17 @@
 - 设置页不向用户暴露模型路径、模型版本、重新下载或删除入口
 - `ResourceValidator` 支持从用户目录校验模型
 
-#### S17.3 腾讯云一句话识别集成
+#### S17.3 多云 ASR 集成
 
-作为用户，我希望使用腾讯云一句话识别，无需本地模型即可进行语音识别。
+作为用户，我希望使用云端 ASR，无需本地模型即可进行语音识别。
 
 验收标准：
 
 - `TencentSentenceASRProvider` 实现 `ASRProvider` 协议
-- 使用 TC3-HMAC-SHA256 签名，引擎 `16k_zh-PY`
-- 超时 15 秒
-- 配置项：SecretId、SecretKey
+- `AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider` 实现 `ASRProvider` 协议
+- 腾讯云使用 TC3-HMAC-SHA256；阿里云使用 `CreateToken + RESTful ASR`；火山引擎使用文件识别接口；科大讯飞使用 WebSocket 语音听写
+- 各云平台超时固定 15 秒
+- 配置项最小化：只暴露调用所需凭据
 - 错误映射完整：配置不全、鉴权失败、网络错误、空响应、响应无效
 
 #### S17.4 录音链路适配多 ASR 平台
@@ -813,7 +814,7 @@
 
 - `SessionCoordinator` 录音前检查 `isASRReady`，未就绪时阻止录音
 - 本地平台走 `ASRRuntimeManager` 预热 + `FunASRProvider`
-- 腾讯云平台直接走 `TencentSentenceASRProvider`
+- 云平台通过 `ASRProviderFactory` 分发到腾讯云、阿里云、火山引擎、科大讯飞对应 Provider
 - 不做平台间自动回退
 
 ## E18. LLM 保守型结构化处理

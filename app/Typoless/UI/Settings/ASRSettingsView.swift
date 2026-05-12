@@ -2,11 +2,23 @@ import SwiftUI
 
 struct ASRSettingsView: View {
     let configStore: ConfigStore
-    @State private var downloadManager: ModelDownloadManager?
 
+    @State private var downloadManager: ModelDownloadManager?
     @State private var selectedPlatform: ASRPlatform = .localFunASR
-    @State private var secretId: String = ""
-    @State private var secretKey: String = ""
+
+    @State private var tencentSecretId: String = ""
+    @State private var tencentSecretKey: String = ""
+
+    @State private var aliyunAccessKeyId: String = ""
+    @State private var aliyunAccessKeySecret: String = ""
+    @State private var aliyunAppKey: String = ""
+
+    @State private var volcengineAPIKey: String = ""
+
+    @State private var xunfeiAppID: String = ""
+    @State private var xunfeiAPIKey: String = ""
+    @State private var xunfeiAPISecret: String = ""
+
     @State private var isLoaded = false
     @State private var saveTask: Task<Void, Never>?
 
@@ -14,38 +26,54 @@ struct ASRSettingsView: View {
         Section {
             SettingsFormRow(title: "语音引擎") {
                 Picker("语音引擎", selection: $selectedPlatform) {
-                    Text("本地").tag(ASRPlatform.localFunASR)
-                    Text("腾讯云").tag(ASRPlatform.tencentCloudSentence)
+                    ForEach(ASRPlatform.allCases, id: \.self) { platform in
+                        Text(platform.displayName).tag(platform)
+                    }
                 }
                 .labelsHidden()
-                .pickerStyle(.segmented)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(width: 220, alignment: .trailing)
+                .frame(width: 320, alignment: .trailing)
             }
 
-            // 根据选中平台显示对应面板
             switch selectedPlatform {
             case .localFunASR:
                 localFunASRPanel
             case .tencentCloudSentence:
                 tencentCloudPanel
+            case .aliyunSentence:
+                aliyunPanel
+            case .volcengineSentence:
+                volcenginePanel
+            case .xunfeiSentence:
+                xunfeiPanel
             }
         } header: {
             Text("语音识别")
         } footer: {
-            privacyFooter
+            Text(selectedPlatform.cloudConfigSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .onAppear {
             loadDraft()
             isLoaded = true
         }
         .onDisappear { flushPendingSave() }
-        .onChange(of: selectedPlatform) { savePlatform() }
-        .onChange(of: secretId) { debouncedSaveTencentConfig() }
-        .onChange(of: secretKey) { debouncedSaveTencentConfig() }
+        .onChange(of: selectedPlatform) {
+            savePlatform()
+            debouncedSaveCloudConfig()
+        }
+        .onChange(of: tencentSecretId) { debouncedSaveCloudConfig() }
+        .onChange(of: tencentSecretKey) { debouncedSaveCloudConfig() }
+        .onChange(of: aliyunAccessKeyId) { debouncedSaveCloudConfig() }
+        .onChange(of: aliyunAccessKeySecret) { debouncedSaveCloudConfig() }
+        .onChange(of: aliyunAppKey) { debouncedSaveCloudConfig() }
+        .onChange(of: volcengineAPIKey) { debouncedSaveCloudConfig() }
+        .onChange(of: xunfeiAppID) { debouncedSaveCloudConfig() }
+        .onChange(of: xunfeiAPIKey) { debouncedSaveCloudConfig() }
+        .onChange(of: xunfeiAPISecret) { debouncedSaveCloudConfig() }
     }
 
-    // MARK: - 本地 FunASR 面板
+    // MARK: - Panels
 
     @ViewBuilder
     private var localFunASRPanel: some View {
@@ -67,52 +95,60 @@ struct ASRSettingsView: View {
         }
     }
 
-    // MARK: - 腾讯云面板
-
     @ViewBuilder
     private var tencentCloudPanel: some View {
-        SettingsFormRow(title: "SecretId") {
-            SettingsTextInputField(text: $secretId)
-        }
-
-        SettingsFormRow(title: "SecretKey") {
-            SettingsSecureInputField(text: $secretKey)
-        }
-
-        SettingsFormRow(title: "引擎状态") {
-            if configStore.isASRReady && selectedPlatform == .tencentCloudSentence {
-                statusIndicator(
-                    text: "已就绪",
-                    systemImage: "checkmark.circle.fill",
-                    color: .green
-                )
-            } else {
-                statusIndicator(
-                    text: "未就绪",
-                    systemImage: "exclamationmark.triangle.fill",
-                    color: .orange
-                )
-            }
-        }
+        cloudField(title: "SecretId", text: $tencentSecretId)
+        cloudSecureField(title: "SecretKey", text: $tencentSecretKey)
+        cloudStatusRow(isReady: currentDraftConfig().tencentCloud.isComplete)
     }
-
-    // MARK: - 隐私提示
 
     @ViewBuilder
-    private var privacyFooter: some View {
-        switch selectedPlatform {
-        case .localFunASR:
-            Text("本地模式：语音数据仅在本机处理，不会发送到云端 ASR 服务。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        case .tencentCloudSentence:
-            Text("腾讯云模式：用于一句话识别。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private var aliyunPanel: some View {
+        cloudField(title: "AccessKey ID", text: $aliyunAccessKeyId)
+        cloudSecureField(title: "AccessKey Secret", text: $aliyunAccessKeySecret)
+        cloudField(title: "AppKey", text: $aliyunAppKey)
+        cloudStatusRow(isReady: currentDraftConfig().aliyun.isComplete)
+    }
+
+    @ViewBuilder
+    private var volcenginePanel: some View {
+        cloudSecureField(title: "API Key", text: $volcengineAPIKey)
+        cloudStatusRow(isReady: currentDraftConfig().volcengine.isComplete)
+    }
+
+    @ViewBuilder
+    private var xunfeiPanel: some View {
+        cloudField(title: "AppID", text: $xunfeiAppID)
+        cloudField(title: "API Key", text: $xunfeiAPIKey)
+        cloudSecureField(title: "API Secret", text: $xunfeiAPISecret)
+        cloudStatusRow(isReady: currentDraftConfig().xunfei.isComplete)
+    }
+
+    // MARK: - Shared Rows
+
+    private func cloudField(title: String, text: Binding<String>) -> some View {
+        SettingsFormRow(title: title) {
+            SettingsTextInputField(text: text)
         }
     }
 
-    // MARK: - 状态辅助
+    private func cloudSecureField(title: String, text: Binding<String>) -> some View {
+        SettingsFormRow(title: title) {
+            SettingsSecureInputField(text: text)
+        }
+    }
+
+    private func cloudStatusRow(isReady: Bool) -> some View {
+        SettingsFormRow(title: "引擎状态") {
+            statusIndicator(
+                text: isReady ? "已就绪" : "未就绪",
+                systemImage: isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
+                color: isReady ? .green : .orange
+            )
+        }
+    }
+
+    // MARK: - Local Model
 
     @ViewBuilder
     private func localModelStatusContent(for status: LocalModelStatus) -> some View {
@@ -177,51 +213,70 @@ struct ASRSettingsView: View {
         return configStore.asrConfig.local.lastError ?? downloadManager?.lastError
     }
 
-    // MARK: - 保存逻辑
+    // MARK: - Persistence
 
     private func loadDraft() {
         configStore.refreshLocalModelStatusFromDisk()
         selectedPlatform = configStore.asrConfig.selectedPlatform
-        secretId = configStore.asrConfig.tencentCloud.secretId
-        secretKey = configStore.asrConfig.tencentCloud.secretKey
 
-        // 初始化 download manager
+        tencentSecretId = configStore.asrConfig.tencentCloud.secretId
+        tencentSecretKey = configStore.asrConfig.tencentCloud.secretKey
+
+        aliyunAccessKeyId = configStore.asrConfig.aliyun.accessKeyId
+        aliyunAccessKeySecret = configStore.asrConfig.aliyun.accessKeySecret
+        aliyunAppKey = configStore.asrConfig.aliyun.appKey
+
+        volcengineAPIKey = configStore.asrConfig.volcengine.apiKey
+
+        xunfeiAppID = configStore.asrConfig.xunfei.appID
+        xunfeiAPIKey = configStore.asrConfig.xunfei.apiKey
+        xunfeiAPISecret = configStore.asrConfig.xunfei.apiSecret
+
         downloadManager = ModelDownloadManager(configStore: configStore)
 
-        // 如果本地状态是 downloading 但应用刚启动，纠正为 failed
         if configStore.asrConfig.local.modelStatus == .downloading {
             try? configStore.updateLocalModelStatus(.failed, error: "上次下载被中断")
         }
     }
 
-    private func savePlatform() {
-        guard isLoaded else { return }
+    private func currentDraftConfig() -> ASRConfig {
         var config = configStore.asrConfig
         config.selectedPlatform = selectedPlatform
-        try? configStore.saveASRConfig(config)
+        config.tencentCloud.secretId = tencentSecretId.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.tencentCloud.secretKey = tencentSecretKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.aliyun.accessKeyId = aliyunAccessKeyId.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.aliyun.accessKeySecret = aliyunAccessKeySecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.aliyun.appKey = aliyunAppKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.volcengine.apiKey = volcengineAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.xunfei.appID = xunfeiAppID.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.xunfei.apiKey = xunfeiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.xunfei.apiSecret = xunfeiAPISecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        return config
     }
 
-    private func debouncedSaveTencentConfig() {
+    private func savePlatform() {
+        guard isLoaded else { return }
+        try? configStore.saveASRConfig(currentDraftConfig())
+    }
+
+    private func debouncedSaveCloudConfig() {
         guard isLoaded else { return }
         saveTask?.cancel()
         saveTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
-            saveTencentConfig()
+            saveCloudConfig()
         }
     }
 
     private func flushPendingSave() {
         saveTask?.cancel()
         saveTask = nil
-        if isLoaded { saveTencentConfig() }
+        if isLoaded { saveCloudConfig() }
     }
 
-    private func saveTencentConfig() {
-        var config = configStore.asrConfig
-        config.tencentCloud.secretId = secretId.trimmingCharacters(in: .whitespacesAndNewlines)
-        config.tencentCloud.secretKey = secretKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        try? configStore.saveASRConfig(config)
+    private func saveCloudConfig() {
+        try? configStore.saveASRConfig(currentDraftConfig())
     }
 
     @discardableResult
@@ -229,6 +284,7 @@ struct ASRSettingsView: View {
         if let manager = downloadManager {
             return manager
         }
+
         let manager = ModelDownloadManager(configStore: configStore)
         downloadManager = manager
         return manager

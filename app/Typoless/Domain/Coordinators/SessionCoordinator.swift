@@ -226,20 +226,12 @@ final class SessionCoordinator {
         guard generation == sessionGeneration, !Task.isCancelled else { return }
 
         // 2. 按平台选择 ASR Provider
-        let asrProvider: any ASRProvider
-        switch selectedPlatform {
-        case .localFunASR:
-            let hotwords = await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
-            asrProvider = FunASRProvider(
-                runtimeManager: asrRuntimeManager,
-                hotwords: hotwords
-            )
-        case .tencentCloudSentence:
-            let (secretId, secretKey) = await MainActor.run {
-                (configStore.asrConfig.tencentCloud.secretId, configStore.asrConfig.tencentCloud.secretKey)
-            }
-            asrProvider = TencentSentenceASRProvider(secretId: secretId, secretKey: secretKey)
-        }
+        let hotwords = selectedPlatform == .localFunASR
+            ? await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
+            : ""
+        let asrConfig = await MainActor.run { configStore.asrConfig }
+        let asrProviderFactory = ASRProviderFactory(runtimeManager: asrRuntimeManager)
+        let asrProvider = asrProviderFactory.makeProvider(for: asrConfig, hotwords: hotwords)
 
         let asrStart = Date()
         let transcriptResult: TranscriptResult

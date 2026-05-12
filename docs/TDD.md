@@ -41,7 +41,7 @@
 
 - 音频预处理：`RNNoise` 本地降噪
 - ASR 本地：`FunASR` 本地离线识别（通过 Python sidecar 运行 paraformer-zh + fsmn-vad）
-- ASR 云端：`腾讯云一句话识别`（直接调用 Cloud API，使用 `16k_zh-PY` 引擎）
+- ASR 云端：`腾讯云一句话识别`、`阿里云录音文件识别极速版`、`火山引擎文件识别`、`科大讯飞语音听写`
 - LLM：`OpenAI Chat Completions` 兼容接口
 
 ### 3.3 音频与注入
@@ -203,7 +203,17 @@
 - 配置项：`SecretId`、`SecretKey`，存储在 `~/.typoless/config.json` 的 `asr.tencentCloud` 段。
 - 配置不完整时返回 `cloudASRConfigurationIncomplete` 错误。
 
-#### 5.5.5 ModelDownloadManager
+#### 5.5.5 AliyunSentenceASRProvider / VolcengineSentenceASRProvider / XunfeiSentenceASRProvider
+
+- `AliyunSentenceASRProvider`
+  先调用阿里云 `CreateToken` 获取临时 Token，再调用录音文件识别极速版接口提交 `wav` 音频。
+- `VolcengineSentenceASRProvider`
+  直接调用火山引擎文件识别接口，上传 base64 编码后的 `wav` 音频。
+- `XunfeiSentenceASRProvider`
+  使用科大讯飞语音听写 WebSocket 协议，录音结束后将 `wav` 中的 PCM 数据按帧发送，最终对外仍返回单次 final text。
+- 三家云 Provider 均固定 15 秒超时，支持取消，并统一映射到云 ASR 错误模型。
+
+#### 5.5.6 ModelDownloadManager
 
 - 管理本地 FunASR 模型的下载、验证和删除。
 - 模型存储路径：`~/.typoless/models/funasr/`。
@@ -335,15 +345,29 @@
 - `openai_api_key`
 - `asr.tencentCloud.secretId`
 - `asr.tencentCloud.secretKey`
+- `asr.aliyun.accessKeyId`
+- `asr.aliyun.accessKeySecret`
+- `asr.aliyun.appKey`
+- `asr.volcengine.apiKey`
+- `asr.xunfei.appID`
+- `asr.xunfei.apiKey`
+- `asr.xunfei.apiSecret`
 
 ### 8.3 ASR 配置
 
-- `asr.selectedPlatform`：当前选中的 ASR 平台（`localFunASR` / `tencentCloud`）
+- `asr.selectedPlatform`：当前选中的 ASR 平台（`localFunASR` / `tencentCloudSentence` / `aliyunSentence` / `volcengineSentence` / `xunfeiSentence`）
 - `asr.local.modelStatus`：本地模型状态（notDownloaded / downloading / ready / failed）
 - `asr.local.lastError`：最近一次下载失败的错误信息
 - `asr.local.mirrorSource`：自定义镜像源 URL
 - `asr.tencentCloud.secretId`：腾讯云 SecretId
 - `asr.tencentCloud.secretKey`：腾讯云 SecretKey
+- `asr.aliyun.accessKeyId`：阿里云 AccessKey ID
+- `asr.aliyun.accessKeySecret`：阿里云 AccessKey Secret
+- `asr.aliyun.appKey`：阿里云 AppKey
+- `asr.volcengine.apiKey`：火山引擎 API Key
+- `asr.xunfei.appID`：科大讯飞 AppID
+- `asr.xunfei.apiKey`：科大讯飞 API Key
+- `asr.xunfei.apiSecret`：科大讯飞 API Secret
 
 ### 8.4 个人词典配置
 
@@ -370,9 +394,9 @@
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议需支持 final 结果。
-- 用户在设置中手动选择 ASR 平台：`本地 FunASR` 或 `腾讯云一句话识别`。
+- 用户在设置中手动选择 ASR 平台：`本地 FunASR`、`腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`。
 - 默认实现为 `FunASRProvider`，通过 `ASRRuntimeManager` 管理 Python sidecar。
-- `TencentSentenceASRProvider` 调用腾讯云 API。
+- 云端 Provider 固定为 `TencentSentenceASRProvider`、`AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`。
 - 不做平台间自动回退；所选平台不可用时直接报错阻止录音。
 
 ### 9.2 RNNoise 降噪
@@ -399,13 +423,19 @@
 - 模型验证：检查关键文件（model.onnx / model.bin）是否存在。
 - 状态跟踪：`LocalModelStatus`（notDownloaded / downloading / ready / failed）。
 
-### 9.5 腾讯云一句话识别
+### 9.5 云端 ASR Providers
 
 - `TencentSentenceASRProvider` 直接调用腾讯云 `SentenceRecognition` API。
 - 引擎 `16k_zh-PY`。
 - TC3-HMAC-SHA256 签名。
 - 配置：SecretId、SecretKey，存于 `~/.typoless/config.json` 的 `asr.tencentCloud`。
-- 超时 15 秒。
+- `AliyunSentenceASRProvider` 通过 `CreateToken + 录音文件识别极速版` 接口提交 `wav` 音频。
+- 配置：AccessKey ID、AccessKey Secret、AppKey，存于 `asr.aliyun`。
+- `VolcengineSentenceASRProvider` 直接调用火山引擎文件识别接口。
+- 配置：API Key，存于 `asr.volcengine`。
+- `XunfeiSentenceASRProvider` 使用语音听写 WebSocket 接口，并从 `wav` 中提取 PCM 数据按帧发送。
+- 配置：AppID、API Key、API Secret，存于 `asr.xunfei`。
+- 所有云 Provider 超时均固定 15 秒。
 
 ### 9.6 Sidecar 生命周期
 
@@ -443,7 +473,7 @@
 - 识别失败 -> `asrProcessFailure`
 - sidecar 健康检查失败 -> `asrRuntimeMissing`
 
-腾讯云 ASR 错误：
+云端 ASR 错误（腾讯云 / 阿里云 / 火山引擎 / 科大讯飞）：
 - 配置不完整 -> `cloudASRConfigurationIncomplete`
 - 鉴权失败 -> `cloudASRAuthenticationFailure`
 - 网络错误 -> `cloudASRNetworkFailure`
