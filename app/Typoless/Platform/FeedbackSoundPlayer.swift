@@ -4,63 +4,148 @@ import Foundation
 /// 反馈音效播放器，程序化生成短促音效并即时播放
 @MainActor
 final class FeedbackSoundPlayer {
+    private struct ToneSegment {
+        let frequency: Double
+        let gain: Double
+        let durationMs: Int
+    }
+
     private var startPlayer: AVAudioPlayer?
+    private var coldStartPlayer: AVAudioPlayer?
     private var stopPlayer: AVAudioPlayer?
+    private var lastPlaybackAt: Date?
+
+    private static let coldOutputThreshold: TimeInterval = 5
+    private static let coldStartLeadSilenceMs = 140
 
     init() {
-        startPlayer = Self.makePlayer(frequencies: [880, 1175], durationMs: 80, fadeIn: true)
-        stopPlayer = Self.makePlayer(frequencies: [1175, 880], durationMs: 80, fadeIn: false)
+        startPlayer = Self.makePlayer(
+            segments: [
+                ToneSegment(frequency: 880.00, gain: 0.92, durationMs: 72),
+                ToneSegment(frequency: 1318.51, gain: 0.86, durationMs: 84)
+            ],
+            bridgeMs: 32
+        )
+        coldStartPlayer = Self.makePlayer(
+            segments: [
+                ToneSegment(frequency: 880.00, gain: 0.92, durationMs: 72),
+                ToneSegment(frequency: 1318.51, gain: 0.86, durationMs: 84)
+            ],
+            bridgeMs: 32,
+            leadingSilenceMs: Self.coldStartLeadSilenceMs
+        )
+        stopPlayer = Self.makePlayer(
+            segments: [
+                ToneSegment(frequency: 1318.51, gain: 0.86, durationMs: 76),
+                ToneSegment(frequency: 880.00, gain: 0.92, durationMs: 80)
+            ],
+            bridgeMs: 32
+        )
         startPlayer?.prepareToPlay()
+        coldStartPlayer?.prepareToPlay()
         stopPlayer?.prepareToPlay()
     }
 
     func playStart() {
-        startPlayer?.stop()
-        startPlayer?.currentTime = 0
-        startPlayer?.play()
+        play(isOutputLikelyCold ? coldStartPlayer : startPlayer)
     }
 
     func playStop() {
-        stopPlayer?.stop()
-        stopPlayer?.currentTime = 0
-        stopPlayer?.play()
+        play(stopPlayer)
+    }
+
+    /// 预加载音效数据，减少首次调用时的对象初始化抖动。
+    func primeOutputIfNeeded() {
+        startPlayer?.prepareToPlay()
+        coldStartPlayer?.prepareToPlay()
+        stopPlayer?.prepareToPlay()
+    }
+
+    private var isOutputLikelyCold: Bool {
+        guard let lastPlaybackAt else { return true }
+        return Date().timeIntervalSince(lastPlaybackAt) >= Self.coldOutputThreshold
     }
 
     // MARK: - WAV Generation
 
-    /// 生成包含双频叠加的短促正弦波 WAV 数据
-    private static func makePlayer(frequencies: [Double], durationMs: Int, fadeIn: Bool) -> AVAudioPlayer? {
+    /// 生成带高斯包络的两段式提示音 WAV 数据。
+    private static func makePlayer(
+        segments: [ToneSegment],
+        bridgeMs: Int,
+        leadingSilenceMs: Int = 0
+    ) -> AVAudioPlayer? {
         let sampleRate: Double = 44_100
-        let totalSamples = Int(sampleRate * Double(durationMs) / 1000.0)
+        let silenceMs = max(0, leadingSilenceMs)
+        let totalDurationMs =
+            silenceMs +
+            segments.reduce(0) { $0 + $1.durationMs } +
+            max(0, bridgeMs) * max(segments.count - 1, 0)
+        let totalSamples = Int(sampleRate * Double(totalDurationMs) / 1000.0)
         var samples = [Int16](repeating: 0, count: totalSamples)
+        let leadingSilenceSamples = Int(sampleRate * Double(silenceMs) / 1000.0)
+        let bridgeSamples = Int(sampleRate * Double(max(0, bridgeMs)) / 1000.0)
+        var cursor = leadingSilenceSamples
 
-        for i in 0..<totalSamples {
-            let t = Double(i) / sampleRate
-            var value: Double = 0
+        for (index, segment) in segments.enumerated() {
+            let segmentSamples = Int(sampleRate * Double(segment.durationMs) / 1000.0)
+            let attackSamples = max(1, min(segmentSamples / 3, Int(sampleRate * 0.016)))
+            let releaseSamples = max(1, min(segmentSamples / 2, Int(sampleRate * 0.05)))
 
-            for freq in frequencies {
-                value += sin(2.0 * .pi * freq * t)
+            for localIndex in 0..<segmentSamples {
+                let absoluteIndex = cursor + localIndex
+                guard absoluteIndex < samples.count else { break }
+
+                let t = Double(localIndex) / sampleRate
+                let progress = Double(localIndex) / Double(max(segmentSamples - 1, 1))
+                let baseValue = sin(2.0 * .pi * segment.frequency * t)
+
+                var envelope = gaussianEnvelope(progress)
+                if localIndex < attackSamples {
+                    envelope *= sineEase(Double(localIndex) / Double(attackSamples))
+                }
+
+                let releaseStart = segmentSamples - releaseSamples
+                if localIndex >= releaseStart {
+                    let releaseProgress = Double(segmentSamples - 1 - localIndex) / Double(releaseSamples)
+                    envelope *= sineEase(max(0, releaseProgress))
+                }
+
+                let amplitude = 0.2
+                let value = baseValue * segment.gain * amplitude * envelope
+                samples[absoluteIndex] = Int16(clamping: Int(value * Double(Int16.max)))
             }
 
-            value /= Double(max(frequencies.count, 1))
-
-            // 包络：快速淡入淡出避免咔嗒声
-            let fadeLength = min(totalSamples / 5, 200)
-            let envelope: Double
-            if i < fadeLength {
-                envelope = fadeIn ? Double(i) / Double(fadeLength) : 0.7 + 0.3 * Double(i) / Double(fadeLength)
-            } else if i > totalSamples - fadeLength {
-                envelope = Double(totalSamples - i) / Double(fadeLength)
-            } else {
-                envelope = 1.0
+            cursor += segmentSamples
+            if index < segments.count - 1 {
+                cursor += bridgeSamples
             }
-
-            let amplitude = 0.35
-            samples[i] = Int16(clamping: Int(value * amplitude * envelope * Double(Int16.max)))
         }
 
         let wavData = wavFileData(samples: samples, sampleRate: Int(sampleRate))
         return try? AVAudioPlayer(data: wavData)
+    }
+
+    private static func gaussianEnvelope(_ x: Double) -> Double {
+        let clamped = min(max(x, 0), 1)
+        let sigma = 0.22
+        let distance = (clamped - 0.5) / sigma
+        let peak = exp(-0.5 * distance * distance)
+        let edgeDistance = 0.5 / sigma
+        let edge = exp(-0.5 * edgeDistance * edgeDistance)
+        return max(0, (peak - edge) / (1 - edge))
+    }
+
+    private static func sineEase(_ x: Double) -> Double {
+        sin(min(max(x, 0), 1) * (.pi / 2))
+    }
+
+    private func play(_ player: AVAudioPlayer?) {
+        player?.stop()
+        player?.currentTime = 0
+        player?.volume = 1
+        player?.prepareToPlay()
+        player?.play()
+        lastPlaybackAt = Date()
     }
 
     /// 构建最小 WAV 文件数据（PCM 16-bit mono）

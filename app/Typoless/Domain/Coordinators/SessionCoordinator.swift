@@ -35,6 +35,7 @@ final class SessionCoordinator {
 
     private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
+    private var resetToIdleTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
     private var currentSessionID: String = ""
 
@@ -48,7 +49,15 @@ final class SessionCoordinator {
 
     /// 开始录音
     func startRecording() {
-        guard state == .idle else { return }
+        guard state.allowsRecordingStart else { return }
+
+        if state != .idle {
+            resetToIdleTask?.cancel()
+            resetToIdleTask = nil
+            state = .idle
+            targetApplicationPID = nil
+            targetApplicationBundleID = nil
+        }
 
         currentError = nil
         lastResult = nil
@@ -56,6 +65,9 @@ final class SessionCoordinator {
         targetApplicationBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         sessionGeneration &+= 1
         currentSessionID = Self.generateSessionID()
+        let selectedPlatform = configStore.asrConfig.selectedPlatform
+        let sessionID = currentSessionID
+        let targetBundleID = targetApplicationBundleID
 
         do {
             configStore.refreshLocalModelStatusFromDisk()
@@ -72,25 +84,25 @@ final class SessionCoordinator {
             state = .recording
             try audioRecorder.startRecording()
             diagnostics.sessionStarted(
-                sessionID: currentSessionID,
-                targetBundleID: targetApplicationBundleID
+                sessionID: sessionID,
+                targetBundleID: targetBundleID
             )
+
+            // 本地 FunASR 模式下录音开始即后台预热 ASR worker（不阻塞录音）
+            if selectedPlatform == .localFunASR {
+                asrRuntimeManager.warmup()
+            }
+
             onFeedbackEvent?(.recordingStarted)
+
+            // 60 秒超时自动结束
+            timeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(AudioRecorder.maxDuration))
+                guard !Task.isCancelled else { return }
+                self?.finishRecording()
+            }
         } catch {
             handleError(mapError(error))
-            return
-        }
-
-        // 本地 FunASR 模式下录音开始即后台预热 ASR worker（不阻塞录音）
-        if configStore.asrConfig.selectedPlatform == .localFunASR {
-            asrRuntimeManager.warmup()
-        }
-
-        // 60 秒超时自动结束
-        timeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(AudioRecorder.maxDuration))
-            guard !Task.isCancelled else { return }
-            self?.finishRecording()
         }
     }
 
@@ -380,13 +392,15 @@ final class SessionCoordinator {
     }
 
     private func scheduleResetToIdle() {
-        Task { [weak self] in
+        resetToIdleTask?.cancel()
+        resetToIdleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1))
             guard let self else { return }
             guard self.state == .error || self.state == .cancelled || self.state == .done else { return }
             self.state = .idle
             self.targetApplicationPID = nil
             self.targetApplicationBundleID = nil
+            self.resetToIdleTask = nil
         }
     }
 

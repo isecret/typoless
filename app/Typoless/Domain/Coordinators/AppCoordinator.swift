@@ -6,6 +6,11 @@ import SwiftUI
 @MainActor
 @Observable
 final class AppCoordinator {
+    enum HotkeyAction: Equatable {
+        case startRecording
+        case finishRecording
+    }
+
     let configStore: ConfigStore
     let permissionsManager: PermissionsManager
     let sessionCoordinator: SessionCoordinator
@@ -91,16 +96,32 @@ final class AppCoordinator {
         hotkeyManager.register(hotkey: hotkey)
 
         hotkeyManager.onKeyDown = { [weak self] in
-            guard let self else { return }
-            switch self.sessionCoordinator.state {
-            case .idle:
-                self.sessionCoordinator.startRecording()
-            case .recording:
-                self.sessionCoordinator.finishRecording()
-            default:
-                break
-            }
+            self?.handleHotkeyEvent()
         }
         hotkeyManager.onKeyUp = nil
+    }
+
+    static func hotkeyAction(for sessionState: SessionState) -> HotkeyAction? {
+        switch sessionState {
+        case let state where state.allowsRecordingStart:
+            .startRecording
+        case .recording:
+            .finishRecording
+        default:
+            nil
+        }
+    }
+
+    private func handleHotkeyEvent() {
+        guard let action = Self.hotkeyAction(for: sessionCoordinator.state) else {
+            return
+        }
+
+        switch action {
+        case .startRecording:
+            sessionCoordinator.startRecording()
+        case .finishRecording:
+            sessionCoordinator.finishRecording()
+        }
     }
 }

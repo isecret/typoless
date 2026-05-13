@@ -54,4 +54,12 @@ enum SessionState: String, Equatable, Sendable {
         default: false
         }
     }
+
+    /// 是否允许立刻开始下一次录音
+    var allowsRecordingStart: Bool {
+        switch self {
+        case .idle, .done, .error, .cancelled: true
+        default: false
+        }
+    }
 }
