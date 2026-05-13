@@ -36,6 +36,7 @@ final class SessionCoordinator {
     private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var resetToIdleTask: Task<Void, Never>?
+    private var soundCueTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
     private var currentSessionID: String = ""
 
@@ -82,18 +83,46 @@ final class SessionCoordinator {
                 try ResourceValidator.validateASRResources()
             }
             state = .recording
+            onFeedbackEvent?(.recordingStarted)
+
+            beginRecording(
+                generation: sessionGeneration,
+                sessionID: sessionID,
+                targetBundleID: targetBundleID,
+                selectedPlatform: selectedPlatform
+            )
+        } catch {
+            handleError(mapError(error))
+        }
+    }
+
+    private func beginRecording(
+        generation: UInt64,
+        sessionID: String,
+        targetBundleID: String?,
+        selectedPlatform: ASRPlatform
+    ) {
+        guard generation == sessionGeneration, state == .recording else { return }
+
+        do {
             try audioRecorder.startRecording()
             diagnostics.sessionStarted(
                 sessionID: sessionID,
                 targetBundleID: targetBundleID
             )
 
+            // 录音器已启动，CoreAudio 硬件已重配置到 16kHz。
+            // 等 300ms 让硬件稳定后播放开始音效，避免音效被硬件切换中断。
+            soundCueTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled, let self, self.state == .recording else { return }
+                self.onFeedbackEvent?(.startSoundCue)
+            }
+
             // 本地 FunASR 模式下录音开始即后台预热 ASR worker（不阻塞录音）
             if selectedPlatform == .localFunASR {
                 asrRuntimeManager.warmup()
             }
-
-            onFeedbackEvent?(.recordingStarted)
 
             // 60 秒超时自动结束
             timeoutTask = Task { [weak self] in
@@ -110,6 +139,8 @@ final class SessionCoordinator {
     func finishRecording() {
         guard state == .recording else { return }
 
+        soundCueTask?.cancel()
+        soundCueTask = nil
         timeoutTask?.cancel()
         timeoutTask = nil
 
@@ -156,6 +187,8 @@ final class SessionCoordinator {
     func cancel() {
         switch state {
         case .recording:
+            soundCueTask?.cancel()
+            soundCueTask = nil
             timeoutTask?.cancel()
             timeoutTask = nil
             _ = audioRecorder.stopRecording()

@@ -1,7 +1,12 @@
 import AVFoundation
 import Foundation
+import os
 
-/// 反馈音效播放器，程序化生成短促音效并即时播放
+/// 反馈音效播放器，基于 AVAudioEngine 实现音效播放。
+///
+/// 引擎在每次播放时按需启动，自动适配当前硬件采样率。
+/// 播放时机由 SessionCoordinator 控制：在 AVAudioRecorder 启动（触发硬件重配置）
+/// 之后延迟调用，确保引擎在稳定的硬件配置上启动。
 @MainActor
 final class FeedbackSoundPlayer {
     private struct ToneSegment {
@@ -10,81 +15,114 @@ final class FeedbackSoundPlayer {
         let durationMs: Int
     }
 
-    private var startPlayer: AVAudioPlayer?
-    private var coldStartPlayer: AVAudioPlayer?
-    private var stopPlayer: AVAudioPlayer?
-    private var lastPlaybackAt: Date?
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private let audioFormat: AVAudioFormat
 
-    private static let coldOutputThreshold: TimeInterval = 5
-    private static let coldStartLeadSilenceMs = 140
+    private var startBuffer: AVAudioPCMBuffer?
+    private var stopBuffer: AVAudioPCMBuffer?
+
+    private static let sampleRate: Double = 44_100
+    private static let logger = Logger(subsystem: "com.isecret.typoless", category: "FeedbackSound")
 
     init() {
-        startPlayer = Self.makePlayer(
+        audioFormat = AVAudioFormat(
+            standardFormatWithSampleRate: Self.sampleRate,
+            channels: 1
+        )!
+
+        engine.attach(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
+
+        startBuffer = Self.makeBuffer(
             segments: [
                 ToneSegment(frequency: 880.00, gain: 0.92, durationMs: 72),
-                ToneSegment(frequency: 1318.51, gain: 0.86, durationMs: 84)
-            ],
-            bridgeMs: 32
-        )
-        coldStartPlayer = Self.makePlayer(
-            segments: [
-                ToneSegment(frequency: 880.00, gain: 0.92, durationMs: 72),
-                ToneSegment(frequency: 1318.51, gain: 0.86, durationMs: 84)
+                ToneSegment(frequency: 1318.51, gain: 0.86, durationMs: 84),
             ],
             bridgeMs: 32,
-            leadingSilenceMs: Self.coldStartLeadSilenceMs
+            format: audioFormat
         )
-        stopPlayer = Self.makePlayer(
+        stopBuffer = Self.makeBuffer(
             segments: [
                 ToneSegment(frequency: 1318.51, gain: 0.86, durationMs: 76),
-                ToneSegment(frequency: 880.00, gain: 0.92, durationMs: 80)
+                ToneSegment(frequency: 880.00, gain: 0.92, durationMs: 80),
             ],
-            bridgeMs: 32
+            bridgeMs: 32,
+            format: audioFormat
         )
-        startPlayer?.prepareToPlay()
-        coldStartPlayer?.prepareToPlay()
-        stopPlayer?.prepareToPlay()
+
+        Self.logger.info("init | startBuffer=\(self.startBuffer != nil) stopBuffer=\(self.stopBuffer != nil)")
     }
 
     func playStart() {
-        play(isOutputLikelyCold ? coldStartPlayer : startPlayer)
+        play(startBuffer, label: "start")
     }
 
     func playStop() {
-        play(stopPlayer)
+        play(stopBuffer, label: "stop")
     }
 
-    /// 预加载音效数据，减少首次调用时的对象初始化抖动。
-    func primeOutputIfNeeded() {
-        startPlayer?.prepareToPlay()
-        coldStartPlayer?.prepareToPlay()
-        stopPlayer?.prepareToPlay()
+    // MARK: - Engine Lifecycle
+
+    @discardableResult
+    private func startEngineIfNeeded() -> Bool {
+        guard !engine.isRunning else { return false }
+        engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
+        do {
+            try engine.start()
+            let fmt = engine.outputNode.outputFormat(forBus: 0)
+            Self.logger.info(
+                "engine started ✓ | sampleRate=\(fmt.sampleRate, format: .fixed(precision: 0)) channels=\(fmt.channelCount)"
+            )
+            return true
+        } catch {
+            Self.logger.error("engine start FAILED: \(error.localizedDescription)")
+            return false
+        }
     }
 
-    private var isOutputLikelyCold: Bool {
-        guard let lastPlaybackAt else { return true }
-        return Date().timeIntervalSince(lastPlaybackAt) >= Self.coldOutputThreshold
+    private func play(_ buffer: AVAudioPCMBuffer?, label: String) {
+        guard let buffer else {
+            Self.logger.error("play(\(label)) | buffer is nil")
+            return
+        }
+        startEngineIfNeeded()
+        guard engine.isRunning else {
+            Self.logger.error("play(\(label)) | engine NOT running after start attempt")
+            return
+        }
+        playerNode.stop()
+        playerNode.scheduleBuffer(buffer, at: nil, options: [], completionHandler: nil)
+        playerNode.play()
+        Self.logger.info("play(\(label)) | scheduled & playing, node.isPlaying=\(self.playerNode.isPlaying)")
     }
 
-    // MARK: - WAV Generation
+    // MARK: - Buffer Generation
 
-    /// 生成带高斯包络的两段式提示音 WAV 数据。
-    private static func makePlayer(
+    private static func makeBuffer(
         segments: [ToneSegment],
         bridgeMs: Int,
-        leadingSilenceMs: Int = 0
-    ) -> AVAudioPlayer? {
-        let sampleRate: Double = 44_100
-        let silenceMs = max(0, leadingSilenceMs)
+        format: AVAudioFormat
+    ) -> AVAudioPCMBuffer? {
+        let sampleRate = format.sampleRate
         let totalDurationMs =
-            silenceMs +
-            segments.reduce(0) { $0 + $1.durationMs } +
-            max(0, bridgeMs) * max(segments.count - 1, 0)
-        let totalSamples = Int(sampleRate * Double(totalDurationMs) / 1000.0)
-        var samples = [Int16](repeating: 0, count: totalSamples)
-        let leadingSilenceSamples = Int(sampleRate * Double(silenceMs) / 1000.0)
+            segments.reduce(0) { $0 + $1.durationMs }
+            + max(0, bridgeMs) * max(segments.count - 1, 0)
+        let totalFrames = AVAudioFrameCount(
+            sampleRate * Double(totalDurationMs) / 1000.0
+        )
+
+        guard totalFrames > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: totalFrames),
+              let channelData = buffer.floatChannelData?[0]
+        else { return nil }
+
+        buffer.frameLength = totalFrames
+
+        for i in 0..<Int(totalFrames) { channelData[i] = 0 }
+
         let bridgeSamples = Int(sampleRate * Double(max(0, bridgeMs)) / 1000.0)
-        var cursor = leadingSilenceSamples
+        var cursor = 0
 
         for (index, segment) in segments.enumerated() {
             let segmentSamples = Int(sampleRate * Double(segment.durationMs) / 1000.0)
@@ -93,7 +131,7 @@ final class FeedbackSoundPlayer {
 
             for localIndex in 0..<segmentSamples {
                 let absoluteIndex = cursor + localIndex
-                guard absoluteIndex < samples.count else { break }
+                guard absoluteIndex < Int(totalFrames) else { break }
 
                 let t = Double(localIndex) / sampleRate
                 let progress = Double(localIndex) / Double(max(segmentSamples - 1, 1))
@@ -110,9 +148,9 @@ final class FeedbackSoundPlayer {
                     envelope *= sineEase(max(0, releaseProgress))
                 }
 
-                let amplitude = 0.2
+                let amplitude = 0.5
                 let value = baseValue * segment.gain * amplitude * envelope
-                samples[absoluteIndex] = Int16(clamping: Int(value * Double(Int16.max)))
+                channelData[absoluteIndex] = Float(value)
             }
 
             cursor += segmentSamples
@@ -121,8 +159,7 @@ final class FeedbackSoundPlayer {
             }
         }
 
-        let wavData = wavFileData(samples: samples, sampleRate: Int(sampleRate))
-        return try? AVAudioPlayer(data: wavData)
+        return buffer
     }
 
     private static func gaussianEnvelope(_ x: Double) -> Double {
@@ -137,64 +174,5 @@ final class FeedbackSoundPlayer {
 
     private static func sineEase(_ x: Double) -> Double {
         sin(min(max(x, 0), 1) * (.pi / 2))
-    }
-
-    private func play(_ player: AVAudioPlayer?) {
-        player?.stop()
-        player?.currentTime = 0
-        player?.volume = 1
-        player?.prepareToPlay()
-        player?.play()
-        lastPlaybackAt = Date()
-    }
-
-    /// 构建最小 WAV 文件数据（PCM 16-bit mono）
-    private static func wavFileData(samples: [Int16], sampleRate: Int) -> Data {
-        var data = Data()
-        let numChannels: UInt16 = 1
-        let bitsPerSample: UInt16 = 16
-        let byteRate = UInt32(sampleRate) * UInt32(numChannels) * UInt32(bitsPerSample / 8)
-        let blockAlign = numChannels * (bitsPerSample / 8)
-        let dataSize = UInt32(samples.count * Int(blockAlign))
-
-        // RIFF header
-        data.append(contentsOf: "RIFF".utf8)
-        appendUInt32(&data, 36 + dataSize)
-        data.append(contentsOf: "WAVE".utf8)
-
-        // fmt chunk
-        data.append(contentsOf: "fmt ".utf8)
-        appendUInt32(&data, 16)
-        appendUInt16(&data, 1) // PCM
-        appendUInt16(&data, numChannels)
-        appendUInt32(&data, UInt32(sampleRate))
-        appendUInt32(&data, byteRate)
-        appendUInt16(&data, blockAlign)
-        appendUInt16(&data, bitsPerSample)
-
-        // data chunk
-        data.append(contentsOf: "data".utf8)
-        appendUInt32(&data, dataSize)
-
-        for sample in samples {
-            appendInt16(&data, sample)
-        }
-
-        return data
-    }
-
-    private static func appendUInt32(_ data: inout Data, _ value: UInt32) {
-        var v = value.littleEndian
-        data.append(Data(bytes: &v, count: 4))
-    }
-
-    private static func appendUInt16(_ data: inout Data, _ value: UInt16) {
-        var v = value.littleEndian
-        data.append(Data(bytes: &v, count: 2))
-    }
-
-    private static func appendInt16(_ data: inout Data, _ value: Int16) {
-        var v = value.littleEndian
-        data.append(Data(bytes: &v, count: 2))
     }
 }

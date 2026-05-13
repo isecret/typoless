@@ -1,10 +1,12 @@
 import AppKit
+import os
 import SwiftUI
 
 /// HUD 反馈控制器，统一驱动 HUD 窗口、状态转换、声波动画和音效播放
 @MainActor
 @Observable
 final class HUDFeedbackController {
+    private static let logger = Logger(subsystem: "com.isecret.typoless", category: "HUDFeedback")
 
     // MARK: - Observable State (HUDContentView 读取)
 
@@ -39,6 +41,7 @@ final class HUDFeedbackController {
 
     /// 处理来自 SessionCoordinator 的反馈事件
     func handleEvent(_ event: SessionFeedbackEvent) {
+        Self.logger.info("handleEvent | \(String(describing: event))")
         dismissTask?.cancel()
         dismissTask = nil
         presentationGeneration &+= 1
@@ -46,10 +49,12 @@ final class HUDFeedbackController {
         switch event {
         case .recordingStarted:
             hudState = .recording
-            soundPlayer.playStart()
             showHUD()
             startLevelPolling()
             startEscMonitor()
+
+        case .startSoundCue:
+            soundPlayer.playStart()
 
         case .recordingStopped:
             soundPlayer.playStop()
