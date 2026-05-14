@@ -35,6 +35,9 @@ final class AppCoordinator {
         sessionCoordinator.onFeedbackEvent = { [weak hud] event in
             hud?.handleEvent(event)
         }
+        hud.isInteractionSoundEnabled = { [weak store] in
+            store?.generalConfig.interactionSoundEnabled ?? true
+        }
         hud.audioLevelProvider = { [weak sessionCoordinator] in
             sessionCoordinator?.currentAudioLevel() ?? 0
         }

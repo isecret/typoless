@@ -54,6 +54,7 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.asrConfig.aliyun.accessKeyId, "")
         XCTAssertEqual(store.asrConfig.volcengine.apiKey, "")
         XCTAssertEqual(store.asrConfig.xunfei.appID, "")
+        XCTAssertTrue(store.generalConfig.interactionSoundEnabled)
     }
 
     @MainActor
@@ -73,5 +74,18 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeyId, "ak")
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeySecret, "secret")
         XCTAssertEqual(secondStore.asrConfig.aliyun.appKey, "app")
+    }
+
+    @MainActor
+    func testSaveAndReloadGeneralConfigPersistsInteractionSoundEnabled() throws {
+        let firstStore = ConfigStore(configDirectory: tempDirectory)
+        let config = GeneralConfig(
+            hotkey: .default,
+            interactionSoundEnabled: false
+        )
+        try firstStore.saveGeneralConfig(config)
+
+        let secondStore = ConfigStore(configDirectory: tempDirectory)
+        XCTAssertFalse(secondStore.generalConfig.interactionSoundEnabled)
     }
 }

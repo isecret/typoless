@@ -112,9 +112,9 @@ final class SessionCoordinator {
             )
 
             // 录音器已启动，CoreAudio 硬件已重配置到 16kHz。
-            // 等 300ms 让硬件稳定后播放开始音效，避免音效被硬件切换中断。
+            // 等 500ms 让硬件稳定后播放开始音效，避免音效被硬件切换中断。
             soundCueTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(300))
+                try? await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled, let self, self.state == .recording else { return }
                 self.onFeedbackEvent?(.startSoundCue)
             }

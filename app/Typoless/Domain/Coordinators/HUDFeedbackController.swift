@@ -21,10 +21,12 @@ final class HUDFeedbackController {
     var onConfirmRecording: (() -> Void)?
     /// 返回 0-1 归一化电平的闭包，录音期间由 SessionCoordinator 提供
     var audioLevelProvider: (() -> Float)?
+    /// 返回当前是否启用交互音效的闭包，由 AppCoordinator 提供
+    var isInteractionSoundEnabled: (() -> Bool)?
 
     // MARK: - Private
 
-    private let soundPlayer = FeedbackSoundPlayer()
+    private let soundPlayer: FeedbackSoundPlaying
     private var hudWindow: HUDWindow?
     private var hostingView: NSHostingView<HUDContentView>?
     private var dismissTask: Task<Void, Never>?
@@ -36,6 +38,10 @@ final class HUDFeedbackController {
     private var waveformPhase: CGFloat = 0
 
     private static let barsCount = 7
+
+    init(soundPlayer: FeedbackSoundPlaying = FeedbackSoundPlayer()) {
+        self.soundPlayer = soundPlayer
+    }
 
     // MARK: - Public Event Handler
 
@@ -54,10 +60,14 @@ final class HUDFeedbackController {
             startEscMonitor()
 
         case .startSoundCue:
-            soundPlayer.playStart()
+            if shouldPlayInteractionSound {
+                soundPlayer.playStart()
+            }
 
         case .recordingStopped:
-            soundPlayer.playStop()
+            if shouldPlayInteractionSound {
+                soundPlayer.playStop()
+            }
             stopLevelPolling()
             stopEscMonitor()
             resetBars()
@@ -111,6 +121,10 @@ final class HUDFeedbackController {
     private func stopLevelPolling() {
         levelPollingTask?.cancel()
         levelPollingTask = nil
+    }
+
+    private var shouldPlayInteractionSound: Bool {
+        isInteractionSoundEnabled?() ?? true
     }
 
     // MARK: - ESC Key Monitor
