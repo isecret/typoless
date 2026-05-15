@@ -155,7 +155,13 @@ cmd+=("$ARCHIVE_DIR")
 
 "${cmd[@]}"
 
-if ! rg -q "<item>" "$OUTPUT_PATH"; then
+if command -v rg >/dev/null 2>&1; then
+    has_item_command=(rg -q "<item>" "$OUTPUT_PATH")
+else
+    has_item_command=(grep -q "<item>" "$OUTPUT_PATH")
+fi
+
+if ! "${has_item_command[@]}"; then
     echo "error: generated appcast does not contain any update items: $OUTPUT_PATH" >&2
     exit 1
 fi
