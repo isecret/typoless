@@ -71,6 +71,18 @@ if [[ "$TIMESTAMP" == "1" ]]; then
     CODESIGN_ARGS+=(--timestamp)
 fi
 
+sign_code_path() {
+    local path="$1"
+    shift || true
+
+    if [[ ! -e "$path" ]]; then
+        return 0
+    fi
+
+    echo "Signing $(basename "$path")..."
+    codesign "${CODESIGN_ARGS[@]}" "$@" "$path"
+}
+
 FUNASR_ROOT="$APP_PATH/Contents/Resources/funasr"
 if [[ -d "$FUNASR_ROOT" ]]; then
     RUNTIME_SIGN_ARGS=(
@@ -87,15 +99,21 @@ fi
 
 RNNOISE_LIB="$APP_PATH/Contents/Resources/rnnoise/lib/librnnoise.dylib"
 if [[ -f "$RNNOISE_LIB" ]]; then
-    echo "Signing RNNoise dylib..."
-    codesign "${CODESIGN_ARGS[@]}" "$RNNOISE_LIB"
+    sign_code_path "$RNNOISE_LIB"
 fi
 
+SPARKLE_FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
+SPARKLE_DOWNLOADER_XPC="$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
+SPARKLE_INSTALLER_XPC="$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
+SPARKLE_UPDATER_APP="$SPARKLE_FRAMEWORK/Versions/B/Updater.app"
+
+sign_code_path "$SPARKLE_DOWNLOADER_XPC"
+sign_code_path "$SPARKLE_INSTALLER_XPC"
+sign_code_path "$SPARKLE_UPDATER_APP"
+sign_code_path "$SPARKLE_FRAMEWORK"
+
 echo "Signing app bundle..."
-codesign \
-    "${CODESIGN_ARGS[@]}" \
-    --entitlements "$ENTITLEMENTS" \
-    "$APP_PATH"
+sign_code_path "$APP_PATH" --entitlements "$ENTITLEMENTS"
 
 echo "Verifying signed app bundle..."
 codesign --verify --deep --strict "$APP_PATH"
