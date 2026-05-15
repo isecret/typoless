@@ -83,6 +83,11 @@ if [[ -z "$ARCHIVE_DIR" || -z "$OUTPUT_PATH" || -z "$DOWNLOAD_URL_PREFIX" || -z 
     exit 1
 fi
 
+case "$DOWNLOAD_URL_PREFIX" in
+    */) ;;
+    *) DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX}/" ;;
+esac
+
 if [[ ! -d "$ARCHIVE_DIR" ]]; then
     echo "error: archive directory not found: $ARCHIVE_DIR" >&2
     exit 1
