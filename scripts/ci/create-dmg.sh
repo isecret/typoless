@@ -113,16 +113,16 @@ WINDOW_WIDTH=640
 WINDOW_HEIGHT=400
 osascript <<EOF
 tell application "Finder"
+    set screenBounds to bounds of window of desktop
+    set screenLeft to item 1 of screenBounds
+    set screenTop to item 2 of screenBounds
+    set screenRight to item 3 of screenBounds
+    set screenBottom to item 4 of screenBounds
+    set windowLeft to screenLeft + ((screenRight - screenLeft - $WINDOW_WIDTH) div 2)
+    set windowTop to screenTop + ((screenBottom - screenTop - $WINDOW_HEIGHT) div 2)
+    set windowRight to windowLeft + $WINDOW_WIDTH
+    set windowBottom to windowTop + $WINDOW_HEIGHT
     tell disk "$VOLUME_NAME"
-        set screenBounds to bounds of window of desktop
-        set screenLeft to item 1 of screenBounds
-        set screenTop to item 2 of screenBounds
-        set screenRight to item 3 of screenBounds
-        set screenBottom to item 4 of screenBounds
-        set windowLeft to screenLeft + ((screenRight - screenLeft - $WINDOW_WIDTH) div 2)
-        set windowTop to screenTop + ((screenBottom - screenTop - $WINDOW_HEIGHT) div 2)
-        set windowRight to windowLeft + $WINDOW_WIDTH
-        set windowBottom to windowTop + $WINDOW_HEIGHT
         open
         delay 1
         set current view of container window to icon view
