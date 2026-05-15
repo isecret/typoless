@@ -5,18 +5,18 @@ struct AboutView: View {
     private let githubURL = URL(string: "https://github.com/isecret/typoless")!
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 80, height: 80)
+                .frame(width: 64, height: 64)
 
             Text("Typoless")
-                .font(.title)
+                .font(.title2)
                 .fontWeight(.semibold)
 
             VStack(spacing: 4) {
                 Text("版本 \(appVersion)")
-                    .font(.body)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
@@ -41,8 +41,9 @@ struct AboutView: View {
                 }
             }
         }
-        .padding(32)
-        .frame(width: 320)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 20)
+        .frame(width: 252)
     }
 
     private var appVersion: String {

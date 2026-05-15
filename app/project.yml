@@ -30,6 +30,8 @@ targets:
           - "Resources/rnnoise"
           - "Resources/funasr"
     resources:
+      - path: Typoless/Resources/zh-Hans.lproj
+        buildPhase: resources
       - path: Typoless/Resources/rnnoise
         buildPhase: resources
         optional: true
