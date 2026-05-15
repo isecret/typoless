@@ -18,7 +18,7 @@ env:
 
 jobs:
   release:
-    name: Sign, Notarize, and Publish DMG
+    name: Sign, Notarize, and Publish Release
     runs-on: macos-15
     env:
       APP_NAME: Typoless
@@ -27,6 +27,9 @@ jobs:
       ARCHIVE_PATH: app/.derivedData/Typoless.xcarchive
       APP_PATH: app/.derivedData/Typoless.xcarchive/Products/Applications/Typoless.app
       ARTIFACTS_DIR: app/.derivedData/artifacts
+      SPARKLE_TOOL_DERIVED_DATA: /private/tmp/typoless-sparkle-tools
+      APP_NOTARY_ZIP_PATH: app/.derivedData/artifacts/Typoless-${{ github.ref_name }}-notary.zip
+      ZIP_PATH: app/.derivedData/artifacts/Typoless-${{ github.ref_name }}.zip
       DMG_PATH: app/.derivedData/artifacts/Typoless-${{ github.ref_name }}.dmg
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -34,10 +37,13 @@ jobs:
       APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
       APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
       APPLE_NOTARY_APP_PASSWORD: ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
+      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Select Xcode
         id: setup-xcode
@@ -69,6 +75,21 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: ./scripts/ci/import-apple-signing-assets.sh
 
+      - name: Derive app version from tag
+        id: version
+        run: |
+          APP_VERSION="$(./scripts/ci/version-from-tag.sh "${GITHUB_REF_NAME}")"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Using app version: ${APP_VERSION}"
+
+      - name: Resolve package dependencies
+        working-directory: app
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project Typoless.xcodeproj \
+            -scheme Typoless \
+            -derivedDataPath .derivedData
+
       - name: Archive app
         working-directory: app
         run: |
@@ -78,7 +99,10 @@ jobs:
             -project Typoless.xcodeproj \
             -scheme Typoless \
             -destination 'generic/platform=macOS' \
+            -derivedDataPath .derivedData \
             -archivePath .derivedData/Typoless.xcarchive \
+            MARKETING_VERSION="${{ steps.version.outputs.app_version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.app_version }}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="-" \
             | tee .derivedData/archive.log
@@ -91,9 +115,39 @@ jobs:
             --entitlements "app/Typoless/Typoless.entitlements" \
             --timestamp
 
-      - name: Create signed DMG
+      - name: Create app notarization archive
         run: |
           mkdir -p "$ARTIFACTS_DIR"
+          ./scripts/ci/create-sparkle-archive.sh \
+            --app "$APP_PATH" \
+            --output "$APP_NOTARY_ZIP_PATH"
+
+      - name: Notarize app bundle and staple
+        run: |
+          if [ -n "${{ steps.signing.outputs.notary-key-path }}" ] && [ -n "$APPLE_NOTARY_KEY_ID" ] && [ -n "$APPLE_NOTARY_ISSUER_ID" ]; then
+            ./scripts/ci/notarize-macos-file.sh \
+              --file "$APP_NOTARY_ZIP_PATH" \
+              --staple "$APP_PATH" \
+              --key-path "${{ steps.signing.outputs.notary-key-path }}" \
+              --key-id "$APPLE_NOTARY_KEY_ID" \
+              --issuer "$APPLE_NOTARY_ISSUER_ID"
+          else
+            ./scripts/ci/notarize-macos-file.sh \
+              --file "$APP_NOTARY_ZIP_PATH" \
+              --staple "$APP_PATH" \
+              --apple-id "$APPLE_NOTARY_APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_NOTARY_APP_PASSWORD"
+          fi
+
+      - name: Create Sparkle update archive
+        run: |
+          ./scripts/ci/create-sparkle-archive.sh \
+            --app "$APP_PATH" \
+            --output "$ZIP_PATH"
+
+      - name: Create signed DMG
+        run: |
           ./scripts/ci/create-dmg.sh \
             --app "$APP_PATH" \
             --output "$DMG_PATH" \
@@ -104,14 +158,16 @@ jobs:
       - name: Notarize and staple DMG
         run: |
           if [ -n "${{ steps.signing.outputs.notary-key-path }}" ] && [ -n "$APPLE_NOTARY_KEY_ID" ] && [ -n "$APPLE_NOTARY_ISSUER_ID" ]; then
-            ./scripts/ci/notarize-dmg.sh \
-              --dmg "$DMG_PATH" \
+            ./scripts/ci/notarize-macos-file.sh \
+              --file "$DMG_PATH" \
+              --staple "$DMG_PATH" \
               --key-path "${{ steps.signing.outputs.notary-key-path }}" \
               --key-id "$APPLE_NOTARY_KEY_ID" \
               --issuer "$APPLE_NOTARY_ISSUER_ID"
           else
-            ./scripts/ci/notarize-dmg.sh \
-              --dmg "$DMG_PATH" \
+            ./scripts/ci/notarize-macos-file.sh \
+              --file "$DMG_PATH" \
+              --staple "$DMG_PATH" \
               --apple-id "$APPLE_NOTARY_APPLE_ID" \
               --team-id "$APPLE_TEAM_ID" \
               --password "$APPLE_NOTARY_APP_PASSWORD"
@@ -125,12 +181,47 @@ jobs:
             --identity "$APPLE_SIGNING_IDENTITY" \
             --team-id "$APPLE_TEAM_ID"
 
+      - name: Generate Sparkle appcast
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "error: missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+
+          RELEASE_DOWNLOAD_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          RELEASE_PAGE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          APPCAST_OUTPUT="$(mktemp "${RUNNER_TEMP}/appcast.XXXXXX.xml")"
+          APPCAST_ARCHIVE_DIR="$(mktemp -d "${RUNNER_TEMP}/sparkle-archives.XXXXXX")"
+          PRIVATE_KEY_FILE="$(mktemp "${RUNNER_TEMP}/sparkle-private-key.XXXXXX")"
+
+          cleanup() {
+            rm -rf "$APPCAST_ARCHIVE_DIR"
+            rm -f "$PRIVATE_KEY_FILE"
+          }
+          trap cleanup EXIT
+
+          cp "$ZIP_PATH" "$APPCAST_ARCHIVE_DIR/"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
+
+          ./scripts/ci/generate-sparkle-appcast.sh \
+            --archive-dir "$APPCAST_ARCHIVE_DIR" \
+            --output "$APPCAST_OUTPUT" \
+            --download-url-prefix "$RELEASE_DOWNLOAD_PREFIX" \
+            --private-key-file "$PRIVATE_KEY_FILE" \
+            --sparkle-root "$DERIVED_DATA_DIR/SourcePackages/checkouts/Sparkle" \
+            --full-release-notes-url "$RELEASE_PAGE_URL" \
+            --link "$RELEASE_PAGE_URL" \
+            --tool-derived-data "$SPARKLE_TOOL_DERIVED_DATA"
+
+          cp "$APPCAST_OUTPUT" updates/appcast.xml
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: typoless-release-${{ github.ref_name }}
           path: |
             ${{ env.DMG_PATH }}
+            ${{ env.ZIP_PATH }}
             ${{ env.ARCHIVE_PATH }}
           retention-days: 30
 
@@ -143,10 +234,31 @@ jobs:
           NOTES="Automated macOS release artifact for ${TAG}."
 
           if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" "$DMG_PATH" --clobber
+            gh release upload "${TAG}" "$DMG_PATH" "$ZIP_PATH" --clobber
           else
-            gh release create "${TAG}" "$DMG_PATH" --title "$TITLE" --notes "$NOTES"
+            gh release create "${TAG}" "$DMG_PATH" "$ZIP_PATH" --title "$TITLE" --notes "$NOTES"
           fi
+
+      - name: Update appcast on main
+        run: |
+          APPCAST_COPY="$(mktemp "${RUNNER_TEMP}/appcast-main.XXXXXX.xml")"
+          cp updates/appcast.xml "$APPCAST_COPY"
+
+          git fetch origin main
+          git switch main
+          mkdir -p updates
+          cp "$APPCAST_COPY" updates/appcast.xml
+
+          if git diff --quiet -- updates/appcast.xml; then
+            echo "No appcast changes to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add updates/appcast.xml
+          git commit -m "chore(release): update appcast for ${GITHUB_REF_NAME}"
+          git push origin main
 
       - name: Upload build logs on failure
         if: failure()

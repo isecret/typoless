@@ -14,6 +14,7 @@
 - `OpenAI Chat Completions` 兼容接口即可接入 AI 润色，不锁死单一服务商。
 - LLM 配置不完整或调用失败时直接报错，不会把半成品文本偷偷注入出去。
 - 注入失败时会保留本次文本预览，用户可以从菜单栏手动复制，而不是丢结果。
+- 可在关于页开启自动检查更新，或手动触发 Sparkle 应用内更新检查。
 
 ## 怎么使用
 
@@ -32,6 +33,7 @@
 3. 说完后再按一次快捷键结束录音。
 4. Typoless 会依次完成降噪、识别、AI 润色，并把最终文本写回当前应用。
 5. 如果本次写入失败，菜单栏会保留一段截断预览，点击即可复制完整文本。
+6. 如需更新，可在关于页勾选 `自动检查更新` 或点击 `检查更新`；新版本会通过应用内更新流程下载并安装。
 
 ## 相比 Typeless
 
@@ -93,12 +95,18 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 ```bash
 ./scripts/ci/import-apple-signing-assets.sh
 ./scripts/ci/sign-macos-app.sh
+./scripts/ci/create-sparkle-archive.sh
+./scripts/ci/generate-sparkle-appcast.sh
 ./scripts/ci/create-dmg.sh
-./scripts/ci/notarize-dmg.sh
+./scripts/ci/notarize-macos-file.sh
 ./scripts/ci/verify-macos-release.sh
 ```
 
 为避免升级后麦克风与辅助功能权限丢失，正式发布必须保持相同的 `bundle id` 与相同的 `APPLE_SIGNING_IDENTITY`；一旦签名身份发生变化，macOS 可能将其视为新应用并要求重新授权。
+
+应用真实版本号由 `v*` tag 推导。本地构建会优先使用当前分支最近可达的 `vX.Y.Z` tag；只有在仓库没有可解析 tag 时，才回退到 `app/project.yml` 里的默认值。正式发布时，release workflow 会把当前 tag 同步为 App 的 `MARKETING_VERSION` 与 `CFBundleVersion`，不再需要手动修改工程版本。发布流程还会生成 Sparkle 所需的 `.zip` 更新包与 `updates/appcast.xml`。
+
+如需让自动更新在 CI 中可用，需要额外配置 `SPARKLE_PRIVATE_KEY` secret。其值应为 Sparkle `generate_keys -x` 导出的私钥文件内容。
 
 公证支持两种方式：
 

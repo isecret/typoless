@@ -4,9 +4,9 @@
 
 - 项目名称：Typoless
 - 文档类型：TDD
-- 版本：v1.2
+- 版本：v1.3
 - 状态：已更新
-- 更新时间：2026-04-29
+- 更新时间：2026-05-15
 
 ## 2. 目标
 
@@ -43,6 +43,7 @@
 - ASR 本地：`FunASR` 本地离线识别（通过 Python sidecar 运行 paraformer-zh + fsmn-vad）
 - ASR 云端：`腾讯云一句话识别`、`阿里云录音文件识别极速版`、`火山引擎文件识别`、`科大讯飞语音听写`
 - LLM：`OpenAI Chat Completions` 兼容接口
+- 更新检查：`Sparkle 2` + GitHub Releases release assets + `updates/appcast.xml`
 
 ### 3.3 音频与注入
 
@@ -96,6 +97,8 @@
   负责全局快捷键注册与更新
 - `ConfigStore`
   负责普通配置和密钥读写
+- `AppUpdateService`
+  负责封装 Sparkle 更新器、迁移旧自动检查偏好，并驱动关于窗口更新入口
 - `PersonalDictionaryStore`
   负责个人词典读写、启用词条过滤和 hotwords 文件生成
 - `DiagnosticsLogger`
@@ -108,6 +111,7 @@
 - 启动应用并初始化菜单栏
 - 决定首次启动是否自动打开设置页
 - 订阅 `SessionCoordinator` 状态用于刷新菜单栏 UI
+- 在应用启动后启动 Sparkle 更新器，并按用户偏好执行自动检查
 
 ### 5.2 SessionCoordinator
 
@@ -254,15 +258,26 @@
 - LLM 配置包含内部兼容性字段 `thinkingDisabled`
 - 当 `Base URL`、`API Key`、`Model` 任一保存值发生变化时，自动重置 `thinkingDisabled = false`
 - 允许保存全空或半填的 LLM 配置；运行时仅在三项都完整时视为可用
+- 通用配置不再持久化更新开关；旧字段仅用于一次性迁移到 Sparkle 偏好
 - `hasCompletedInitialSetup` 在配置文件正常加载后返回 true；ASR 资源完整性在录音前检查
 
-### 5.9 PersonalDictionaryStore
+### 5.9 AppUpdateService
+
+- 使用 `SPUStandardUpdaterController` 托管 Sparkle 2 标准更新流程
+- 更新元数据来自 `https://raw.githubusercontent.com/isecret/typoless/main/updates/appcast.xml`
+- 更新包来自 GitHub Release 中的已签名 `.zip` 资产，应用内直接下载并安装
+- 自动检查开关仅放在关于窗口，不在菜单栏增加入口
+- 旧版 `automaticUpdateChecksEnabled` 仅迁移一次到 Sparkle 的 `automaticallyChecksForUpdates`
+- 发布工作流基于 `vX.Y.Z` tag 同步 `CFBundleShortVersionString` 与 `CFBundleVersion`
+- 本地构建优先使用当前分支最近可达的 `vX.Y.Z` tag；`app/project.yml` 中的版本号仅作为无 tag 环境的 fallback
+
+### 5.10 PersonalDictionaryStore
 
 - 使用 `~/.typoless/dictionary.json` 存储用户维护的个人词典。
 - 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`。
 - 生成 FunASR hotwords 参数，并为 LLM Prompt 提供术语参考。
 
-### 5.10 DiagnosticsLogger
+### 5.11 DiagnosticsLogger
 
 - 使用 `os.Logger(subsystem: "com.isecret.typoless", category: "Session")` 输出应用日志。
 - 记录 `session_id`、各阶段耗时、文本长度、结果来源、错误分类和目标 app bundle id。

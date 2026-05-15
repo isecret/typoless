@@ -17,6 +17,7 @@ final class AppCoordinator {
     let hotkeyManager: HotkeyManager
     let hudFeedbackController: HUDFeedbackController
     let dictionaryStore: PersonalDictionaryStore
+    let updateService: AppUpdateService
 
     private var settingsWindowController: NSWindowController?
 
@@ -29,6 +30,7 @@ final class AppCoordinator {
         dictionaryStore = dict
         sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store, dictionaryStore: dict)
         hotkeyManager = HotkeyManager()
+        updateService = AppUpdateService(configStore: store)
 
         let hud = HUDFeedbackController()
         hudFeedbackController = hud
@@ -52,6 +54,7 @@ final class AppCoordinator {
     /// 应用启动后注册快捷键并检查首次配置
     func handleAppLaunch() {
         setupHotkey()
+        updateService.start()
 
         guard !configStore.hasCompletedInitialSetup else { return }
         Task { @MainActor in

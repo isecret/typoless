@@ -9,6 +9,7 @@ final class ConfigStore {
     private(set) var llmConfig = LLMConfig()
     private(set) var generalConfig = GeneralConfig()
     private(set) var asrConfig = ASRConfig()
+    private(set) var legacyAutomaticUpdateChecksEnabled: Bool?
 
     // MARK: - 密钥（启动时从配置文件直接加载到内存）
 
@@ -61,7 +62,7 @@ final class ConfigStore {
 
     private struct ConfigFile: Codable {
         var llm: LLMFileConfig = LLMFileConfig()
-        var general: GeneralConfig = GeneralConfig()
+        var general: GeneralFileConfig = GeneralFileConfig()
         var asr: ASRConfig = ASRConfig()
 
         struct LLMFileConfig: Codable {
@@ -69,6 +70,48 @@ final class ConfigStore {
             var model: String = ""
             var apiKey: String = ""
             var thinkingDisabled: Bool = false
+        }
+
+        struct GeneralFileConfig: Codable {
+            var hotkey: HotkeyCombo = .default
+            var interactionSoundEnabled: Bool = true
+            var automaticUpdateChecksEnabled: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case hotkey
+                case interactionSoundEnabled
+                case automaticUpdateChecksEnabled
+            }
+
+            init(
+                hotkey: HotkeyCombo = .default,
+                interactionSoundEnabled: Bool = true,
+                automaticUpdateChecksEnabled: Bool? = nil
+            ) {
+                self.hotkey = hotkey
+                self.interactionSoundEnabled = interactionSoundEnabled
+                self.automaticUpdateChecksEnabled = automaticUpdateChecksEnabled
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                hotkey = try container.decodeIfPresent(HotkeyCombo.self, forKey: .hotkey) ?? .default
+                interactionSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .interactionSoundEnabled) ?? true
+                automaticUpdateChecksEnabled = try container.decodeIfPresent(Bool.self, forKey: .automaticUpdateChecksEnabled)
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(hotkey, forKey: .hotkey)
+                try container.encode(interactionSoundEnabled, forKey: .interactionSoundEnabled)
+            }
+
+            var publicConfig: GeneralConfig {
+                GeneralConfig(
+                    hotkey: hotkey,
+                    interactionSoundEnabled: interactionSoundEnabled
+                )
+            }
         }
     }
 
@@ -156,7 +199,10 @@ final class ConfigStore {
 
     func saveGeneralConfig(_ config: GeneralConfig) throws {
         var configFile = buildConfigFile()
-        configFile.general = config
+        configFile.general = ConfigFile.GeneralFileConfig(
+            hotkey: config.hotkey,
+            interactionSoundEnabled: config.interactionSoundEnabled
+        )
         try writeConfigFile(configFile)
 
         generalConfig = config
@@ -204,7 +250,8 @@ final class ConfigStore {
         )
         openAIAPIKey = configFile.llm.apiKey
 
-        generalConfig = configFile.general
+        generalConfig = configFile.general.publicConfig
+        legacyAutomaticUpdateChecksEnabled = configFile.general.automaticUpdateChecksEnabled
         asrConfig = configFile.asr
     }
 
@@ -217,7 +264,10 @@ final class ConfigStore {
                 apiKey: openAIAPIKey,
                 thinkingDisabled: llmConfig.thinkingDisabled
             ),
-            general: generalConfig,
+            general: ConfigFile.GeneralFileConfig(
+                hotkey: generalConfig.hotkey,
+                interactionSoundEnabled: generalConfig.interactionSoundEnabled
+            ),
             asr: asrConfig
         )
     }
@@ -285,7 +335,7 @@ final class ConfigStore {
 
         // 通用配置
         if let data = defaults.data(forKey: LegacyDefaultsKey.generalConfig),
-           let config = try? JSONDecoder().decode(GeneralConfig.self, from: data) {
+           let config = try? JSONDecoder().decode(ConfigFile.GeneralFileConfig.self, from: data) {
             configFile.general = config
         }
 

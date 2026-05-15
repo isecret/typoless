@@ -188,20 +188,12 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
     var interactionSoundEnabled: Bool = true
 
-    enum CodingKeys: String, CodingKey {
-        case hotkey
-        case interactionSoundEnabled
-    }
-
-    init(hotkey: HotkeyCombo = .default, interactionSoundEnabled: Bool = true) {
+    init(
+        hotkey: HotkeyCombo = .default,
+        interactionSoundEnabled: Bool = true
+    ) {
         self.hotkey = hotkey
         self.interactionSoundEnabled = interactionSoundEnabled
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        hotkey = try container.decodeIfPresent(HotkeyCombo.self, forKey: .hotkey) ?? .default
-        interactionSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .interactionSoundEnabled) ?? true
     }
 }
 

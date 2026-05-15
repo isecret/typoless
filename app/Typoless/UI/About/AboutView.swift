@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AboutView: View {
+    @Bindable var appCoordinator: AppCoordinator
     private let githubURL = URL(string: "https://github.com/isecret/typoless")!
 
     var body: some View {
@@ -17,10 +18,21 @@ struct AboutView: View {
                 Text("版本 \(appVersion)")
                     .font(.body)
                     .foregroundStyle(.secondary)
-                Text("构建 \(buildNumber)")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
             }
+
+            Toggle(
+                "自动检查更新",
+                isOn: Binding(
+                    get: { appCoordinator.updateService.automaticallyChecksForUpdates },
+                    set: { appCoordinator.updateService.setAutomaticallyChecksForUpdates($0) }
+                )
+            )
+            .toggleStyle(.checkbox)
+
+            Button("检查更新") {
+                appCoordinator.updateService.checkForUpdates()
+            }
+            .disabled(!appCoordinator.updateService.canCheckForUpdates)
 
             Link(destination: githubURL) {
                 HStack(spacing: 4) {
@@ -30,14 +42,10 @@ struct AboutView: View {
             }
         }
         .padding(32)
-        .frame(width: 280)
+        .frame(width: 320)
     }
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
-    }
-
-    private var buildNumber: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
     }
 }

@@ -88,4 +88,73 @@ final class ConfigStoreTests: XCTestCase {
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertFalse(secondStore.generalConfig.interactionSoundEnabled)
     }
+
+    @MainActor
+    func testLoadLegacyAutomaticUpdateChecksPreferenceForSparkleMigration() throws {
+        let configURL = tempDirectory.appendingPathComponent("config.json")
+        let legacyJSON = """
+        {
+          "asr" : {},
+          "general" : {
+            "automaticUpdateChecksEnabled" : false,
+            "hotkey" : {
+              "displayString" : "⌥ Space",
+              "keyCode" : 49,
+              "modifiers" : 524576
+            },
+            "interactionSoundEnabled" : true
+          },
+          "llm" : {
+            "apiKey" : "",
+            "baseURL" : "",
+            "model" : "",
+            "thinkingDisabled" : false
+          }
+        }
+        """
+        try legacyJSON.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = ConfigStore(configDirectory: tempDirectory)
+
+        XCTAssertFalse(store.legacyAutomaticUpdateChecksEnabled ?? true)
+        XCTAssertEqual(
+            store.generalConfig,
+            GeneralConfig(
+                hotkey: .default,
+                interactionSoundEnabled: true
+            )
+        )
+    }
+
+    @MainActor
+    func testSaveGeneralConfigDropsLegacyAutomaticUpdateChecksField() throws {
+        let configURL = tempDirectory.appendingPathComponent("config.json")
+        let legacyJSON = """
+        {
+          "asr" : {},
+          "general" : {
+            "automaticUpdateChecksEnabled" : false,
+            "hotkey" : {
+              "displayString" : "⌥ Space",
+              "keyCode" : 49,
+              "modifiers" : 524576
+            },
+            "interactionSoundEnabled" : true
+          },
+          "llm" : {
+            "apiKey" : "",
+            "baseURL" : "",
+            "model" : "",
+            "thinkingDisabled" : false
+          }
+        }
+        """
+        try legacyJSON.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = ConfigStore(configDirectory: tempDirectory)
+        try store.saveGeneralConfig(GeneralConfig(hotkey: .default, interactionSoundEnabled: false))
+
+        let savedJSON = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(savedJSON.contains("automaticUpdateChecksEnabled"))
+    }
 }

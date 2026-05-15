@@ -13,7 +13,7 @@ struct TypolessApp: App {
         .menuBarExtraStyle(.menu)
 
         Window("关于 Typoless", id: "about") {
-            AboutView()
+            AboutView(appCoordinator: appCoordinator)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
