@@ -1,11 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0"
-     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
-     xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <channel>
-    <title>Typoless Updates</title>
-    <link>https://github.com/isecret/typoless/releases</link>
-    <description>Typoless macOS updates</description>
-    <language>zh-CN</language>
-  </channel>
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Typoless</title>
+        <item>
+            <title>0.1.13</title>
+            <pubDate>Fri, 15 May 2026 06:11:11 +0000</pubDate>
+            <link>https://github.com/isecret/typoless/releases/tag/v0.1.13</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/isecret/typoless/releases/tag/v0.1.13</sparkle:fullReleaseNotesLink>
+            <sparkle:version>0.1.13</sparkle:version>
+            <sparkle:shortVersionString>0.1.13</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/isecret/typoless/releases/download/Typoless-v0.1.13.zip" length="14198286" type="application/octet-stream" sparkle:edSignature="MTSBQYU2BeJE0/ev0iWEsOf6RSIBfAwYCPYQCd7aA4utYEYG2lt4GsPgGSObkDYcRcaPraS8BmmblYX0YUtUAw=="/>
+        </item>
+    </channel>
 </rss>
