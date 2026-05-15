@@ -11,6 +11,7 @@ APPLE_ID=""
 TEAM_ID=""
 APP_PASSWORD=""
 NOTARY_RESULT_PLIST=""
+NOTARY_LOG_PATH=""
 
 usage() {
     cat <<'EOF'
@@ -108,14 +109,14 @@ submit_with_apple_id() {
 }
 
 print_notary_log_with_api_key() {
-    xcrun notarytool log "$1" - \
+    xcrun notarytool log "$1" "$2" \
         --key "$KEY_PATH" \
         --key-id "$KEY_ID" \
         --issuer "$ISSUER_ID"
 }
 
 print_notary_log_with_apple_id() {
-    xcrun notarytool log "$1" - \
+    xcrun notarytool log "$1" "$2" \
         --apple-id "$APPLE_ID" \
         --team-id "$TEAM_ID" \
         --password "$APP_PASSWORD"
@@ -126,8 +127,14 @@ create_temp_plist() {
     mktemp "${tmpdir%/}/notary-result.XXXXXX.plist"
 }
 
+create_temp_log() {
+    local tmpdir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+    mktemp "${tmpdir%/}/notary-log.XXXXXX.json"
+}
+
 NOTARY_RESULT_PLIST="$(create_temp_plist)"
-trap 'rm -f "$NOTARY_RESULT_PLIST"' EXIT
+NOTARY_LOG_PATH="$(create_temp_log)"
+trap 'rm -f "$NOTARY_RESULT_PLIST" "$NOTARY_LOG_PATH"' EXIT
 
 if [[ -n "$KEY_PATH" || -n "$KEY_ID" || -n "$ISSUER_ID" ]]; then
     if [[ -z "$KEY_PATH" || -z "$KEY_ID" || -z "$ISSUER_ID" ]]; then
@@ -136,7 +143,7 @@ if [[ -n "$KEY_PATH" || -n "$KEY_ID" || -n "$ISSUER_ID" ]]; then
     fi
     submit_with_api_key >"$NOTARY_RESULT_PLIST"
     print_notary_log() {
-        print_notary_log_with_api_key "$1"
+        print_notary_log_with_api_key "$1" "$2"
     }
 elif [[ -n "$APPLE_ID" || -n "$TEAM_ID" || -n "$APP_PASSWORD" ]]; then
     if [[ -z "$APPLE_ID" || -z "$TEAM_ID" || -z "$APP_PASSWORD" ]]; then
@@ -145,7 +152,7 @@ elif [[ -n "$APPLE_ID" || -n "$TEAM_ID" || -n "$APP_PASSWORD" ]]; then
     fi
     submit_with_apple_id >"$NOTARY_RESULT_PLIST"
     print_notary_log() {
-        print_notary_log_with_apple_id "$1"
+        print_notary_log_with_apple_id "$1" "$2"
     }
 else
     echo "error: no notarization credentials provided" >&2
@@ -161,7 +168,10 @@ echo "Notary status: $NOTARY_STATUS"
 
 if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
     echo "Notarization failed; fetching Apple log for submission $NOTARY_SUBMISSION_ID..." >&2
-    print_notary_log "$NOTARY_SUBMISSION_ID" || true
+    print_notary_log "$NOTARY_SUBMISSION_ID" "$NOTARY_LOG_PATH" || true
+    if [[ -f "$NOTARY_LOG_PATH" ]]; then
+        cat "$NOTARY_LOG_PATH"
+    fi
     exit 1
 fi
 
