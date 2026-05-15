@@ -112,6 +112,13 @@ fi
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 
+# Sparkle generate_appcast treats an existing output file as an existing feed to
+# merge into. CI commonly provisions the target path via mktemp, which creates
+# a zero-length placeholder file that is not valid XML.
+if [[ -f "$OUTPUT_PATH" && ! -s "$OUTPUT_PATH" ]]; then
+    rm -f "$OUTPUT_PATH"
+fi
+
 echo "Building Sparkle generate_appcast tool..."
 xcodebuild \
     -project "$SPARKLE_ROOT/Sparkle.xcodeproj" \
