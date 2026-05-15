@@ -10,6 +10,7 @@ ISSUER_ID=""
 APPLE_ID=""
 TEAM_ID=""
 APP_PASSWORD=""
+NOTARY_RESULT_PLIST=""
 
 usage() {
     cat <<'EOF'
@@ -93,6 +94,7 @@ submit_with_api_key() {
         --key "$KEY_PATH" \
         --key-id "$KEY_ID" \
         --issuer "$ISSUER_ID" \
+        --output-format plist \
         --wait
 }
 
@@ -101,24 +103,65 @@ submit_with_apple_id() {
         --apple-id "$APPLE_ID" \
         --team-id "$TEAM_ID" \
         --password "$APP_PASSWORD" \
+        --output-format plist \
         --wait
 }
+
+print_notary_log_with_api_key() {
+    xcrun notarytool log "$1" - \
+        --key "$KEY_PATH" \
+        --key-id "$KEY_ID" \
+        --issuer "$ISSUER_ID"
+}
+
+print_notary_log_with_apple_id() {
+    xcrun notarytool log "$1" - \
+        --apple-id "$APPLE_ID" \
+        --team-id "$TEAM_ID" \
+        --password "$APP_PASSWORD"
+}
+
+create_temp_plist() {
+    local tmpdir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+    mktemp "${tmpdir%/}/notary-result.XXXXXX.plist"
+}
+
+NOTARY_RESULT_PLIST="$(create_temp_plist)"
+trap 'rm -f "$NOTARY_RESULT_PLIST"' EXIT
 
 if [[ -n "$KEY_PATH" || -n "$KEY_ID" || -n "$ISSUER_ID" ]]; then
     if [[ -z "$KEY_PATH" || -z "$KEY_ID" || -z "$ISSUER_ID" ]]; then
         echo "error: --key-path, --key-id, and --issuer must be provided together" >&2
         exit 1
     fi
-    submit_with_api_key
+    submit_with_api_key >"$NOTARY_RESULT_PLIST"
+    print_notary_log() {
+        print_notary_log_with_api_key "$1"
+    }
 elif [[ -n "$APPLE_ID" || -n "$TEAM_ID" || -n "$APP_PASSWORD" ]]; then
     if [[ -z "$APPLE_ID" || -z "$TEAM_ID" || -z "$APP_PASSWORD" ]]; then
         echo "error: --apple-id, --team-id, and --password must be provided together" >&2
         exit 1
     fi
-    submit_with_apple_id
+    submit_with_apple_id >"$NOTARY_RESULT_PLIST"
+    print_notary_log() {
+        print_notary_log_with_apple_id "$1"
+    }
 else
     echo "error: no notarization credentials provided" >&2
     usage
+    exit 1
+fi
+
+NOTARY_SUBMISSION_ID="$(/usr/libexec/PlistBuddy -c 'Print :id' "$NOTARY_RESULT_PLIST")"
+NOTARY_STATUS="$(/usr/libexec/PlistBuddy -c 'Print :status' "$NOTARY_RESULT_PLIST")"
+
+echo "Notary submission: $NOTARY_SUBMISSION_ID"
+echo "Notary status: $NOTARY_STATUS"
+
+if [[ "$NOTARY_STATUS" != "Accepted" ]]; then
+    echo "Notarization failed; fetching Apple log for submission $NOTARY_SUBMISSION_ID..." >&2
+    print_notary_log "$NOTARY_SUBMISSION_ID" || true
     exit 1
 fi
 
