@@ -109,15 +109,26 @@ echo "Mounting writable DMG..."
 hdiutil attach "$RW_DMG_PATH" -nobrowse -quiet
 
 echo "Configuring Finder layout..."
+WINDOW_WIDTH=640
+WINDOW_HEIGHT=400
 osascript <<EOF
 tell application "Finder"
     tell disk "$VOLUME_NAME"
+        set screenBounds to bounds of window of desktop
+        set screenLeft to item 1 of screenBounds
+        set screenTop to item 2 of screenBounds
+        set screenRight to item 3 of screenBounds
+        set screenBottom to item 4 of screenBounds
+        set windowLeft to screenLeft + ((screenRight - screenLeft - $WINDOW_WIDTH) div 2)
+        set windowTop to screenTop + ((screenBottom - screenTop - $WINDOW_HEIGHT) div 2)
+        set windowRight to windowLeft + $WINDOW_WIDTH
+        set windowBottom to windowTop + $WINDOW_HEIGHT
         open
         delay 1
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set bounds of container window to {140, 140, 780, 540}
+        set bounds of container window to {windowLeft, windowTop, windowRight, windowBottom}
         set zoomed of container window to false
         set sidebar width of container window to 0
         set theViewOptions to the icon view options of container window
@@ -130,7 +141,7 @@ tell application "Finder"
         close
         open
         delay 1
-        set bounds of container window to {140, 140, 780, 540}
+        set bounds of container window to {windowLeft, windowTop, windowRight, windowBottom}
         set zoomed of container window to false
         update without registering applications
         delay 1
