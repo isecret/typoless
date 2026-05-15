@@ -104,8 +104,6 @@ targets:
           fi
           touch "${SCRIPT_OUTPUT_FILE_0}"
       - name: "Apply Derived App Version"
-        outputFiles:
-          - "$(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)"
         script: |
           "${SRCROOT}/../scripts/apply-derived-version.sh" --fallback "${MARKETING_VERSION}"
 
