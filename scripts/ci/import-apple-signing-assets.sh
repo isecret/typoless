@@ -13,9 +13,9 @@ Usage:
 Required env:
   APPLE_DEVELOPER_ID_APP_CERT_BASE64
   APPLE_DEVELOPER_ID_APP_CERT_PASSWORD
+  APPLE_SIGNING_IDENTITY
 
 Optional env:
-  APPLE_SIGNING_IDENTITY
   APPLE_NOTARY_API_KEY_BASE64
   APPLE_NOTARY_KEY_ID
 EOF
@@ -42,6 +42,7 @@ done
 required_envs=(
     APPLE_DEVELOPER_ID_APP_CERT_BASE64
     APPLE_DEVELOPER_ID_APP_CERT_PASSWORD
+    APPLE_SIGNING_IDENTITY
 )
 
 for name in "${required_envs[@]}"; do
@@ -95,12 +96,10 @@ security set-key-partition-list \
     -k "$KEYCHAIN_PASSWORD" \
     "$KEYCHAIN_PATH"
 
-if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
-    if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "$APPLE_SIGNING_IDENTITY" >/dev/null; then
-        echo "error: imported certificate does not expose signing identity: $APPLE_SIGNING_IDENTITY" >&2
-        security find-identity -v -p codesigning "$KEYCHAIN_PATH" >&2 || true
-        exit 1
-    fi
+if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -F "$APPLE_SIGNING_IDENTITY" >/dev/null; then
+    echo "error: imported certificate does not expose signing identity: $APPLE_SIGNING_IDENTITY" >&2
+    security find-identity -v -p codesigning "$KEYCHAIN_PATH" >&2 || true
+    exit 1
 fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then

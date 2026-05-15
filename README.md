@@ -98,6 +98,8 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 ./scripts/ci/verify-macos-release.sh
 ```
 
+为避免升级后麦克风与辅助功能权限丢失，正式发布必须保持相同的 `bundle id` 与相同的 `APPLE_SIGNING_IDENTITY`；一旦签名身份发生变化，macOS 可能将其视为新应用并要求重新授权。
+
 公证支持两种方式：
 
 - `App Store Connect API Key`

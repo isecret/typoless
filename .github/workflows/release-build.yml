@@ -122,6 +122,7 @@ jobs:
           ./scripts/ci/verify-macos-release.sh \
             --app "$APP_PATH" \
             --dmg "$DMG_PATH" \
+            --identity "$APPLE_SIGNING_IDENTITY" \
             --team-id "$APPLE_TEAM_ID"
 
       - name: Upload release artifacts

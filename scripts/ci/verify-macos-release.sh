@@ -6,6 +6,7 @@ set -euo pipefail
 APP_PATH=""
 DMG_PATH=""
 TEAM_ID=""
+SIGNING_IDENTITY=""
 
 usage() {
     cat <<'EOF'
@@ -13,7 +14,8 @@ Usage:
   ./scripts/ci/verify-macos-release.sh \
     --app <path/to/Typoless.app> \
     --dmg <path/to/Typoless.dmg> \
-    [--team-id <TEAMID>]
+    [--team-id <TEAMID>] \
+    [--identity "<Developer ID Application: ...>"]
 EOF
 }
 
@@ -31,6 +33,10 @@ while [[ $# -gt 0 ]]; do
             TEAM_ID="$2"
             shift 2
             ;;
+        --identity)
+            SIGNING_IDENTITY="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -44,6 +50,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$APP_PATH" || -z "$DMG_PATH" ]]; then
+    usage
+    exit 1
+fi
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+    echo "error: missing required option: --identity" >&2
     usage
     exit 1
 fi
@@ -84,5 +96,9 @@ if [[ -n "$TEAM_ID" ]]; then
     codesign -dvv "$APP_PATH" 2>&1 | grep -F "TeamIdentifier=$TEAM_ID" >/dev/null
     codesign -dvv "$DMG_PATH" 2>&1 | grep -F "TeamIdentifier=$TEAM_ID" >/dev/null
 fi
+
+echo "Checking signing identity..."
+codesign -dvv "$APP_PATH" 2>&1 | grep -F "Authority=$SIGNING_IDENTITY" >/dev/null
+codesign -dvv "$DMG_PATH" 2>&1 | grep -F "Authority=$SIGNING_IDENTITY" >/dev/null
 
 echo "Release artifacts verified."
