@@ -45,7 +45,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.isecret.typoless
         CODE_SIGN_ENTITLEMENTS: Typoless/Typoless.entitlements
-        MARKETING_VERSION: "0.1.4"
+        MARKETING_VERSION: "0.1.6"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSUIElement: YES
