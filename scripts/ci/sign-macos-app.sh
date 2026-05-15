@@ -103,10 +103,12 @@ if [[ -f "$RNNOISE_LIB" ]]; then
 fi
 
 SPARKLE_FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
+SPARKLE_AUTOUPDATE_BINARY="$SPARKLE_FRAMEWORK/Versions/B/Autoupdate"
 SPARKLE_DOWNLOADER_XPC="$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
 SPARKLE_INSTALLER_XPC="$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
 SPARKLE_UPDATER_APP="$SPARKLE_FRAMEWORK/Versions/B/Updater.app"
 
+sign_code_path "$SPARKLE_AUTOUPDATE_BINARY"
 sign_code_path "$SPARKLE_DOWNLOADER_XPC"
 sign_code_path "$SPARKLE_INSTALLER_XPC"
 sign_code_path "$SPARKLE_UPDATER_APP"
