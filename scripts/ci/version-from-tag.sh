@@ -60,10 +60,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -n "${TAG}" ]]; then
-    if ! normalize_version "${TAG}"; then
+    if ! version="$(normalize_version "${TAG}")"; then
         echo "error: expected release tag in format v<version>, got '${TAG}'" >&2
         exit 1
     fi
+    echo "${version}"
     exit 0
 fi
 

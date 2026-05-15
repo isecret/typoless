@@ -148,4 +148,9 @@ cmd+=("$ARCHIVE_DIR")
 
 "${cmd[@]}"
 
+if ! rg -q "<item>" "$OUTPUT_PATH"; then
+    echo "error: generated appcast does not contain any update items: $OUTPUT_PATH" >&2
+    exit 1
+fi
+
 echo "Generated Sparkle appcast: $OUTPUT_PATH"

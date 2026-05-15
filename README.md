@@ -106,7 +106,7 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 
 应用真实版本号由 `v*` tag 推导。本地构建会优先使用当前分支最近可达的 `vX.Y.Z` tag；只有在仓库没有可解析 tag 时，才回退到 `app/project.yml` 里的默认值。正式发布时，release workflow 会把当前 tag 同步为 App 的 `MARKETING_VERSION` 与 `CFBundleVersion`，不再需要手动修改工程版本。发布流程还会生成 Sparkle 所需的 `.zip` 更新包与 `updates/appcast.xml`。
 
-如需让自动更新在 CI 中可用，需要额外配置 `SPARKLE_PRIVATE_KEY` secret。其值应为 Sparkle `generate_keys -x` 导出的私钥文件内容。
+如需发布可被应用内自动更新识别的正式版本，必须在 CI 中配置 `SPARKLE_PRIVATE_KEY` secret。其值应为 Sparkle `generate_keys -x` 导出的私钥文件内容；若缺失，release workflow 会直接失败，避免发布出 GitHub Release 已生成但 `updates/appcast.xml` 仍为空的版本。
 
 公证支持两种方式：
 

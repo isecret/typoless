@@ -79,6 +79,10 @@ jobs:
         id: version
         run: |
           APP_VERSION="$(./scripts/ci/version-from-tag.sh "${GITHUB_REF_NAME}")"
+          if [ -z "${APP_VERSION}" ]; then
+            echo "::error::failed to derive app version from tag ${GITHUB_REF_NAME}"
+            exit 1
+          fi
           echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
           echo "Using app version: ${APP_VERSION}"
 
@@ -181,13 +185,14 @@ jobs:
             --identity "$APPLE_SIGNING_IDENTITY" \
             --team-id "$APPLE_TEAM_ID"
 
-      - name: Warn when Sparkle appcast is skipped
-        if: env.SPARKLE_PRIVATE_KEY == ''
+      - name: Require Sparkle private key
         run: |
-          echo "::warning::SPARKLE_PRIVATE_KEY secret is missing. Release artifacts will be published, but Sparkle appcast generation is skipped so in-app auto-update will not pick up this release."
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "::error::SPARKLE_PRIVATE_KEY secret is missing. Refusing to publish a release that cannot be discovered by in-app auto-update."
+            exit 1
+          fi
 
       - name: Generate Sparkle appcast
-        if: env.SPARKLE_PRIVATE_KEY != ''
         run: |
           RELEASE_DOWNLOAD_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
           RELEASE_PAGE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
@@ -241,7 +246,6 @@ jobs:
           fi
 
       - name: Update appcast on main
-        if: env.SPARKLE_PRIVATE_KEY != ''
         run: |
           APPCAST_COPY="$(mktemp "${RUNNER_TEMP}/appcast-main.XXXXXX.xml")"
           cp updates/appcast.xml "$APPCAST_COPY"
