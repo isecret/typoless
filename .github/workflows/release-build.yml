@@ -181,13 +181,14 @@ jobs:
             --identity "$APPLE_SIGNING_IDENTITY" \
             --team-id "$APPLE_TEAM_ID"
 
-      - name: Generate Sparkle appcast
+      - name: Warn when Sparkle appcast is skipped
+        if: env.SPARKLE_PRIVATE_KEY == ''
         run: |
-          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "error: missing SPARKLE_PRIVATE_KEY secret" >&2
-            exit 1
-          fi
+          echo "::warning::SPARKLE_PRIVATE_KEY secret is missing. Release artifacts will be published, but Sparkle appcast generation is skipped so in-app auto-update will not pick up this release."
 
+      - name: Generate Sparkle appcast
+        if: env.SPARKLE_PRIVATE_KEY != ''
+        run: |
           RELEASE_DOWNLOAD_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
           RELEASE_PAGE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
           APPCAST_OUTPUT="$(mktemp "${RUNNER_TEMP}/appcast.XXXXXX.xml")"
@@ -240,6 +241,7 @@ jobs:
           fi
 
       - name: Update appcast on main
+        if: env.SPARKLE_PRIVATE_KEY != ''
         run: |
           APPCAST_COPY="$(mktemp "${RUNNER_TEMP}/appcast-main.XXXXXX.xml")"
           cp updates/appcast.xml "$APPCAST_COPY"
