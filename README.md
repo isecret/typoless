@@ -108,6 +108,8 @@ xcodebuild build -project Typoless.xcodeproj -scheme Typoless -destination 'plat
 
 如需发布可被应用内自动更新识别的正式版本，必须在 CI 中配置 `SPARKLE_PRIVATE_KEY` secret。其值应为 Sparkle `generate_keys -x` 导出的私钥文件内容；若缺失，release workflow 会直接失败，避免发布出 GitHub Release 已生成但 `updates/appcast.xml` 仍为空的版本。
 
+若轮换了 `SUPublicEDKey` / `SPARKLE_PRIVATE_KEY`，已安装旧版本将无法直接通过应用内更新信任新签名，用户需要先手动安装一次新版本，之后才能继续使用新的自动更新链路。
+
 公证支持两种方式：
 
 - `App Store Connect API Key`
