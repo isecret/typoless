@@ -64,11 +64,21 @@ struct LLMProvider: Sendable {
         ## 修正范围
 
         1. 同音词与错别字：修正 ASR 导致的同音字、近音字替换。
-        2. 口语赘词：去除"嗯"、"啊"、"那个"、"就是"、"然后"等填充词。
+        2. 口语赘词：去除"嗯"、"呃"、"啊"、"额"、"那个"、"这个"、"就是"、"然后"等填充词。
+           - "然后" 仅在充当口头衔接、停顿或重复赘词时删除；表示顺序、因果、步骤推进时保留。
+           - "这个"、"那个"、"就是" 仅在充当停顿词或组合赘词时删除；真正表示指代、判断或连接时保留。
+           - 优先删除组合赘词：如 "然后就是"、"然后那个"、"就是那个"、"嗯然后"。
         3. 轻度书面化：不改原意的前提下使表达更通顺。
         4. 中文标点：补充自然的中文标点。
         5. 专有名词保护：优先使用术语参考列表中的写法。
         6. 中英混合术语恢复：ASR 把英文术语识别成中文音近词时，恢复为正确英文写法。
+
+        ## 例子
+
+        - "嗯我想问一下这个方案" → "我想问一下这个方案"
+        - "然后就是我们先对一下" → "我们先对一下"
+        - "先保存文件，然后再退出" → 保留 "然后"
+        - "第一步登录，然后点击设置" → 保留 "然后"
 
         ## 严格禁止
 
@@ -127,7 +137,7 @@ struct LLMProvider: Sendable {
     }
 
     private func buildRequestBody(text: String, requestMode: RequestMode) throws -> Data {
-        let systemPrompt = Self.buildSystemPrompt(terms: dictionaryTerms)
+        let systemPrompt = Self.systemPrompt(terms: dictionaryTerms)
         var body: [String: Any] = [
             "model": model,
             "messages": [
@@ -168,7 +178,7 @@ struct LLMProvider: Sendable {
     }
 
     /// 构建系统 Prompt，如有术语参考则附加到提示末尾（包含发音提示）
-    private static func buildSystemPrompt(terms: [TermReference]) -> String {
+    static func systemPrompt(terms: [TermReference]) -> String {
         guard !terms.isEmpty else { return baseSystemPrompt }
 
         let termsList = terms
@@ -266,7 +276,7 @@ struct LLMProvider: Sendable {
 
         switch parseResult {
         case .structured(let structuredResponse):
-            let renderedText = StructuredPolishRenderer.render(response: structuredResponse)
+            let renderedText = FillerWordSanitizer.sanitize(StructuredPolishRenderer.render(response: structuredResponse))
             return PolishResult(
                 text: renderedText,
                 source: .llm,
@@ -274,10 +284,10 @@ struct LLMProvider: Sendable {
             )
 
         case .invalidStructure(let fallbackText):
-            return PolishResult(text: fallbackText, source: .llm)
+            return PolishResult(text: FillerWordSanitizer.sanitize(fallbackText), source: .llm)
 
         case .plainText(let text):
-            return PolishResult(text: text, source: .llm)
+            return PolishResult(text: FillerWordSanitizer.sanitize(text), source: .llm)
         }
     }
 }
@@ -306,4 +316,99 @@ private struct LLMError: Decodable {
     let message: String
     let type: String?
     let code: String?
+}
+
+// MARK: - Filler Word Sanitizer
+
+/// 对最终可注入文本做保守清理，主要兜底明显口头赘词。
+enum FillerWordSanitizer {
+
+    static func sanitize(_ text: String) -> String {
+        let normalized = normalizeLineEndings(text)
+        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+
+        return lines
+            .map { sanitizeLine(String($0)) }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func sanitizeLine(_ line: String) -> String {
+        var output = line.trimmingCharacters(in: .whitespaces)
+        guard !output.isEmpty else { return "" }
+
+        output = stripLeadingFillers(from: output)
+        output = stripStandaloneFillers(from: output)
+        output = normalizeSpacingAndPunctuation(output)
+
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func stripLeadingFillers(from text: String) -> String {
+        var output = text
+
+        while true {
+            let before = output
+            output = replaceLeadingPattern(
+                in: output,
+                pattern: #"^(?:[嗯呃额啊唉]+)+"#
+            )
+            output = replaceLeadingPattern(
+                in: output,
+                pattern: #"^(?:(?:然后就是|然后那个|就是那个|嗯然后)(?:[，,。！？!?；;、\s]+)*)+"#
+            )
+            output = replaceLeadingPattern(
+                in: output,
+                pattern: #"^(?:然后)(?=(?:[，,。！？!?；;、\s]|$))"#
+            )
+
+            output = output.trimmingCharacters(in: .whitespaces)
+
+            if output == before {
+                break
+            }
+        }
+
+        return output
+    }
+
+    private static func stripStandaloneFillers(from text: String) -> String {
+        var output = text
+        output = replacePattern(
+            in: output,
+            pattern: #"(^|[。！？!?；;\n，,、\s])(?:嗯+|呃+|额+|啊+|唉+)(?=$|[。！？!?；;\n，,、\s])"#,
+            template: "$1"
+        )
+        output = replacePattern(
+            in: output,
+            pattern: #"(^|[。！？!?；;\n，,、\s])(?:然后就是|然后那个|就是那个|然后)(?=$|[。！？!?；;\n，,、\s])"#,
+            template: "$1"
+        )
+        return output
+    }
+
+    private static func normalizeSpacingAndPunctuation(_ text: String) -> String {
+        var output = text
+        output = replacePattern(in: output, pattern: #"[ \t]+"#, template: " ")
+        output = replacePattern(in: output, pattern: #"\s+([，,。！？!?；;、])"#, template: "$1")
+        output = replacePattern(in: output, pattern: #"^[，,。！？!?；;、\s]+"#, template: "")
+        output = replacePattern(in: output, pattern: #"([，,。！？!?；;、]){2,}"#, template: "$1")
+        return output
+    }
+
+    private static func normalizeLineEndings(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    private static func replaceLeadingPattern(in text: String, pattern: String) -> String {
+        replacePattern(in: text, pattern: pattern, template: "")
+    }
+
+    private static func replacePattern(in text: String, pattern: String, template: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: template)
+    }
 }

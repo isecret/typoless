@@ -156,6 +156,37 @@ final class StructuredPolishRendererTests: XCTestCase {
         XCTAssertEqual(rendered, "直接用text")
     }
 
+    // MARK: - sanitizer
+
+    func testFillerWordSanitizerRemovesLeadingPureFillers() {
+        let rendered = FillerWordSanitizer.sanitize("嗯我想确认一下明天的会议。")
+        XCTAssertEqual(rendered, "我想确认一下明天的会议。")
+    }
+
+    func testFillerWordSanitizerRemovesLeadingFillerPhrase() {
+        let rendered = FillerWordSanitizer.sanitize("然后就是我们先对一下。")
+        XCTAssertEqual(rendered, "我们先对一下。")
+    }
+
+    func testFillerWordSanitizerPreservesSequentialThen() {
+        let rendered = FillerWordSanitizer.sanitize("先保存文件，然后再退出。")
+        XCTAssertEqual(rendered, "先保存文件，然后再退出。")
+    }
+
+    func testFillerWordSanitizerPreservesSemanticThisAndThat() {
+        let rendered = FillerWordSanitizer.sanitize("这个事情我来处理。")
+        XCTAssertEqual(rendered, "这个事情我来处理。")
+    }
+
+    // MARK: - prompt
+
+    func testLLMProviderSystemPromptIncludesFillerRules() {
+        let prompt = LLMProvider.systemPrompt(terms: [])
+        XCTAssertTrue(prompt.contains("然后\" 仅在充当口头衔接"))
+        XCTAssertTrue(prompt.contains("保留 \"然后\""))
+        XCTAssertTrue(prompt.contains("然后就是"))
+    }
+
     // MARK: - Helpers
 
     private func makeLLMResponse(
