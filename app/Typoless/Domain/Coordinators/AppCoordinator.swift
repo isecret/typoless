@@ -13,6 +13,7 @@ final class AppCoordinator {
 
     let configStore: ConfigStore
     let permissionsManager: PermissionsManager
+    let audioDeviceManager: AudioDeviceManager
     let sessionCoordinator: SessionCoordinator
     let hotkeyManager: HotkeyManager
     let hudFeedbackController: HUDFeedbackController
@@ -24,11 +25,18 @@ final class AppCoordinator {
     init() {
         let store = ConfigStore()
         let perms = PermissionsManager()
+        let audioDevices = AudioDeviceManager(configStore: store)
         let dict = PersonalDictionaryStore()
         configStore = store
         permissionsManager = perms
+        audioDeviceManager = audioDevices
         dictionaryStore = dict
-        sessionCoordinator = SessionCoordinator(permissionsManager: perms, configStore: store, dictionaryStore: dict)
+        sessionCoordinator = SessionCoordinator(
+            permissionsManager: perms,
+            configStore: store,
+            audioDeviceManager: audioDevices,
+            dictionaryStore: dict
+        )
         hotkeyManager = HotkeyManager()
         updateService = AppUpdateService(configStore: store)
 

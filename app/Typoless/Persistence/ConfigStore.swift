@@ -9,6 +9,7 @@ final class ConfigStore {
     private(set) var llmConfig = LLMConfig()
     private(set) var generalConfig = GeneralConfig()
     private(set) var asrConfig = ASRConfig()
+    private(set) var audioInputConfig = AudioInputConfig.systemDefault
     private(set) var legacyAutomaticUpdateChecksEnabled: Bool?
 
     // MARK: - 密钥（启动时从配置文件直接加载到内存）
@@ -64,6 +65,34 @@ final class ConfigStore {
         var llm: LLMFileConfig = LLMFileConfig()
         var general: GeneralFileConfig = GeneralFileConfig()
         var asr: ASRConfig = ASRConfig()
+        var audio: AudioInputConfig = .systemDefault
+
+        enum CodingKeys: String, CodingKey {
+            case llm
+            case general
+            case asr
+            case audio
+        }
+
+        init(
+            llm: LLMFileConfig = LLMFileConfig(),
+            general: GeneralFileConfig = GeneralFileConfig(),
+            asr: ASRConfig = ASRConfig(),
+            audio: AudioInputConfig = .systemDefault
+        ) {
+            self.llm = llm
+            self.general = general
+            self.asr = asr
+            self.audio = audio
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            llm = try container.decodeIfPresent(LLMFileConfig.self, forKey: .llm) ?? LLMFileConfig()
+            general = try container.decodeIfPresent(GeneralFileConfig.self, forKey: .general) ?? GeneralFileConfig()
+            asr = try container.decodeIfPresent(ASRConfig.self, forKey: .asr) ?? ASRConfig()
+            audio = try container.decodeIfPresent(AudioInputConfig.self, forKey: .audio) ?? .systemDefault
+        }
 
         struct LLMFileConfig: Codable {
             var baseURL: String = ""
@@ -218,6 +247,16 @@ final class ConfigStore {
         asrConfig = config
     }
 
+    // MARK: - 音频输入配置保存
+
+    func saveAudioInputConfig(_ config: AudioInputConfig) throws {
+        var configFile = buildConfigFile()
+        configFile.audio = config
+        try writeConfigFile(configFile)
+
+        audioInputConfig = config
+    }
+
     func updateLocalModelStatus(_ status: LocalModelStatus, error: String? = nil) throws {
         asrConfig.local.modelStatus = status
         asrConfig.local.lastError = error
@@ -253,6 +292,7 @@ final class ConfigStore {
         generalConfig = configFile.general.publicConfig
         legacyAutomaticUpdateChecksEnabled = configFile.general.automaticUpdateChecksEnabled
         asrConfig = configFile.asr
+        audioInputConfig = configFile.audio
     }
 
     /// 从当前内存状态构建 ConfigFile
@@ -268,7 +308,8 @@ final class ConfigStore {
                 hotkey: generalConfig.hotkey,
                 interactionSoundEnabled: generalConfig.interactionSoundEnabled
             ),
-            asr: asrConfig
+            asr: asrConfig,
+            audio: audioInputConfig
         )
     }
 

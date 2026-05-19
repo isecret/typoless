@@ -90,6 +90,50 @@ final class ConfigStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testMissingAudioInputConfigDefaultsToSystemDefault() throws {
+        let configURL = tempDirectory.appendingPathComponent("config.json")
+        let legacyJSON = """
+        {
+          "asr" : {},
+          "general" : {
+            "hotkey" : {
+              "displayString" : "⌥ Space",
+              "keyCode" : 49,
+              "modifiers" : 524576
+            },
+            "interactionSoundEnabled" : true
+          },
+          "llm" : {
+            "apiKey" : "",
+            "baseURL" : "",
+            "model" : "",
+            "thinkingDisabled" : false
+          }
+        }
+        """
+        try legacyJSON.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = ConfigStore(configDirectory: tempDirectory)
+
+        XCTAssertTrue(store.audioInputConfig.usesSystemDefault)
+        XCTAssertNil(store.audioInputConfig.selectedDeviceID)
+        XCTAssertNil(store.audioInputConfig.selectedDeviceName)
+    }
+
+    @MainActor
+    func testSaveAndReloadAudioInputConfig() throws {
+        let firstStore = ConfigStore(configDirectory: tempDirectory)
+        let config = AudioInputConfig(
+            selectedDeviceID: "device-1",
+            selectedDeviceName: "Studio Display 麦克风"
+        )
+        try firstStore.saveAudioInputConfig(config)
+
+        let secondStore = ConfigStore(configDirectory: tempDirectory)
+        XCTAssertEqual(secondStore.audioInputConfig, config)
+    }
+
+    @MainActor
     func testLoadLegacyAutomaticUpdateChecksPreferenceForSparkleMigration() throws {
         let configURL = tempDirectory.appendingPathComponent("config.json")
         let legacyJSON = """

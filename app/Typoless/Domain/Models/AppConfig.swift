@@ -184,6 +184,25 @@ struct XunfeiASRConfig: Codable, Equatable, Sendable {
 
 // MARK: - 通用配置
 
+struct AudioInputConfig: Codable, Equatable, Sendable {
+    var selectedDeviceID: String?
+    var selectedDeviceName: String?
+
+    static let systemDefault = AudioInputConfig(
+        selectedDeviceID: nil,
+        selectedDeviceName: nil
+    )
+
+    var usesSystemDefault: Bool {
+        selectedDeviceID == nil
+    }
+}
+
+struct AudioInputDevice: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+}
+
 struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
     var interactionSoundEnabled: Bool = true

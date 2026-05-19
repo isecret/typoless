@@ -27,6 +27,7 @@ final class SessionCoordinator {
     private let audioPreprocessor = AudioPreprocessor()
     private let permissionsManager: PermissionsManager
     private let configStore: ConfigStore
+    private let audioDeviceManager: AudioDeviceManager
     private let textInjector = TextInjector()
     private let diagnostics = DiagnosticsLogger.shared
 
@@ -40,9 +41,15 @@ final class SessionCoordinator {
     private var sessionGeneration: UInt64 = 0
     private var currentSessionID: String = ""
 
-    init(permissionsManager: PermissionsManager, configStore: ConfigStore, dictionaryStore: PersonalDictionaryStore? = nil) {
+    init(
+        permissionsManager: PermissionsManager,
+        configStore: ConfigStore,
+        audioDeviceManager: AudioDeviceManager,
+        dictionaryStore: PersonalDictionaryStore? = nil
+    ) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
+        self.audioDeviceManager = audioDeviceManager
         self.dictionaryStore = dictionaryStore
     }
 
@@ -105,7 +112,7 @@ final class SessionCoordinator {
         guard generation == sessionGeneration, state == .recording else { return }
 
         do {
-            try audioRecorder.startRecording()
+            try audioRecorder.startRecording(device: audioDeviceManager.captureDeviceForRecording())
             diagnostics.sessionStarted(
                 sessionID: sessionID,
                 targetBundleID: targetBundleID

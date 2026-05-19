@@ -14,7 +14,8 @@ struct MenuBarView: View {
 
     var body: some View {
         if let error = appCoordinator.sessionCoordinator.currentError {
-            Text(error.userMessage)
+            Label(error.userMessage, systemImage: "exclamationmark.triangle.fill")
+                .imageScale(.small)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -38,6 +39,10 @@ struct MenuBarView: View {
             Divider()
         }
 
+        microphonePicker
+
+        Divider()
+
         Button("设置") {
             appCoordinator.openSettingsWindow()
         }
@@ -54,5 +59,35 @@ struct MenuBarView: View {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)
+    }
+
+    private var microphonePicker: some View {
+        Picker("麦克风", selection: Binding(
+            get: {
+                appCoordinator.audioDeviceManager.menuSelectionID
+            },
+            set: { id in
+                appCoordinator.audioDeviceManager.selectMenuItem(id: id)
+            }
+        )) {
+            if appCoordinator.audioDeviceManager.selectedDeviceID != nil,
+               !appCoordinator.audioDeviceManager.selectedDeviceIsAvailable {
+                Text("已选设备不可用，当前跟随系统默认")
+                    .tag(AudioDeviceManager.unavailableSelectionID)
+                    .disabled(true)
+            }
+
+            Text("跟随系统默认")
+                .tag(AudioDeviceManager.systemDefaultSelectionID)
+
+            ForEach(appCoordinator.audioDeviceManager.devices) { device in
+                Text(device.name)
+                    .tag(device.id)
+            }
+        }
+        .disabled(state.isProcessing)
+        .onAppear {
+            appCoordinator.audioDeviceManager.refreshDevices()
+        }
     }
 }

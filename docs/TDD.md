@@ -126,10 +126,19 @@
 ### 5.3 AudioRecorder
 
 - 处理开始录音、停止录音
+- 支持按 `AudioDeviceManager` 解析出的输入设备采集；未指定或已选设备不可用时使用系统默认输入
 - 限制录音上限为 60 秒
 - 记录录音开始/结束时间，低于 500ms 的录音视为误触并静默取消
-- 输出标准化音频数据或临时文件引用
+- 输出标准化 `PCM/WAV 16k mono` 音频数据
 - 不负责上传和业务状态流转
+
+### 5.3.1 AudioDeviceManager
+
+- 枚举当前可用麦克风设备
+- 管理 `audio.selectedDeviceID` / `audio.selectedDeviceName` 配置保存
+- 菜单栏通过子菜单直接选择麦克风，当前选择用勾选展示
+- 设备切换仅影响下一次录音，不中断当前 active session
+- 已选设备不可用时回退系统默认输入，并保留原选择用于设备重新接入后恢复
 
 ### 5.4 AudioPreprocessor
 
