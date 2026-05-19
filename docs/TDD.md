@@ -138,7 +138,7 @@
 - 管理 `audio.selectedDeviceID` / `audio.selectedDeviceName` 配置保存
 - 菜单栏通过子菜单直接选择麦克风，当前选择用勾选展示
 - 设备切换仅影响下一次录音，不中断当前 active session
-- 已选设备不可用时回退系统默认输入，并保留原选择用于设备重新接入后恢复
+- 已选设备不可用时直接切换到系统默认输入
 
 ### 5.4 AudioPreprocessor
 

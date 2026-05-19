@@ -70,14 +70,7 @@ struct MenuBarView: View {
                 appCoordinator.audioDeviceManager.selectMenuItem(id: id)
             }
         )) {
-            if appCoordinator.audioDeviceManager.selectedDeviceID != nil,
-               !appCoordinator.audioDeviceManager.selectedDeviceIsAvailable {
-                Text("已选设备不可用，当前跟随系统默认")
-                    .tag(AudioDeviceManager.unavailableSelectionID)
-                    .disabled(true)
-            }
-
-            Text("跟随系统默认")
+            Text("系统默认(\(appCoordinator.audioDeviceManager.systemDefaultDeviceDisplayName))")
                 .tag(AudioDeviceManager.systemDefaultSelectionID)
 
             ForEach(appCoordinator.audioDeviceManager.devices) { device in

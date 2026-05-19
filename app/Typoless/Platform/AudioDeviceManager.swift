@@ -37,14 +37,14 @@ final class AudioDeviceManager {
         if let selectedDeviceID, selectedDeviceIsAvailable {
             return selectedDeviceID
         }
-        if selectedDeviceID != nil {
-            return Self.unavailableSelectionID
-        }
         return Self.systemDefaultSelectionID
     }
 
+    var systemDefaultDeviceDisplayName: String {
+        AVCaptureDevice.default(for: .audio)?.localizedName ?? "当前选择输入设备"
+    }
+
     static let systemDefaultSelectionID = "__typoless_system_default__"
-    static let unavailableSelectionID = "__typoless_unavailable__"
 
     func refreshDevices() {
         let discoverySession = AVCaptureDevice.DiscoverySession(
@@ -59,6 +59,10 @@ final class AudioDeviceManager {
             .sorted { lhs, rhs in
                 lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
+
+        if let selectedDeviceID, !devices.contains(where: { $0.id == selectedDeviceID }) {
+            selectSystemDefault()
+        }
     }
 
     func selectMenuItem(id: String) {
@@ -70,6 +74,7 @@ final class AudioDeviceManager {
         }
 
         guard let device = devices.first(where: { $0.id == id }) else {
+            selectSystemDefault()
             return
         }
 
