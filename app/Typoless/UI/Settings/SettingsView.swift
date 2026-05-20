@@ -3,16 +3,46 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var appCoordinator: AppCoordinator
 
+    private enum SettingsTab: String, CaseIterable, Identifiable {
+        case general = "常规"
+        case asr = "语音识别"
+        case ai = "AI 配置"
+        case permissions = "权限"
+
+        var id: String { rawValue }
+    }
+
+    @State private var selectedTab: SettingsTab = .general
+
     var body: some View {
-        Form {
-            GeneralSettingsView(configStore: appCoordinator.configStore, onHotkeyChanged: {
-                appCoordinator.setupHotkey()
-            })
-            ASRSettingsView(configStore: appCoordinator.configStore)
-            LLMSettingsView(configStore: appCoordinator.configStore)
-            PermissionsSettingsView(permissionsManager: appCoordinator.permissionsManager)
+        VStack(alignment: .leading, spacing: 0) {
+            Picker("", selection: $selectedTab) {
+                ForEach(SettingsTab.allCases) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding([.top, .horizontal])
+            .labelsHidden()
+
+            Divider()
+
+            Form {
+                switch selectedTab {
+                case .general:
+                    GeneralSettingsView(configStore: appCoordinator.configStore, onHotkeyChanged: {
+                        appCoordinator.setupHotkey()
+                    })
+                case .asr:
+                    ASRSettingsView(configStore: appCoordinator.configStore)
+                case .ai:
+                    LLMSettingsView(configStore: appCoordinator.configStore)
+                case .permissions:
+                    PermissionsSettingsView(permissionsManager: appCoordinator.permissionsManager)
+                }
+            }
+            .formStyle(.grouped)
         }
-        .formStyle(.grouped)
         .frame(width: 520, height: 680)
     }
 }

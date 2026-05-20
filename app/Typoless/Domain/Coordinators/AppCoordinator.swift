@@ -80,7 +80,7 @@ final class AppCoordinator {
             let hostingController = NSHostingController(rootView: SettingsView(appCoordinator: self))
             let window = NSWindow(contentViewController: hostingController)
             window.title = "设置"
-            window.setContentSize(NSSize(width: 520, height: 600))
+            window.setContentSize(NSSize(width: 520, height: 680))
             window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()
