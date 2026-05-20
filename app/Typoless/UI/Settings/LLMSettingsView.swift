@@ -23,27 +23,8 @@ struct LLMSettingsView: View {
             SettingsFormRow(title: "Model") {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        SettingsTextInputField(text: $model, width: 276)
-
-                        Menu {
-                            modelListMenuContent
-                        } label: {
-                            Image(systemName: "chevron.down.circle")
-                                .frame(width: 18, height: 18)
-                        }
-                        .disabled(modelListService?.models.isEmpty ?? true)
-                        .buttonStyle(.borderless)
-                        .help("选择模型")
-
-                        Button {
-                            loadModelList(force: true)
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .frame(width: 18, height: 18)
-                        }
-                        .disabled(!currentModelListInput().isComplete || modelListService?.status == .loading)
-                        .buttonStyle(.borderless)
-                        .help("刷新模型列表")
+                        SettingsTextInputField(text: $model, width: 334)
+                        modelListPickerButton
                     }
 
                     modelListStatusView
@@ -51,7 +32,10 @@ struct LLMSettingsView: View {
             }
             SettingsFormRow(title: "模型状态") {
                 VStack(alignment: .leading, spacing: 4) {
-                    validationStatusView
+                    HStack(spacing: 10) {
+                        validationStatusView
+                        refreshModelListButton
+                    }
 
                     if hasTriggeredValidation,
                        let errorMessage = validationService?.lastErrorMessage,
@@ -167,6 +151,10 @@ struct LLMSettingsView: View {
         ensureModelListService().load(currentModelListInput(), force: force)
     }
 
+    private var hasModelList: Bool {
+        !(modelListService?.models.isEmpty ?? true)
+    }
+
     @ViewBuilder
     private var modelListMenuContent: some View {
         ForEach(modelListService?.models ?? [], id: \.self) { modelName in
@@ -174,6 +162,45 @@ struct LLMSettingsView: View {
                 model = modelName
             }
         }
+    }
+
+    @ViewBuilder
+    private var modelListPickerButton: some View {
+        ZStack {
+            Menu {
+                modelListMenuContent
+            } label: {
+                Image(systemName: "chevron.down.circle")
+                    .frame(width: 18, height: 18)
+            }
+            .disabled(!hasModelList)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .opacity(hasModelList ? 1 : 0.35)
+            .help(hasModelList ? "选择模型" : "未获取到模型，请手动输入 Model")
+
+            if !hasModelList {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .help("未获取到模型，请手动输入 Model")
+            }
+        }
+        .frame(width: 18, height: 18)
+    }
+
+    @ViewBuilder
+    private var refreshModelListButton: some View {
+        Button {
+            loadModelList(force: true)
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .frame(width: 18, height: 18)
+        }
+        .disabled(!currentModelListInput().isComplete || modelListService?.status == .loading)
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .accessibilityLabel("刷新模型列表")
+        .help("刷新模型列表")
     }
 
     @ViewBuilder
@@ -190,13 +217,9 @@ struct LLMSettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         case .loaded:
-            Text("已获取 \(modelListService?.models.count ?? 0) 个模型，也可手动输入")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            EmptyView()
         case .unavailable:
-            Text("无法获取模型列表，可手动输入")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            EmptyView()
         }
     }
 
