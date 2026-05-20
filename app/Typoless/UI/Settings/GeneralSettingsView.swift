@@ -63,7 +63,7 @@ struct GeneralSettingsView: View {
                     }
                 }
             } footer: {
-                EmptyView()
+                Text("当前版本：v\(appVersion)")
             }
         }
         .onAppear {
@@ -95,5 +95,9 @@ struct GeneralSettingsView: View {
             translationTargetLanguage: translationTargetLanguage
         )
         try? configStore.saveGeneralConfig(config)
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
     }
 }
