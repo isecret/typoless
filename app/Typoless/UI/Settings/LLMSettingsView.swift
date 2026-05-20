@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct LLMSettingsView: View {
@@ -32,10 +33,7 @@ struct LLMSettingsView: View {
             }
             SettingsFormRow(title: "模型状态") {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 10) {
-                        validationStatusView
-                        refreshModelListButton
-                    }
+                    validationStatusView
 
                     if hasTriggeredValidation,
                        let errorMessage = validationService?.lastErrorMessage,
@@ -156,51 +154,13 @@ struct LLMSettingsView: View {
     }
 
     @ViewBuilder
-    private var modelListMenuContent: some View {
-        ForEach(modelListService?.models ?? [], id: \.self) { modelName in
-            Button(modelName) {
-                model = modelName
-            }
-        }
-    }
-
-    @ViewBuilder
     private var modelListPickerButton: some View {
-        ZStack {
-            Menu {
-                modelListMenuContent
-            } label: {
-                Image(systemName: "chevron.down.circle")
-                    .frame(width: 18, height: 18)
-            }
-            .disabled(!hasModelList)
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .opacity(hasModelList ? 1 : 0.35)
-            .help(hasModelList ? "选择模型" : "未获取到模型，请手动输入 Model")
-
-            if !hasModelList {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .help("未获取到模型，请手动输入 Model")
-            }
-        }
+        ModelListPickerButton(
+            models: modelListService?.models ?? [],
+            help: "选择模型",
+            onSelect: { model = $0 }
+        )
         .frame(width: 18, height: 18)
-    }
-
-    @ViewBuilder
-    private var refreshModelListButton: some View {
-        Button {
-            loadModelList(force: true)
-        } label: {
-            Image(systemName: "arrow.clockwise")
-                .frame(width: 18, height: 18)
-        }
-        .disabled(!currentModelListInput().isComplete || modelListService?.status == .loading)
-        .buttonStyle(.borderless)
-        .foregroundStyle(.secondary)
-        .accessibilityLabel("刷新模型列表")
-        .help("刷新模型列表")
     }
 
     @ViewBuilder
@@ -262,5 +222,79 @@ struct LLMSettingsView: View {
             Text(text)
         }
         .foregroundStyle(color)
+    }
+}
+
+private struct ModelListPickerButton: NSViewRepresentable {
+    let models: [String]
+    let help: String
+    let onSelect: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(models: models, onSelect: onSelect)
+    }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 18, height: 18))
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+        button.image = Self.chevronImage()
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.showMenu(_:))
+        button.setButtonType(.momentaryChange)
+        updateNSView(button, context: context)
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        context.coordinator.models = models
+        context.coordinator.onSelect = onSelect
+        nsView.isEnabled = true
+        nsView.toolTip = help
+        nsView.contentTintColor = .secondaryLabelColor
+    }
+
+    private static func chevronImage() -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        return NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "选择模型")?
+            .withSymbolConfiguration(configuration)
+    }
+
+    final class Coordinator: NSObject {
+        var models: [String]
+        var onSelect: (String) -> Void
+
+        init(models: [String], onSelect: @escaping (String) -> Void) {
+            self.models = models
+            self.onSelect = onSelect
+        }
+
+        @MainActor
+        @objc func showMenu(_ sender: NSButton) {
+            let menu = NSMenu()
+
+            if models.isEmpty {
+                let item = NSMenuItem(title: "暂未获取到模型列表", action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            } else {
+                for model in models {
+                    let item = NSMenuItem(title: model, action: #selector(selectModel(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = model
+                    menu.addItem(item)
+                }
+            }
+
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
+        }
+
+        @MainActor
+        @objc private func selectModel(_ sender: NSMenuItem) {
+            guard let model = sender.representedObject as? String else { return }
+            onSelect(model)
+        }
     }
 }
