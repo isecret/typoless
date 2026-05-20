@@ -62,20 +62,29 @@ struct MenuBarView: View {
     }
 
     private var microphonePicker: some View {
-        Picker("麦克风", selection: Binding(
-            get: {
-                appCoordinator.audioDeviceManager.menuSelectionID
-            },
-            set: { id in
-                appCoordinator.audioDeviceManager.selectMenuItem(id: id)
-            }
-        )) {
-            Text("系统默认(\(appCoordinator.audioDeviceManager.systemDefaultDeviceDisplayName))")
-                .tag(AudioDeviceManager.systemDefaultSelectionID)
+        Group {
+            if appCoordinator.audioDeviceManager.hasAvailableInputDevice {
+                Picker("麦克风", selection: Binding(
+                    get: {
+                        appCoordinator.audioDeviceManager.menuSelectionID
+                    },
+                    set: { id in
+                        appCoordinator.audioDeviceManager.selectMenuItem(id: id)
+                    }
+                )) {
+                    Text(appCoordinator.audioDeviceManager.systemDefaultMenuItemTitle)
+                        .tag(AudioDeviceManager.systemDefaultSelectionID)
 
-            ForEach(appCoordinator.audioDeviceManager.devices) { device in
-                Text(device.name)
-                    .tag(device.id)
+                    ForEach(appCoordinator.audioDeviceManager.devices) { device in
+                        Text(device.name)
+                            .tag(device.id)
+                    }
+                }
+            } else {
+                Menu("麦克风") {
+                    Button(AudioDeviceManager.noInputDeviceDisplayName) {}
+                        .disabled(true)
+                }
             }
         }
         .disabled(state.isProcessing)

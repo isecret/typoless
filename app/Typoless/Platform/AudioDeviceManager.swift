@@ -41,10 +41,31 @@ final class AudioDeviceManager {
     }
 
     var systemDefaultDeviceDisplayName: String {
-        AVCaptureDevice.default(for: .audio)?.localizedName ?? "当前选择输入设备"
+        guard let defaultDevice = AVCaptureDevice.default(for: .audio) else {
+            return Self.systemDefaultDeviceDisplayName(
+                defaultDeviceID: nil,
+                defaultDeviceName: nil,
+                availableDevices: devices
+            )
+        }
+
+        return Self.systemDefaultDeviceDisplayName(
+            defaultDeviceID: defaultDevice.uniqueID,
+            defaultDeviceName: defaultDevice.localizedName,
+            availableDevices: devices
+        )
     }
 
-    static let systemDefaultSelectionID = "__typoless_system_default__"
+    var systemDefaultMenuItemTitle: String {
+        Self.systemDefaultMenuItemTitle(displayName: systemDefaultDeviceDisplayName)
+    }
+
+    var hasAvailableInputDevice: Bool {
+        systemDefaultDeviceDisplayName != Self.noInputDeviceDisplayName
+    }
+
+    nonisolated static let systemDefaultSelectionID = "__typoless_system_default__"
+    nonisolated static let noInputDeviceDisplayName = "未找到可用麦克风"
 
     func refreshDevices() {
         let discoverySession = AVCaptureDevice.DiscoverySession(
@@ -127,8 +148,48 @@ final class AudioDeviceManager {
         notificationObservers = [connected, disconnected]
     }
 
+    nonisolated static func systemDefaultDeviceDisplayName(
+        defaultDeviceID: String?,
+        defaultDeviceName: String?,
+        availableDevices: [AudioInputDevice]
+    ) -> String {
+        let trimmedName = defaultDeviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if isSystemDefaultAggregateDeviceID(defaultDeviceID, localizedName: trimmedName) {
+            return availableDevices.first?.name ?? noInputDeviceDisplayName
+        }
+
+        if let trimmedName, !trimmedName.isEmpty {
+            return trimmedName
+        }
+
+        return availableDevices.first?.name ?? noInputDeviceDisplayName
+    }
+
+    nonisolated static func systemDefaultMenuItemTitle(displayName: String) -> String {
+        if displayName == noInputDeviceDisplayName {
+            return displayName
+        }
+
+        return "系统默认(\(displayName))"
+    }
+
+    nonisolated static func isSystemDefaultAggregateDeviceID(
+        _ uniqueID: String?,
+        localizedName: String?
+    ) -> Bool {
+        let prefixes = [
+            "CADefaultDeviceAggregate-",
+            "ICADefaultDeviceAggregate-",
+        ]
+
+        return prefixes.contains { prefix in
+            uniqueID?.hasPrefix(prefix) == true
+                || localizedName?.hasPrefix(prefix) == true
+        }
+    }
+
     private static func isSystemDefaultAggregateDevice(_ device: AVCaptureDevice) -> Bool {
-        device.uniqueID.hasPrefix("CADefaultDeviceAggregate-")
-            || device.localizedName.hasPrefix("CADefaultDeviceAggregate-")
+        isSystemDefaultAggregateDeviceID(device.uniqueID, localizedName: device.localizedName)
     }
 }
