@@ -30,9 +30,14 @@ struct HUDContentView: View {
             if phase != .hidden {
                 ZStack {
                     recordingCapsule
-                        .opacity(recordingOpacity)
+                        .opacity(controller.modeCueLabel == nil ? recordingOpacity : 0)
                     thinkingCapsule
                         .opacity(processingOpacity)
+                    if let label = controller.modeCueLabel, controller.hudState == .recording {
+                        modeCueCapsule(label: label)
+                            .opacity(recordingOpacity)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    }
                     if let resultState {
                         resultCapsule(for: resultState)
                             .opacity(resultOpacity)
@@ -45,6 +50,7 @@ struct HUDContentView: View {
                 .contentShape(Capsule())
                 .scaleEffect(capsuleScale)
                 .offset(y: capsuleYOffset)
+                .animation(.easeOut(duration: 0.12), value: controller.modeCueLabel)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -81,14 +87,28 @@ struct HUDContentView: View {
             .padding(.horizontal, 10)
     }
 
+    // MARK: - Mode Cue Capsule
+
+    private func modeCueCapsule(label: String) -> some View {
+        Text(label)
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(0.35)
+            .textCase(.uppercase)
+            .foregroundStyle(Color.white.opacity(0.88))
+            .padding(.vertical, 3)
+            .padding(.horizontal, 10)
+    }
+
     // MARK: - Result Capsule
 
     private func resultCapsule(for state: HUDState) -> some View {
         let payload = resultPayload(for: state)
         return HStack(spacing: 5) {
-            HUDIcon(type: payload.icon)
-                .frame(width: 14, height: 14)
-                .foregroundStyle(Color.white.opacity(0.92))
+            if !payload.icon.isEmpty {
+                HUDIcon(type: payload.icon)
+                    .frame(width: 14, height: 14)
+                    .foregroundStyle(Color.white.opacity(0.92))
+            }
             Text(payload.text)
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(0.6)
@@ -203,18 +223,6 @@ struct HUDContentView: View {
             recordingWaveOpacity = 0
             resultOffsetY = 2
 
-        case .transientLabel:
-            phase = .result
-            capsuleWidth = 88
-            capsuleScale = 1
-            capsuleYOffset = 0
-            recordingOpacity = 0
-            processingOpacity = 0
-            resultOpacity = 1
-            recordingControlsOpacity = 0
-            recordingWaveOpacity = 0
-            resultOffsetY = 0
-
         case .success, .failure, .cancelled:
             phase = .result
             capsuleWidth = 72
@@ -302,8 +310,6 @@ struct HUDContentView: View {
             return ("warn", reason.shortLabel)
         case .cancelled:
             return ("x", "已取消")
-        case .transientLabel(let label):
-            return ("", label)
         default:
             return ("check", "")
         }

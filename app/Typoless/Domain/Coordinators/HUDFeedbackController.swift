@@ -11,6 +11,7 @@ final class HUDFeedbackController {
     // MARK: - Observable State (HUDContentView 读取)
 
     private(set) var hudState: HUDState = .hidden
+    private(set) var modeCueLabel: String?
     private(set) var barHeights: [CGFloat] = Array(repeating: 1, count: 7)
     private(set) var barOpacities: [Double] = Array(repeating: 0.28, count: 7)
     private(set) var isHUDPresented = false
@@ -31,6 +32,7 @@ final class HUDFeedbackController {
     private var hudWindow: HUDWindow?
     private var hostingView: NSHostingView<HUDContentView>?
     private var dismissTask: Task<Void, Never>?
+    private var modeCueTask: Task<Void, Never>?
     private var levelPollingTask: Task<Void, Never>?
     private var escEventTap: CFMachPort?
     private var escRunLoopSource: CFRunLoopSource?
@@ -55,6 +57,7 @@ final class HUDFeedbackController {
 
         switch event {
         case .recordingStarted:
+            clearModeCue()
             hudState = .recording
             showHUD()
             startLevelPolling()
@@ -66,6 +69,7 @@ final class HUDFeedbackController {
             }
 
         case .recordingStopped:
+            clearModeCue()
             if shouldPlayInteractionSound {
                 soundPlayer.playStop()
             }
@@ -77,25 +81,24 @@ final class HUDFeedbackController {
 
         case .modeSwitched(let mode):
             let label = (mode == .translate) ? "TRANSLATE" : "DICTATE"
-            hudState = .transientLabel(label)
-            showHUD()
-            // 暂时隐藏声波与左右按钮
-            stopLevelPolling()
-            stopEscMonitor()
-            Task { [weak self] in
+            guard hudState == .recording else { return }
+            modeCueLabel = label
+            modeCueTask?.cancel()
+            modeCueTask = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(650))
                 guard let self else { return }
-                guard self.hudState == .transientLabel(label) else { return }
-                self.hudState = .recording
-                self.startLevelPolling()
-                self.startEscMonitor()
+                guard self.hudState == .recording, self.modeCueLabel == label else { return }
+                self.modeCueLabel = nil
+                self.modeCueTask = nil
             }
 
         case .processingFinished:
+            clearModeCue()
             hudState = .success
             scheduleDismiss(after: 0.8)
 
         case .processingFailed(let reason):
+            clearModeCue()
             stopLevelPolling()
             stopEscMonitor()
             resetBars()
@@ -108,6 +111,7 @@ final class HUDFeedbackController {
             scheduleDismiss(after: 1.2)
 
         case .processingCancelled:
+            clearModeCue()
             stopLevelPolling()
             stopEscMonitor()
             resetBars()
@@ -252,6 +256,12 @@ final class HUDFeedbackController {
         barOpacities = Array(repeating: 0.28, count: Self.barsCount)
     }
 
+    private func clearModeCue() {
+        modeCueTask?.cancel()
+        modeCueTask = nil
+        modeCueLabel = nil
+    }
+
     // MARK: - Window Management
 
     private func showHUD() {
@@ -269,6 +279,7 @@ final class HUDFeedbackController {
     }
 
     private func dismissHUD() {
+        clearModeCue()
         stopLevelPolling()
         let gen = presentationGeneration
         NSAnimationContext.runAnimationGroup({ context in

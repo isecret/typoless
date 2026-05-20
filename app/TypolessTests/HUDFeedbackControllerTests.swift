@@ -66,4 +66,41 @@ final class HUDFeedbackControllerTests: XCTestCase {
         XCTAssertEqual(soundPlayer.startCount, 1)
         XCTAssertEqual(soundPlayer.stopCount, 1)
     }
+
+    func testModeSwitchCueKeepsRecordingState() {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.recordingStarted)
+        controller.handleEvent(.modeSwitched(.translate))
+
+        XCTAssertEqual(controller.hudState, .recording)
+        XCTAssertEqual(controller.modeCueLabel, "TRANSLATE")
+    }
+
+    func testConsecutiveModeSwitchCueShowsLatestLabel() async {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.recordingStarted)
+        controller.handleEvent(.modeSwitched(.translate))
+        controller.handleEvent(.modeSwitched(.polish))
+
+        XCTAssertEqual(controller.hudState, .recording)
+        XCTAssertEqual(controller.modeCueLabel, "DICTATE")
+
+        try? await Task.sleep(for: .milliseconds(700))
+
+        XCTAssertEqual(controller.hudState, .recording)
+        XCTAssertNil(controller.modeCueLabel)
+    }
+
+    func testStoppingRecordingClearsModeCue() {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.recordingStarted)
+        controller.handleEvent(.modeSwitched(.translate))
+        controller.handleEvent(.recordingStopped)
+
+        XCTAssertEqual(controller.hudState, .processing)
+        XCTAssertNil(controller.modeCueLabel)
+    }
 }
