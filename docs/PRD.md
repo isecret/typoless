@@ -174,7 +174,8 @@ HUD 复制入口（待 HTML 原型验证）：
 
 - Base URL 输入框
 - API Key 输入框
-- Model 输入框
+- Model 输入框；当服务支持 OpenAI 兼容 `/models` endpoint 时，设置页自动获取模型列表供用户选择
+- 若服务不支持 `/models` 或获取失败，用户仍可手动输入 Model；手动输入与列表选择可同时使用
 
 #### B. 快捷键配置
 

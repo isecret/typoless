@@ -250,6 +250,14 @@
 - 不处理 UI 和回退逻辑
 - Prompt 可接收个人词典术语参考，但不开放用户自定义 Prompt
 
+### 5.6.1 LLMModelProvider
+
+- 用于设置页辅助获取模型列表，不参与主链路润色请求。
+- 基于当前 `Base URL` 调用 OpenAI 兼容 `/models` endpoint，使用当前 `API Key` 认证。
+- 成功时解析 `data[].id` 作为候选模型，并在 UI 中供用户选择。
+- 当服务不支持 `/models`、响应异常、网络失败或返回空列表时，不影响手动输入 Model，也不改变 LLM 运行时配置完整性判断。
+- 最终持久化配置仍只有 `Base URL`、`API Key`、`Model` 与内部兼容性字段 `thinkingDisabled`。
+
 ### 5.7 TextInjector
 
 - 默认通过剪贴板写入 + 粘贴快捷键将文本注入当前焦点应用

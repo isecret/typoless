@@ -7,6 +7,7 @@ struct LLMSettingsView: View {
     @State private var apiKey: String = ""
     @State private var model: String = ""
     @State private var validationService: LLMValidationService?
+    @State private var modelListService: LLMModelListService?
     @State private var hasTriggeredValidation = false
     @State private var isLoaded = false
     @State private var saveTask: Task<Void, Never>?
@@ -20,7 +21,33 @@ struct LLMSettingsView: View {
                 SettingsSecureInputField(text: $apiKey)
             }
             SettingsFormRow(title: "Model") {
-                SettingsTextInputField(text: $model, width: 220)
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 8) {
+                        SettingsTextInputField(text: $model, width: 232)
+
+                        Menu {
+                            modelListMenuContent
+                        } label: {
+                            Image(systemName: "chevron.down.circle")
+                                .frame(width: 18, height: 18)
+                        }
+                        .disabled(modelListService?.models.isEmpty ?? true)
+                        .buttonStyle(.borderless)
+                        .help("选择模型")
+
+                        Button {
+                            loadModelList(force: true)
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .frame(width: 18, height: 18)
+                        }
+                        .disabled(!currentModelListInput().isComplete || modelListService?.status == .loading)
+                        .buttonStyle(.borderless)
+                        .help("刷新模型列表")
+                    }
+
+                    modelListStatusView
+                }
             }
             SettingsFormRow(title: "模型状态") {
                 VStack(alignment: .trailing, spacing: 4) {
@@ -47,7 +74,9 @@ struct LLMSettingsView: View {
         .onAppear {
             loadDraft()
             _ = ensureValidationService()
+            _ = ensureModelListService()
             isLoaded = true
+            loadModelList()
         }
         .onDisappear { flushPendingSave() }
         .onChange(of: baseURL) { debouncedSave() }
@@ -96,6 +125,8 @@ struct LLMSettingsView: View {
                 )
             )
         }
+
+        loadModelList()
     }
 
     private func ensureValidationService() -> LLMValidationService {
@@ -110,6 +141,16 @@ struct LLMSettingsView: View {
         return service
     }
 
+    private func ensureModelListService() -> LLMModelListService {
+        if let modelListService {
+            return modelListService
+        }
+
+        let service = LLMModelListService()
+        modelListService = service
+        return service
+    }
+
     private func currentValidationInput() -> LLMValidationInput {
         LLMValidationInput(
             baseURL: baseURL,
@@ -117,6 +158,50 @@ struct LLMSettingsView: View {
             model: model,
             thinkingDisabled: configStore.llmConfig.thinkingDisabled
         )
+    }
+
+    private func currentModelListInput() -> LLMModelListInput {
+        LLMModelListInput(
+            baseURL: baseURL,
+            apiKey: apiKey
+        )
+    }
+
+    private func loadModelList(force: Bool = false) {
+        ensureModelListService().load(currentModelListInput(), force: force)
+    }
+
+    @ViewBuilder
+    private var modelListMenuContent: some View {
+        ForEach(modelListService?.models ?? [], id: \.self) { modelName in
+            Button(modelName) {
+                model = modelName
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modelListStatusView: some View {
+        switch modelListService?.status ?? .incomplete {
+        case .incomplete:
+            EmptyView()
+        case .loading:
+            HStack(spacing: 6) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在获取模型列表")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        case .loaded:
+            Text("已获取 \(modelListService?.models.count ?? 0) 个模型，也可手动输入")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .unavailable:
+            Text("无法获取模型列表，可手动输入")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder
