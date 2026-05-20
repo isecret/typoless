@@ -20,7 +20,15 @@ final class AppCoordinator {
     let dictionaryStore: PersonalDictionaryStore
     let updateService: AppUpdateService
 
+    var selectedSettingsTab: SettingsTab = .general {
+        didSet {
+            resizeSettingsWindow(to: selectedSettingsTab, animated: true)
+        }
+    }
+
     private var settingsWindowController: NSWindowController?
+    private var settingsToolbarCoordinator: SettingsToolbarCoordinator?
+    private var settingsContentSizes: [SettingsTab: NSSize] = [:]
 
     init() {
         let store = ConfigStore()
@@ -79,9 +87,12 @@ final class AppCoordinator {
         if settingsWindowController == nil {
             let hostingController = NSHostingController(rootView: SettingsView(appCoordinator: self))
             let window = NSWindow(contentViewController: hostingController)
-            window.title = "设置"
-            window.setContentSize(NSSize(width: 520, height: 680))
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.title = selectedSettingsTab.title
+            window.setContentSize(settingsContentSize(for: selectedSettingsTab))
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.titleVisibility = .visible
+            window.toolbarStyle = .preference
+            window.toolbar = makeSettingsToolbar()
             window.isReleasedWhenClosed = false
             window.center()
             window.initialFirstResponder = window.contentView
@@ -96,6 +107,26 @@ final class AppCoordinator {
             }
         }
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func updateSettingsContentSize(_ size: CGSize, for tab: SettingsTab) {
+        guard size.width > 0, size.height > 0 else { return }
+
+        let contentSize = NSSize(
+            width: ceil(size.width),
+            height: ceil(size.height) + 1
+        )
+        let previousSize = settingsContentSizes[tab]
+        guard previousSize == nil
+            || abs((previousSize?.width ?? 0) - contentSize.width) > 0.5
+            || abs((previousSize?.height ?? 0) - contentSize.height) > 0.5
+        else {
+            return
+        }
+
+        settingsContentSizes[tab] = contentSize
+        guard tab == selectedSettingsTab else { return }
+        resizeSettingsWindow(to: tab, animated: settingsWindowController?.window?.isVisible == true)
     }
 
     /// 将最近一次注入失败文本复制到系统剪贴板
@@ -140,5 +171,100 @@ final class AppCoordinator {
         case .finishRecording:
             sessionCoordinator.finishRecording()
         }
+    }
+
+    private func makeSettingsToolbar() -> NSToolbar {
+        let coordinator = SettingsToolbarCoordinator { [weak self] tab in
+            self?.selectedSettingsTab = tab
+        }
+        settingsToolbarCoordinator = coordinator
+
+        let toolbar = NSToolbar(identifier: "TypolessSettingsToolbar")
+        toolbar.delegate = coordinator
+        toolbar.displayMode = .iconAndLabel
+        toolbar.sizeMode = .regular
+        toolbar.allowsUserCustomization = false
+        toolbar.autosavesConfiguration = false
+        toolbar.selectedItemIdentifier = .settingsTab(.general)
+        return toolbar
+    }
+
+    private func resizeSettingsWindow(to tab: SettingsTab, animated: Bool) {
+        guard let window = settingsWindowController?.window else { return }
+
+        let currentFrame = window.frame
+        window.title = tab.title
+
+        let contentRect = NSRect(origin: .zero, size: settingsContentSize(for: tab))
+        let frameSize = window.frameRect(forContentRect: contentRect).size
+        let newFrame = NSRect(
+            x: currentFrame.minX,
+            y: currentFrame.maxY - frameSize.height,
+            width: frameSize.width,
+            height: frameSize.height
+        )
+
+        window.setFrame(newFrame, display: true, animate: animated)
+    }
+
+    private func settingsContentSize(for tab: SettingsTab) -> NSSize {
+        settingsContentSizes[tab] ?? tab.defaultContentSize
+    }
+}
+
+private final class SettingsToolbarCoordinator: NSObject, NSToolbarDelegate {
+    private let onSelect: (SettingsTab) -> Void
+
+    init(onSelect: @escaping (SettingsTab) -> Void) {
+        self.onSelect = onSelect
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        SettingsTab.allCases.map { .settingsTab($0) }
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarAllowedItemIdentifiers(toolbar)
+    }
+
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarAllowedItemIdentifiers(toolbar)
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        guard let tab = itemIdentifier.settingsTab else { return nil }
+
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+        item.label = tab.title
+        item.paletteLabel = tab.title
+        item.toolTip = tab.title
+        item.image = NSImage(systemSymbolName: tab.systemImage, accessibilityDescription: tab.title)
+        item.target = self
+        item.action = #selector(selectToolbarItem(_:))
+        return item
+    }
+
+    @MainActor
+    @objc
+    private func selectToolbarItem(_ sender: NSToolbarItem) {
+        guard let tab = sender.itemIdentifier.settingsTab else { return }
+        sender.toolbar?.selectedItemIdentifier = sender.itemIdentifier
+        onSelect(tab)
+    }
+}
+
+private extension NSToolbarItem.Identifier {
+    static func settingsTab(_ tab: SettingsTab) -> NSToolbarItem.Identifier {
+        NSToolbarItem.Identifier("TypolessSettingsToolbar.\(tab.rawValue)")
+    }
+
+    var settingsTab: SettingsTab? {
+        let prefix = "TypolessSettingsToolbar."
+        guard rawValue.hasPrefix(prefix) else { return nil }
+        return SettingsTab(rawValue: String(rawValue.dropFirst(prefix.count)))
     }
 }

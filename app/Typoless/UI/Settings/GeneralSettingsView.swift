@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     let configStore: ConfigStore
+    let updateService: AppUpdateService
     var onHotkeyChanged: (() -> Void)?
 
     @State private var hotkey: HotkeyCombo = .default
@@ -11,32 +12,24 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Group {
-            Section {
+            SettingsPaneSection {
                 SettingsFormRow(title: "全局快捷键") {
                     HotkeyRecorderView(hotkey: $hotkey)
                 }
-            } header: {
-                Text("全局快捷键")
             } footer: {
                 Text("触发录音的全局快捷键")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
-            Section {
+            SettingsPaneSection {
                 SettingsFormRow(title: "交互音效") {
                     Toggle("启用", isOn: $interactionSoundEnabled)
                         .labelsHidden()
                 }
-            } header: {
-                Text("反馈")
             } footer: {
                 Text("开始录音和结束录音时播放提示音")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
-            Section {
+            SettingsPaneSection {
                 SettingsFormRow(title: "翻译目标语言") {
                     Picker("", selection: $translationTargetLanguage) {
                         ForEach(TranslationTargetLanguage.allCases, id: \.self) { lang in
@@ -46,12 +39,31 @@ struct GeneralSettingsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                 }
-            } header: {
-                Text("翻译")
             } footer: {
-                Text("录音结束后将文本翻译为目标语言（仅在录音中切换至翻译模式时生效）")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text("按下 Shift+Tab 切换至翻译模式将文本翻译为目标语言")
+            }
+
+            SettingsPaneSection {
+                SettingsFormRow(title: "自动检查更新") {
+                    HStack(spacing: 14) {
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { updateService.automaticallyChecksForUpdates },
+                                set: { updateService.setAutomaticallyChecksForUpdates($0) }
+                            )
+                        )
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+
+                        Button("检查更新") {
+                            updateService.checkForUpdates()
+                        }
+                        .disabled(!updateService.canCheckForUpdates)
+                    }
+                }
+            } footer: {
+                EmptyView()
             }
         }
         .onAppear {

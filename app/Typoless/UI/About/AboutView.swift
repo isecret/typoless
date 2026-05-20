@@ -20,20 +20,6 @@ struct AboutView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Toggle(
-                "自动检查更新",
-                isOn: Binding(
-                    get: { appCoordinator.updateService.automaticallyChecksForUpdates },
-                    set: { appCoordinator.updateService.setAutomaticallyChecksForUpdates($0) }
-                )
-            )
-            .toggleStyle(.checkbox)
-
-            Button("检查更新") {
-                appCoordinator.updateService.checkForUpdates()
-            }
-            .disabled(!appCoordinator.updateService.canCheckForUpdates)
-
             Link(destination: githubURL) {
                 HStack(spacing: 4) {
                     Image(systemName: "link")

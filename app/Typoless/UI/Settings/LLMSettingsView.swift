@@ -13,7 +13,7 @@ struct LLMSettingsView: View {
     @State private var saveTask: Task<Void, Never>?
 
     var body: some View {
-        Section {
+        SettingsPaneSection {
             SettingsFormRow(title: "Base URL") {
                 SettingsTextInputField(text: $baseURL)
             }
@@ -21,9 +21,9 @@ struct LLMSettingsView: View {
                 SettingsSecureInputField(text: $apiKey)
             }
             SettingsFormRow(title: "Model") {
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        SettingsTextInputField(text: $model, width: 232)
+                        SettingsTextInputField(text: $model, width: 276)
 
                         Menu {
                             modelListMenuContent
@@ -50,7 +50,7 @@ struct LLMSettingsView: View {
                 }
             }
             SettingsFormRow(title: "模型状态") {
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
                     validationStatusView
 
                     if hasTriggeredValidation,
@@ -60,16 +60,12 @@ struct LLMSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                             .lineLimit(2)
-                            .frame(width: 320, alignment: .trailing)
+                            .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
                     }
                 }
             }
-        } header: {
-            Text("AI 配置")
         } footer: {
             Text("支持 OpenAI Chat Completions 兼容接口。填写后自动启用 AI 润色。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .onAppear {
             loadDraft()

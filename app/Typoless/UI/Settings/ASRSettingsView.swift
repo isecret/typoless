@@ -23,7 +23,7 @@ struct ASRSettingsView: View {
     @State private var saveTask: Task<Void, Never>?
 
     var body: some View {
-        Section {
+        SettingsPaneSection {
             SettingsFormRow(title: "语音引擎") {
                 Picker("语音引擎", selection: $selectedPlatform) {
                     ForEach(ASRPlatform.allCases, id: \.self) { platform in
@@ -31,7 +31,7 @@ struct ASRSettingsView: View {
                     }
                 }
                 .labelsHidden()
-                .frame(width: 320, alignment: .trailing)
+                .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
             }
 
             switch selectedPlatform {
@@ -46,12 +46,8 @@ struct ASRSettingsView: View {
             case .xunfeiSentence:
                 xunfeiPanel
             }
-        } header: {
-            Text("语音识别")
         } footer: {
             Text(selectedPlatform.cloudConfigSummary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .onAppear {
             loadDraft()
@@ -89,7 +85,7 @@ struct ASRSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                         .lineLimit(2)
-                        .frame(width: 320, alignment: .trailing)
+                        .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
                 }
             }
         }

@@ -4,28 +4,36 @@ struct PermissionsSettingsView: View {
     let permissionsManager: PermissionsManager
 
     var body: some View {
-        Section("麦克风权限") {
-            HStack(spacing: 8) {
-                PermissionStatusBadge(granted: permissionsManager.microphoneStatus == .granted)
-                Text(microphoneStatusText)
-                Spacer()
-                microphoneActionButton
+        Group {
+            SettingsPaneSection {
+                SettingsFormRow(title: "麦克风权限") {
+                    HStack(spacing: 8) {
+                        PermissionStatusBadge(granted: permissionsManager.microphoneStatus == .granted)
+                        Text(microphoneStatusText)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        microphoneActionButton
+                    }
+                    .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+                }
+            } footer: {
+                Text(microphoneDescription)
             }
-            Text(microphoneDescription)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
 
-        Section("辅助功能权限") {
-            HStack(spacing: 8) {
-                PermissionStatusBadge(granted: permissionsManager.accessibilityStatus == .granted)
-                Text(accessibilityStatusText)
-                Spacer()
-                accessibilityActionButton
+            SettingsPaneSection {
+                SettingsFormRow(title: "辅助功能权限") {
+                    HStack(spacing: 8) {
+                        PermissionStatusBadge(granted: permissionsManager.accessibilityStatus == .granted)
+                        Text(accessibilityStatusText)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        accessibilityActionButton
+                    }
+                    .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+                }
+            } footer: {
+                Text("用于将识别结果注入到当前焦点应用的输入框。")
             }
-            Text("用于将识别结果注入到当前焦点应用的输入框。")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
         }
         .onAppear { permissionsManager.refreshAll() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
