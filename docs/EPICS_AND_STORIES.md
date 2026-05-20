@@ -108,6 +108,8 @@
 验收标准：
 
 - 支持输入 `Base URL`、`API Key`、`Model`
+- 支持在 `Base URL` 和 `API Key` 完整时从 OpenAI 兼容 `/models` 获取候选模型
+- 当服务不支持 `/models` 或获取失败时，仍可手动输入 `Model`
 - 配置值可保存并重新加载
 
 #### S2.4 实现功能开关与快捷键配置项
