@@ -65,7 +65,7 @@ struct LLMSettingsView: View {
                 }
             }
         } footer: {
-            Text("支持 OpenAI Chat Completions 兼容接口。填写后自动启用 AI 润色。")
+            Text("支持 OpenAI Chat Completions 兼容接口。配置完整后，在识别后自动整理文本。")
         }
         .onAppear {
             loadDraft()

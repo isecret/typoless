@@ -207,15 +207,18 @@ struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
     var interactionSoundEnabled: Bool = true
     var translationTargetLanguage: TranslationTargetLanguage = .english
+    var launchAtLogin: Bool = false
 
     init(
         hotkey: HotkeyCombo = .default,
         interactionSoundEnabled: Bool = true,
-        translationTargetLanguage: TranslationTargetLanguage = .english
+        translationTargetLanguage: TranslationTargetLanguage = .english,
+        launchAtLogin: Bool = false
     ) {
         self.hotkey = hotkey
         self.interactionSoundEnabled = interactionSoundEnabled
         self.translationTargetLanguage = translationTargetLanguage
+        self.launchAtLogin = launchAtLogin
     }
 }
 

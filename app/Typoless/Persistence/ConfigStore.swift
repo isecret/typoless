@@ -106,24 +106,28 @@ final class ConfigStore {
             var interactionSoundEnabled: Bool = true
             var automaticUpdateChecksEnabled: Bool?
             var translationTargetLanguage: TranslationTargetLanguage = .english
+            var launchAtLogin: Bool = false
 
             enum CodingKeys: String, CodingKey {
                 case hotkey
                 case interactionSoundEnabled
                 case automaticUpdateChecksEnabled
                 case translationTargetLanguage
+                case launchAtLogin
             }
 
             init(
                 hotkey: HotkeyCombo = .default,
                 interactionSoundEnabled: Bool = true,
                 automaticUpdateChecksEnabled: Bool? = nil,
-                translationTargetLanguage: TranslationTargetLanguage = .english
+                translationTargetLanguage: TranslationTargetLanguage = .english,
+                launchAtLogin: Bool = false
             ) {
                 self.hotkey = hotkey
                 self.interactionSoundEnabled = interactionSoundEnabled
                 self.automaticUpdateChecksEnabled = automaticUpdateChecksEnabled
                 self.translationTargetLanguage = translationTargetLanguage
+                self.launchAtLogin = launchAtLogin
             }
 
             init(from decoder: Decoder) throws {
@@ -132,6 +136,7 @@ final class ConfigStore {
                 interactionSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .interactionSoundEnabled) ?? true
                 automaticUpdateChecksEnabled = try container.decodeIfPresent(Bool.self, forKey: .automaticUpdateChecksEnabled)
                 translationTargetLanguage = try container.decodeIfPresent(TranslationTargetLanguage.self, forKey: .translationTargetLanguage) ?? .english
+                launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? false
             }
 
             func encode(to encoder: Encoder) throws {
@@ -139,13 +144,15 @@ final class ConfigStore {
                 try container.encode(hotkey, forKey: .hotkey)
                 try container.encode(interactionSoundEnabled, forKey: .interactionSoundEnabled)
                 try container.encode(translationTargetLanguage, forKey: .translationTargetLanguage)
+                try container.encode(launchAtLogin, forKey: .launchAtLogin)
             }
 
             var publicConfig: GeneralConfig {
                 GeneralConfig(
                     hotkey: hotkey,
                     interactionSoundEnabled: interactionSoundEnabled,
-                    translationTargetLanguage: translationTargetLanguage
+                    translationTargetLanguage: translationTargetLanguage,
+                    launchAtLogin: launchAtLogin
                 )
             }
         }
@@ -238,7 +245,8 @@ final class ConfigStore {
         configFile.general = ConfigFile.GeneralFileConfig(
             hotkey: config.hotkey,
             interactionSoundEnabled: config.interactionSoundEnabled,
-            translationTargetLanguage: config.translationTargetLanguage
+            translationTargetLanguage: config.translationTargetLanguage,
+            launchAtLogin: config.launchAtLogin
         )
         try writeConfigFile(configFile)
 
@@ -315,7 +323,8 @@ final class ConfigStore {
             general: ConfigFile.GeneralFileConfig(
                 hotkey: generalConfig.hotkey,
                 interactionSoundEnabled: generalConfig.interactionSoundEnabled,
-                translationTargetLanguage: generalConfig.translationTargetLanguage
+                translationTargetLanguage: generalConfig.translationTargetLanguage,
+                launchAtLogin: generalConfig.launchAtLogin
             ),
             asr: asrConfig,
             audio: audioInputConfig

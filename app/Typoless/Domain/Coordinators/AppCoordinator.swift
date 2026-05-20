@@ -75,6 +75,11 @@ final class AppCoordinator {
         setupHotkey()
         updateService.start()
 
+        // Ensure system login item state matches config
+        if configStore.generalConfig.launchAtLogin {
+            try? LaunchAtLoginManager.setEnabled(true)
+        }
+
         guard !configStore.hasCompletedInitialSetup else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(200))

@@ -8,6 +8,7 @@ struct GeneralSettingsView: View {
     @State private var hotkey: HotkeyCombo = .default
     @State private var interactionSoundEnabled = true
     @State private var translationTargetLanguage: TranslationTargetLanguage = .english
+    @State private var launchAtLogin = false
     @State private var isLoaded = false
 
     var body: some View {
@@ -17,7 +18,7 @@ struct GeneralSettingsView: View {
                     HotkeyRecorderView(hotkey: $hotkey)
                 }
             } footer: {
-                Text("触发录音的全局快捷键")
+                Text("按下语音输入的全局快捷键")
             }
 
             SettingsPaneSection {
@@ -41,6 +42,15 @@ struct GeneralSettingsView: View {
                 }
             } footer: {
                 Text("按下 Shift+Tab 切换至翻译模式将文本翻译为目标语言")
+            }
+
+            SettingsPaneSection {
+                SettingsFormRow(title: "开机自启动") {
+                    Toggle("在登录时启动", isOn: $launchAtLogin)
+                        .labelsHidden()
+                }
+            } footer: {
+                Text("启用后将随 macOS 登录时自启动")
             }
 
             SettingsPaneSection {
@@ -73,12 +83,14 @@ struct GeneralSettingsView: View {
         .onChange(of: hotkey) { immediateSaveWithHotkey() }
         .onChange(of: interactionSoundEnabled) { immediateSaveGeneralConfig() }
         .onChange(of: translationTargetLanguage) { immediateSaveGeneralConfig() }
+        .onChange(of: launchAtLogin) { immediateSaveGeneralConfig() }
     }
 
     private func loadDraft() {
         hotkey = configStore.generalConfig.hotkey
         interactionSoundEnabled = configStore.generalConfig.interactionSoundEnabled
         translationTargetLanguage = configStore.generalConfig.translationTargetLanguage
+        launchAtLogin = configStore.generalConfig.launchAtLogin
     }
 
     private func immediateSaveWithHotkey() {
@@ -89,10 +101,14 @@ struct GeneralSettingsView: View {
 
     private func immediateSaveGeneralConfig() {
         guard isLoaded else { return }
+        // Apply launch-at-login change first so system state matches user preference
+        try? LaunchAtLoginManager.setEnabled(launchAtLogin)
+
         let config = GeneralConfig(
             hotkey: hotkey,
             interactionSoundEnabled: interactionSoundEnabled,
-            translationTargetLanguage: translationTargetLanguage
+            translationTargetLanguage: translationTargetLanguage,
+            launchAtLogin: launchAtLogin
         )
         try? configStore.saveGeneralConfig(config)
     }
