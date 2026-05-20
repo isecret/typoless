@@ -206,13 +206,16 @@ struct AudioInputDevice: Identifiable, Equatable, Sendable {
 struct GeneralConfig: Codable, Equatable, Sendable {
     var hotkey: HotkeyCombo = .default
     var interactionSoundEnabled: Bool = true
+    var translationTargetLanguage: TranslationTargetLanguage = .english
 
     init(
         hotkey: HotkeyCombo = .default,
-        interactionSoundEnabled: Bool = true
+        interactionSoundEnabled: Bool = true,
+        translationTargetLanguage: TranslationTargetLanguage = .english
     ) {
         self.hotkey = hotkey
         self.interactionSoundEnabled = interactionSoundEnabled
+        self.translationTargetLanguage = translationTargetLanguage
     }
 }
 

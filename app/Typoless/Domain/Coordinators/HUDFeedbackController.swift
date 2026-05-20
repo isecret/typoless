@@ -19,6 +19,7 @@ final class HUDFeedbackController {
 
     var onCancelRecording: (() -> Void)?
     var onConfirmRecording: (() -> Void)?
+    var onToggleProcessingMode: (() -> Void)?
     /// 返回 0-1 归一化电平的闭包，录音期间由 SessionCoordinator 提供
     var audioLevelProvider: (() -> Float)?
     /// 返回当前是否启用交互音效的闭包，由 AppCoordinator 提供
@@ -73,6 +74,22 @@ final class HUDFeedbackController {
             resetBars()
             hudState = .processing
             updateMouseInteraction()
+
+        case .modeSwitched(let mode):
+            let label = (mode == .translate) ? "TRANSLATE" : "DICTATE"
+            hudState = .transientLabel(label)
+            showHUD()
+            // 暂时隐藏声波与左右按钮
+            stopLevelPolling()
+            stopEscMonitor()
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(650))
+                guard let self else { return }
+                guard self.hudState == .transientLabel(label) else { return }
+                self.hudState = .recording
+                self.startLevelPolling()
+                self.startEscMonitor()
+            }
 
         case .processingFinished:
             hudState = .success
@@ -146,16 +163,27 @@ final class HUDFeedbackController {
                 .fromOpaque(userInfo)
                 .takeUnretainedValue()
 
-            guard event.getIntegerValueField(.keyboardEventKeycode) == 53 else {
-                return Unmanaged.passRetained(event)
+            let keycode = event.getIntegerValueField(.keyboardEventKeycode)
+
+            // ESC
+            if keycode == 53 {
+                Task { @MainActor in
+                    guard controller.hudState == .recording else { return }
+                    controller.onCancelRecording?()
+                }
+                return nil
             }
 
-            Task { @MainActor in
-                guard controller.hudState == .recording else { return }
-                controller.onCancelRecording?()
+            // Shift+Tab
+            if keycode == 48 && event.flags.contains(.maskShift) {
+                Task { @MainActor in
+                    guard controller.hudState == .recording else { return }
+                    controller.onToggleProcessingMode?()
+                }
+                return nil
             }
 
-            return nil
+            return Unmanaged.passRetained(event)
         }
 
         let ref = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())

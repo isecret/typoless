@@ -203,6 +203,18 @@ struct HUDContentView: View {
             recordingWaveOpacity = 0
             resultOffsetY = 2
 
+        case .transientLabel:
+            phase = .result
+            capsuleWidth = 88
+            capsuleScale = 1
+            capsuleYOffset = 0
+            recordingOpacity = 0
+            processingOpacity = 0
+            resultOpacity = 1
+            recordingControlsOpacity = 0
+            recordingWaveOpacity = 0
+            resultOffsetY = 0
+
         case .success, .failure, .cancelled:
             phase = .result
             capsuleWidth = 72
@@ -285,13 +297,15 @@ struct HUDContentView: View {
     private func resultPayload(for state: HUDState) -> (icon: String, text: String) {
         switch state {
         case .success:
-            ("check", "完成")
+            return ("check", "完成")
         case .failure(let reason):
-            ("warn", reason.shortLabel)
+            return ("warn", reason.shortLabel)
         case .cancelled:
-            ("x", "已取消")
+            return ("x", "已取消")
+        case .transientLabel(let label):
+            return ("", label)
         default:
-            ("check", "")
+            return ("check", "")
         }
     }
 }

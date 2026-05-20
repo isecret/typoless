@@ -120,6 +120,57 @@ struct LLMProvider: Sendable {
         try await performRequest(text: text, responseHandler: parseResponse)
     }
 
+    func translate(text: String, targetLanguage: TranslationTargetLanguage) async throws -> String {
+        let sysPrompt = "你是一个专业的翻译助手。请严格翻译成 \(targetLanguage.displayName)，不扩写、不改原意，只返回翻译后的文本。"
+        let userText = text
+        let url = try buildURL()
+        let body: [String: Any] = [
+            "model": model,
+            "messages": [
+                ["role": "system", "content": sysPrompt],
+                ["role": "user", "content": "请将以下文本翻译成\(targetLanguage.displayName)：\n\n\(userText)"],
+            ],
+        ]
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = bodyData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = Self.timeout
+
+        do {
+            let (responseData, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                switch http.statusCode {
+                case 200:
+                    let resp = try JSONDecoder().decode(LLMResponse.self, from: responseData)
+                    if let apiError = resp.error {
+                        throw TypolessError.llmNetworkFailure(message: apiError.message)
+                    }
+                    guard let content = resp.choices?.first?.message.content,
+                          !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        throw TypolessError.llmEmptyResponse
+                    }
+                    return content.trimmingCharacters(in: .whitespacesAndNewlines)
+                case 401, 403:
+                    throw TypolessError.invalidLLMConfiguration(detail: "认证失败，请检查 API Key")
+                default:
+                    let body = String(data: responseData, encoding: .utf8) ?? ""
+                    throw TypolessError.llmNetworkFailure(message: "HTTP \(http.statusCode): \(body)")
+                }
+            }
+            throw TypolessError.llmNetworkFailure(message: "Invalid response")
+        } catch let error as TypolessError {
+            throw error
+        } catch let error as URLError {
+            throw TypolessError.llmNetworkFailure(message: error.localizedDescription)
+        } catch {
+            throw TypolessError.llmNetworkFailure(message: error.localizedDescription)
+        }
+    }
+
     func validateConfiguration() async throws {
         _ = try await performRequest(text: "请回复 ok。") { data in
             _ = try parseResponse(data)

@@ -40,6 +40,7 @@ final class SessionCoordinator {
     private var soundCueTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
     private var currentSessionID: String = ""
+    private var processingMode: TextProcessingMode = .polish
 
     init(
         permissionsManager: PermissionsManager,
@@ -90,6 +91,7 @@ final class SessionCoordinator {
                 try ResourceValidator.validateASRResources()
             }
             state = .recording
+            processingMode = .polish
             onFeedbackEvent?(.recordingStarted)
 
             beginRecording(
@@ -223,6 +225,14 @@ final class SessionCoordinator {
         default:
             break
         }
+    }
+
+    /// 切换当前录音 session 的文本处理模式（仅在录音态生效）
+    func toggleProcessingMode() {
+        guard state == .recording else { return }
+        processingMode = (processingMode == .polish) ? .translate : .polish
+        diagnostics.log(sessionID: currentSessionID, event: "processing_mode_changed", detail: processingMode.rawValue)
+        onFeedbackEvent?(.modeSwitched(processingMode))
     }
 
     // MARK: - Processing Pipeline
@@ -372,16 +382,41 @@ final class SessionCoordinator {
             fallback: polishResult.structured == nil
         )
 
-        // 4. 文本注入
+        // 4. 文本注入（支持翻译模式）
         state = .injecting
         diag.resultSource = polishResult.source.rawValue
 
-        lastResult = SessionResult(text: polishResult.text, source: polishResult.source)
+        var finalText = polishResult.text
+
+        if processingMode == .translate {
+            let translateStart = Date()
+            do {
+                let targetLanguage = await MainActor.run { configStore.generalConfig.translationTargetLanguage }
+                let translated = try await llmProvider.translate(text: polishResult.text, targetLanguage: targetLanguage)
+                finalText = translated
+                let translateMs = Int(Date().timeIntervalSince(translateStart) * 1000)
+                diag.llmMs = (diag.llmMs ?? 0) + translateMs
+                diagnostics.llmCompleted(sessionID: sessionID, text: finalText, source: polishResult.source.rawValue, durationMs: translateMs)
+            } catch {
+                guard generation == sessionGeneration, !Task.isCancelled else { return }
+                let mapped = mapError(error)
+                let translateMs = Int(Date().timeIntervalSince(translateStart) * 1000)
+                diag.llmMs = (diag.llmMs ?? 0) + translateMs
+                diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+                diag.errorClassification = mapped.diagnosticClassification
+                diagnostics.sessionError(sessionID: sessionID, error: mapped)
+                diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+                handleError(mapped)
+                return
+            }
+        }
+
+        lastResult = SessionResult(text: finalText, source: polishResult.source)
 
         let injectionStart = Date()
         do {
             try textInjector.inject(
-                text: polishResult.text,
+                text: finalText,
                 targetPID: targetApplicationPID,
                 targetBundleID: targetApplicationBundleID
             )
@@ -392,7 +427,7 @@ final class SessionCoordinator {
             diag.errorClassification = mapError(error).diagnosticClassification
             diagnostics.sessionError(sessionID: sessionID, error: mapError(error))
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            lastInjectionFailureText = polishResult.text
+            lastInjectionFailureText = finalText
             handleError(mapError(error))
             return
         }

@@ -6,6 +6,7 @@ enum SessionFeedbackEvent: Sendable {
     /// 录音器已启动且硬件配置已稳定，可安全播放开始音效
     case startSoundCue
     case recordingStopped
+    case modeSwitched(TextProcessingMode)
     case processingFinished
     case processingCancelled
     case processingFailed(HUDFailureReason)

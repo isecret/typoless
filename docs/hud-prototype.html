@@ -190,6 +190,13 @@
       padding-right: 5px;
     }
 
+    .hud.recording.mode-cue {
+      width: 88px;
+      min-width: 88px;
+      padding-left: 6px;
+      padding-right: 6px;
+    }
+
     .hud-btn {
       width: 17px;
       height: 17px;
@@ -241,18 +248,47 @@
       transform: translateX(2px);
     }
 
-    .wave {
+    .recording-middle {
       flex: 0 0 34px;
+      position: relative;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: flex-basis 220ms ease;
+    }
+
+    .hud.recording .recording-middle {
+      flex-basis: 30px;
+    }
+
+    .wave {
+      position: absolute;
+      inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 1px;
-      height: 100%;
       padding: 0 1px;
+      opacity: 1;
+      transform: scaleY(1);
+      transition: opacity 120ms ease, transform 160ms ease;
     }
 
-    .hud.recording .wave {
-      flex-basis: 30px;
+    .mode-cue-text {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      text-transform: uppercase;
+      white-space: nowrap;
+      animation: modeCuePop 220ms cubic-bezier(0.2, 0.9, 0.24, 1.16);
     }
 
     .bar {
@@ -345,6 +381,17 @@
       }
     }
 
+    @keyframes modeCuePop {
+      0% {
+        opacity: 0;
+        transform: translateY(1px) scale(0.96);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
     @media (max-width: 720px) {
       .controls {
         right: 16px;
@@ -407,6 +454,18 @@
           <button data-mode="auto">自动起伏</button>
         </div>
       </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>录音模式</span>
+          <span id="processingModeLabel">Dictate</span>
+        </div>
+        <div class="secondary-row">
+          <button id="toggleProcessingModeBtn">切换模式</button>
+          <button id="replayCueBtn">重放提示</button>
+        </div>
+        <div class="hint">录音态按 Shift+Tab 可切换。切换时短暂收起左右按钮，只显示 TRANSLATE 或 DICTATE，随后恢复声波。</div>
+      </div>
     </section>
 
     <section class="stage">
@@ -421,14 +480,20 @@
     const levelValue = document.getElementById("levelValue");
     const stateSwitch = document.getElementById("stateSwitch");
     const modeSwitch = document.getElementById("modeSwitch");
+    const processingModeLabel = document.getElementById("processingModeLabel");
+    const toggleProcessingModeBtn = document.getElementById("toggleProcessingModeBtn");
+    const replayCueBtn = document.getElementById("replayCueBtn");
 
     const barsCount = 11;
     let state = "recording";
+    let processingMode = "dictate";
     let mode = "manual";
     let level = Number(levelRange.value) / 100;
     let bars = [];
     let tickId = null;
     let thinkingTimeoutId = null;
+    let cueTimeoutId = null;
+    let activeCueLabel = "";
 
     function icon(type) {
       if (type === "x") {
@@ -465,9 +530,19 @@
 
       if (state === "recording") {
         hudRoot.classList.add("recording");
+        if (activeCueLabel) {
+          hudRoot.classList.add("mode-cue");
+          hudRoot.innerHTML = `<div class="mode-cue-text">${activeCueLabel}</div>`;
+          bars = [];
+          stopWaveAnimation();
+          updateRecordingLabels();
+          return;
+        }
         hudRoot.innerHTML = `
           <button class="hud-btn" id="cancelBtn" aria-label="取消录音">${icon("x")}</button>
-          <div class="wave" id="wave"></div>
+          <div class="recording-middle">
+            <div class="wave" id="wave"></div>
+          </div>
           <button class="hud-btn confirm" id="confirmBtn" aria-label="完成录音">${icon("check")}</button>
         `;
         const wave = document.getElementById("wave");
@@ -506,14 +581,23 @@
         failure: "Failure",
         cancelled: "Cancelled"
       }[state];
+      updateRecordingLabels();
 
       Array.from(stateSwitch.querySelectorAll("button")).forEach((button) => {
         button.classList.toggle("active", button.dataset.state === state);
       });
     }
 
+    function updateRecordingLabels() {
+      processingModeLabel.textContent = processingMode === "translate" ? "Translate" : "Dictate";
+    }
+
     function setState(nextState) {
       clearThinkingTimeout();
+      clearCueTimeout();
+      if (nextState === "recording" && state !== "recording") {
+        processingMode = "dictate";
+      }
       state = nextState;
       render();
     }
@@ -525,8 +609,39 @@
       }
     }
 
+    function clearCueTimeout() {
+      if (cueTimeoutId) {
+        window.clearTimeout(cueTimeoutId);
+        cueTimeoutId = null;
+      }
+      activeCueLabel = "";
+    }
+
+    function showModeCue(label) {
+      if (state !== "recording") return;
+      if (cueTimeoutId) {
+        window.clearTimeout(cueTimeoutId);
+      }
+      activeCueLabel = label;
+      render();
+      cueTimeoutId = window.setTimeout(() => {
+        cueTimeoutId = null;
+        activeCueLabel = "";
+        if (state === "recording") {
+          render();
+        }
+      }, 720);
+    }
+
+    function toggleProcessingMode() {
+      if (state !== "recording") return;
+      processingMode = processingMode === "translate" ? "dictate" : "translate";
+      showModeCue(processingMode === "translate" ? "TRANSLATE" : "DICTATE");
+    }
+
     function finishRecording() {
       if (state !== "recording") return;
+      clearCueTimeout();
       state = "thinking";
       render();
       thinkingTimeoutId = window.setTimeout(() => {
@@ -597,16 +712,31 @@
       });
     });
 
+    toggleProcessingModeBtn.addEventListener("click", toggleProcessingMode);
+
+    replayCueBtn.addEventListener("click", () => {
+      if (state !== "recording") return;
+      showModeCue(processingMode === "translate" ? "TRANSLATE" : "DICTATE");
+    });
+
     levelRange.addEventListener("input", () => {
       level = Number(levelRange.value) / 100;
       levelValue.textContent = `${levelRange.value}%`;
     });
 
     window.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
       if (state !== "recording") return;
-      event.preventDefault();
-      cancelRecording();
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRecording();
+        return;
+      }
+
+      if (event.key === "Tab" && event.shiftKey) {
+        event.preventDefault();
+        toggleProcessingMode();
+      }
     });
 
     render();

@@ -57,6 +57,9 @@ final class AppCoordinator {
         hud.onConfirmRecording = { [weak sessionCoordinator] in
             sessionCoordinator?.finishRecording()
         }
+        hud.onToggleProcessingMode = { [weak sessionCoordinator] in
+            sessionCoordinator?.toggleProcessingMode()
+        }
     }
 
     /// 应用启动后注册快捷键并检查首次配置

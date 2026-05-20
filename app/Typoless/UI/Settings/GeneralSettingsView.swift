@@ -6,6 +6,7 @@ struct GeneralSettingsView: View {
 
     @State private var hotkey: HotkeyCombo = .default
     @State private var interactionSoundEnabled = true
+    @State private var translationTargetLanguage: TranslationTargetLanguage = .english
     @State private var isLoaded = false
 
     var body: some View {
@@ -34,6 +35,24 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                SettingsFormRow(title: "翻译目标语言") {
+                    Picker("", selection: $translationTargetLanguage) {
+                        ForEach(TranslationTargetLanguage.allCases, id: \.self) { lang in
+                            Text(lang.displayName).tag(lang)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+            } header: {
+                Text("翻译")
+            } footer: {
+                Text("录音结束后将文本翻译为目标语言（仅在录音中切换至翻译模式时生效）")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .onAppear {
             loadDraft()
@@ -41,11 +60,13 @@ struct GeneralSettingsView: View {
         }
         .onChange(of: hotkey) { immediateSaveWithHotkey() }
         .onChange(of: interactionSoundEnabled) { immediateSaveGeneralConfig() }
+        .onChange(of: translationTargetLanguage) { immediateSaveGeneralConfig() }
     }
 
     private func loadDraft() {
         hotkey = configStore.generalConfig.hotkey
         interactionSoundEnabled = configStore.generalConfig.interactionSoundEnabled
+        translationTargetLanguage = configStore.generalConfig.translationTargetLanguage
     }
 
     private func immediateSaveWithHotkey() {
@@ -58,7 +79,8 @@ struct GeneralSettingsView: View {
         guard isLoaded else { return }
         let config = GeneralConfig(
             hotkey: hotkey,
-            interactionSoundEnabled: interactionSoundEnabled
+            interactionSoundEnabled: interactionSoundEnabled,
+            translationTargetLanguage: translationTargetLanguage
         )
         try? configStore.saveGeneralConfig(config)
     }
