@@ -29,6 +29,7 @@ final class HUDFeedbackController {
     // MARK: - Private
 
     private let soundPlayer: FeedbackSoundPlaying
+    private let modeCueDuration: Duration
     private var hudWindow: HUDWindow?
     private var hostingView: NSHostingView<HUDContentView>?
     private var dismissTask: Task<Void, Never>?
@@ -42,8 +43,12 @@ final class HUDFeedbackController {
 
     private static let barsCount = 7
 
-    init(soundPlayer: FeedbackSoundPlaying = FeedbackSoundPlayer()) {
+    init(
+        soundPlayer: FeedbackSoundPlaying = FeedbackSoundPlayer(),
+        modeCueDuration: Duration = .milliseconds(650)
+    ) {
         self.soundPlayer = soundPlayer
+        self.modeCueDuration = modeCueDuration
     }
 
     // MARK: - Public Event Handler
@@ -84,8 +89,9 @@ final class HUDFeedbackController {
             guard hudState == .recording else { return }
             modeCueLabel = label
             modeCueTask?.cancel()
+            let duration = modeCueDuration
             modeCueTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(650))
+                try? await Task.sleep(for: duration)
                 guard let self else { return }
                 guard self.hudState == .recording, self.modeCueLabel == label else { return }
                 self.modeCueLabel = nil

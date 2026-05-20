@@ -78,7 +78,7 @@ final class HUDFeedbackControllerTests: XCTestCase {
     }
 
     func testConsecutiveModeSwitchCueShowsLatestLabel() async {
-        let controller = HUDFeedbackController()
+        let controller = HUDFeedbackController(modeCueDuration: .milliseconds(10))
 
         controller.handleEvent(.recordingStarted)
         controller.handleEvent(.modeSwitched(.translate))
@@ -87,7 +87,7 @@ final class HUDFeedbackControllerTests: XCTestCase {
         XCTAssertEqual(controller.hudState, .recording)
         XCTAssertEqual(controller.modeCueLabel, "DICTATE")
 
-        try? await Task.sleep(for: .milliseconds(700))
+        await waitForModeCueToClear(controller)
 
         XCTAssertEqual(controller.hudState, .recording)
         XCTAssertNil(controller.modeCueLabel)
@@ -102,5 +102,12 @@ final class HUDFeedbackControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.hudState, .processing)
         XCTAssertNil(controller.modeCueLabel)
+    }
+
+    private func waitForModeCueToClear(_ controller: HUDFeedbackController) async {
+        for _ in 0..<20 {
+            if controller.modeCueLabel == nil { return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
     }
 }
