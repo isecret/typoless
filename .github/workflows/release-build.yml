@@ -251,6 +251,7 @@ jobs:
           cp updates/appcast.xml "$APPCAST_COPY"
 
           git fetch origin main
+          git checkout -- updates/appcast.xml
           git switch main
           mkdir -p updates
           cp "$APPCAST_COPY" updates/appcast.xml
