@@ -40,6 +40,8 @@ final class AudioSegmenter: @unchecked Sendable {
     static let silenceThresholdSamples: Int = 25_600
     /// 静音切割时保留的尾部语音（300ms = 4,800 samples）
     static let tailPreservationSamples: Int = 4_800
+    /// 静音自动切段的最小段长（15 秒 = 240,000 samples），不足 15 秒的段不触发静音切割
+    static let minSegmentSamplesForSilenceCut: Int = 15 * 16_000
     /// RMS 能量阈值，低于此值判定为静音帧
     static let silenceRMSThreshold: Float = 80.0
 
@@ -123,9 +125,10 @@ final class AudioSegmenter: @unchecked Sendable {
                 voicedDetectedInSegment = true
             }
 
-            // 检查是否达到静音阈值
+            // 检查是否达到静音阈值（需同时满足 15 秒最小段长要求）
             if consecutiveSilentSamples >= AudioSegmenter.silenceThresholdSamples
-                && voicedDetectedInSegment {
+                && voicedDetectedInSegment
+                && currentSampleCount >= AudioSegmenter.minSegmentSamplesForSilenceCut {
                 // 静音切割：回退到 lastVoicedSample + tailPreservation
                 let sealPoint = min(
                     lastVoicedSampleOffset + AudioSegmenter.tailPreservationSamples,

@@ -127,12 +127,14 @@ final class SessionCoordinator {
                 continuation.yield(segment)
             }
 
-            // 配置录音器 PCM chunk 回调
-            audioRecorder.onPCMChunk = { [segmenter] chunk in
-                segmenter.appendPCMChunk(chunk)
-            }
-
-            try audioRecorder.startRecording(device: audioDeviceManager.captureDeviceForRecording())
+            // 配置录音器 PCM chunk 回调并启动录音
+            // onPCMChunk 在 startRecording 内部 cleanup 后、startRunning 前设置，保证不被清理
+            try audioRecorder.startRecording(
+                device: audioDeviceManager.captureDeviceForRecording(),
+                onPCMChunk: { [segmenter] chunk in
+                    segmenter.appendPCMChunk(chunk)
+                }
+            )
             diagnostics.sessionStarted(
                 sessionID: sessionID,
                 targetBundleID: targetBundleID
@@ -360,8 +362,8 @@ final class SessionCoordinator {
             guard await MainActor.run(body: { sessionGeneration }) == generation,
                   !Task.isCancelled else { return }
 
-            // ASR 识别（动态超时：每秒音频 0.5 秒处理时间，最少 15 秒）
-            let dynamicTimeout = max(15.0, segment.durationSeconds * 0.5 + 10.0)
+            // ASR 识别（动态超时：按 AGENTS.md 规范 min(90s, max(15s, duration * 1.3 + 10s))）
+            let dynamicTimeout = min(90.0, max(15.0, segment.durationSeconds * 1.3 + 10.0))
             let asrStart = Date()
             let transcriptResult: TranscriptResult
             do {
@@ -440,9 +442,12 @@ final class SessionCoordinator {
         // 空转写检查
         if combinedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
-            diag.errorClassification = TypolessError.cloudASREmptyResponse.diagnosticClassification
+            let emptyError: TypolessError = segmentCount == 0
+                ? .asrEmptyAudio
+                : .asrEmptyTranscript
+            diag.errorClassification = emptyError.diagnosticClassification
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            await MainActor.run { handleError(.cloudASREmptyResponse) }
+            await MainActor.run { handleError(emptyError) }
             return
         }
 

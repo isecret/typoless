@@ -65,8 +65,8 @@ final class AudioSegmenterTests: XCTestCase {
     func testSilenceCut_triggersSegment() {
         let (segmenter, collector) = makeSegmenter()
 
-        // 发送有声数据（2秒 = 32000 samples）
-        let voiceData = generatePCM(sampleCount: 32_000, amplitude: 5000)
+        // 发送有声数据（达到 15 秒最小段长要求）
+        let voiceData = generatePCM(sampleCount: AudioSegmenter.minSegmentSamplesForSilenceCut, amplitude: 5000)
         segmenter.appendPCMChunk(voiceData)
 
         // 发送静音数据（超过 1.6 秒阈值 = 25600 samples，多给一些保证触发）
@@ -81,8 +81,8 @@ final class AudioSegmenterTests: XCTestCase {
     func testSilenceCut_tailPreservation() {
         let (segmenter, collector) = makeSegmenter()
 
-        // 发送有声数据
-        let voiceSamples = 16_000  // 1 second
+        // 发送有声数据（达到 15 秒最小段长要求）
+        let voiceSamples = AudioSegmenter.minSegmentSamplesForSilenceCut
         let voiceData = generatePCM(sampleCount: voiceSamples, amplitude: 5000)
         segmenter.appendPCMChunk(voiceData)
 
@@ -186,8 +186,8 @@ final class AudioSegmenterTests: XCTestCase {
     func testSegmentIndex_incrementsCorrectly() {
         let (segmenter, collector) = makeSegmenter()
 
-        // 第一段有声 + 静音触发切割
-        segmenter.appendPCMChunk(generatePCM(sampleCount: 16_000, amplitude: 5000))
+        // 第一段有声（达到 15 秒最小段长）+ 静音触发切割
+        segmenter.appendPCMChunk(generatePCM(sampleCount: AudioSegmenter.minSegmentSamplesForSilenceCut, amplitude: 5000))
         segmenter.appendPCMChunk(generateSilentPCM(sampleCount: 28_000))
 
         // 第二段有声 + finalize
@@ -233,5 +233,25 @@ final class AudioSegmenterTests: XCTestCase {
 
         // 不应触发静音切割（因为没有检测到语音）
         XCTAssertEqual(collector.count, 0)
+    }
+
+    func testSilenceCut_notTriggeredBelow15Seconds() {
+        let (segmenter, collector) = makeSegmenter()
+
+        // 发送 5 秒有声数据（低于 15 秒最小段长）
+        let voiceData = generatePCM(sampleCount: 5 * AudioSegmenter.sampleRate, amplitude: 5000)
+        segmenter.appendPCMChunk(voiceData)
+
+        // 发送足够静音数据超过阈值
+        let silenceData = generateSilentPCM(sampleCount: 28_000)
+        segmenter.appendPCMChunk(silenceData)
+
+        // 不应触发静音切割（因为段长未达 15 秒）
+        XCTAssertEqual(collector.count, 0)
+
+        // finalize 应正常输出单段
+        segmenter.finalize()
+        XCTAssertEqual(collector.count, 1)
+        XCTAssertEqual(collector.segments[0].sealReason, .finalize)
     }
 }

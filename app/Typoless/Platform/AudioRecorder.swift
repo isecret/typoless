@@ -10,8 +10,9 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
     /// 低于此阈值的录音视为误触，静默取消
     static let shortRecordingThreshold: TimeInterval = 0.5
 
-    /// PCM chunk 实时回调，用于分段器接收音频数据
-    var onPCMChunk: (@Sendable (Data) -> Void)?
+    /// PCM chunk 实时回调，用于分段器接收音频数据（通过 callbackLock 保护跨队列访问）
+    private let callbackLock = NSLock()
+    private var _onPCMChunk: (@Sendable (Data) -> Void)?
 
     private var captureSession: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
@@ -23,11 +24,16 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
     private var recordingStartTime: Date?
 
     /// 开始录音（MainActor 调用）
+    ///
+    /// - Parameters:
+    ///   - device: 录音设备，为 nil 时使用系统默认
+    ///   - onPCMChunk: PCM 数据实时回调，在 cleanup 后、startRunning 前设置，避免被清理
     @MainActor
-    func startRecording(device: AVCaptureDevice?) throws {
+    func startRecording(device: AVCaptureDevice?, onPCMChunk: (@Sendable (Data) -> Void)? = nil) throws {
         guard !recording else { return }
 
         cleanupRecordingState()
+        callbackLock.withLock { _onPCMChunk = onPCMChunk }
 
         let captureDevice: AVCaptureDevice?
         if let device {
@@ -147,7 +153,7 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
     @MainActor
     private func cleanupRecordingState() {
         audioOutput?.setSampleBufferDelegate(nil, queue: nil)
-        onPCMChunk = nil
+        callbackLock.withLock { _onPCMChunk = nil }
         if let captureSession, captureSession.isRunning {
             captureQueue.sync {
                 captureSession.stopRunning()
@@ -180,7 +186,8 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
             latestLevel = level
         }
 
-        onPCMChunk?(pcmData)
+        let chunkHandler = callbackLock.withLock { _onPCMChunk }
+        chunkHandler?(pcmData)
     }
 
     private static func extractPCMData(from sampleBuffer: CMSampleBuffer) -> Data? {

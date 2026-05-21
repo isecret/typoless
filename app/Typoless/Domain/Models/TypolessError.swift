@@ -7,6 +7,7 @@ enum TypolessError: Error, Equatable, Sendable {
     case accessibilityPermissionDenied
     // ASR 通用错误
     case asrEmptyAudio
+    case asrEmptyTranscript
     case asrPlatformNotReady(detail: String)
     // 本地音频预处理错误
     case audioPreprocessFailure(message: String)
@@ -42,6 +43,8 @@ enum TypolessError: Error, Equatable, Sendable {
             "辅助功能权限未开启，无法注入文本"
         case .asrEmptyAudio:
             "录音数据为空，请重试"
+        case .asrEmptyTranscript:
+            "语音识别返回空结果"
         case .asrPlatformNotReady(let detail):
             "语音识别未就绪：\(detail)"
         case .asrBinaryNotFound:
@@ -88,7 +91,7 @@ enum TypolessError: Error, Equatable, Sendable {
             .permissionDenied
         case .asrBinaryNotFound, .asrModelMissing, .asrRuntimeMissing, .asrPlatformNotReady:
             .resourceMissing
-        case .asrEmptyAudio, .cloudASREmptyResponse:
+        case .asrEmptyAudio, .asrEmptyTranscript, .cloudASREmptyResponse:
             .notHeard
         case .audioRecordingUnavailable, .asrProcessFailure, .audioPreprocessFailure,
              .cloudASRConfigurationIncomplete, .cloudASRAuthenticationFailure,

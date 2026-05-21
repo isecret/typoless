@@ -222,6 +222,7 @@ extension TypolessError {
         case .audioRecordingUnavailable: "audio_recording_unavailable"
         case .accessibilityPermissionDenied: "accessibility_permission_denied"
         case .asrEmptyAudio: "asr_empty_audio"
+        case .asrEmptyTranscript: "asr_empty_transcript"
         case .asrPlatformNotReady: "asr_platform_not_ready"
         case .asrBinaryNotFound: "asr_binary_not_found"
         case .asrModelMissing: "asr_model_missing"
