@@ -4,9 +4,9 @@
 
 - 项目名称：Typoless
 - 文档类型：TDD
-- 版本：v1.3
+- 版本：v1.4
 - 状态：已更新
-- 更新时间：2026-05-15
+- 更新时间：2026-05-21
 
 ## 2. 目标
 
@@ -79,6 +79,8 @@
   负责编排录音、识别、润色、注入的主链路
 - `AudioRecorder`
   负责录音采集与音频标准化
+- `AudioSegmenter`
+  负责基于 16k PCM 的静音检测和自动切段，输出 sealed segment
 - `AudioPreprocessor`
   负责 RNNoise 本地降噪处理
 - `ASRProvider` (协议)
@@ -117,17 +119,25 @@
 
 - 保证同一时间只存在一个 active session
 - 响应开始录音、结束录音、取消任务
-- 串行调度 `AudioRecorder -> AudioPreprocessor -> ASRProvider -> LLMProvider -> TextInjector`
+- 串行调度 `AudioRecorder -> AudioSegmenter -> AudioPreprocessor -> ASRProvider -> LLMProvider -> TextInjector`
+- 管理分段 ASR 队列：录音期间对已完成分段串行执行 ASR，用户结束录音后识别最后一段
+- 所有分段 ASR 完成后按时间顺序拼接文本
+- 拼接后文本超过 8000 字符时返回 `transcriptTooLong` 错误，不进入 LLM
+- 任一分段 ASR 失败时整次流程失败，不注入部分文本
+- 普通模式：拼接 ASR 文本 → LLM 润色 → 注入
+- 翻译模式：拼接 ASR 文本 → LLM 润色 → LLM 翻译 → 注入
 - 默认使用 `FunASRProvider`
 - 负责回退逻辑
 - 在内存中维护最近一次注入失败文本，成功注入后清空
-- 负责输出会话耗时诊断日志
+- 取消 session 时，需要取消录音和未完成 ASR 任务
+- 负责输出会话耗时诊断日志，包含分段级诊断
 
 ### 5.3 AudioRecorder
 
 - 处理开始录音、停止录音
 - 支持按 `AudioDeviceManager` 解析出的输入设备采集；未指定或已选设备不可用时使用系统默认输入
-- 限制录音上限为 60 秒
+- 不设置固定录音时长上限
+- 录音期间向 `AudioSegmenter` 提供 PCM chunk，或提供等价的分段回调机制
 - 记录录音开始/结束时间，低于 500ms 的录音视为误触并静默取消
 - 输出标准化 `PCM/WAV 16k mono` 音频数据
 - 不负责上传和业务状态流转
@@ -140,10 +150,28 @@
 - 设备切换仅影响下一次录音，不中断当前 active session
 - 已选设备不可用时直接切换到系统默认输入
 
+### 5.3.2 AudioSegmenter
+
+- 基于 16k PCM 输入，实时分析音频 chunk 并在满足条件时输出 sealed segment。
+- 静音检测使用动态噪声底 + dBFS 阈值，并保留轻量语音保护，避免环境噪声触发无意义切段。
+- 切段策略：
+  - 静音持续 1.6 秒且当前段总时长至少 15 秒时触发自动切段。
+  - 自动切段保留 300ms 段尾静音，避免句尾被切掉。
+  - 单段达到 55 秒时强制切段，避免超过短音频 ASR 服务边界。
+  - 用户手动结束时的最后一段不要求达到 15 秒，只要超过短录音阈值即可。
+- 输出为 sealed segment（PCM 数据 + 元数据），包含：
+  - `segmentIndex`
+  - `pcmData`
+  - `durationMs`
+  - `voiceDetected`
+  - `cutReason`：`silence` / `forcedMaxDuration` / `finalTail`
+- 分段音频仅作为临时数据使用，不保存历史音频。
+- 静音检测参数在未来可基于实测数据调整，但首版不向用户暴露配置。
+
 ### 5.4 AudioPreprocessor
 
-- 使用 RNNoise 对录音结果进行本地降噪。
-- 输入为录音输出的 WAV 数据，输出为 16k mono WAV 数据。
+- 使用 RNNoise 对每个 sealed segment 进行本地降噪。
+- 输入为 segment 的 PCM 数据，输出为 16k mono WAV 数据。
 - 降噪资源缺失或处理失败时返回明确错误，不静默劣化为原音频。
 - 不保存降噪前后的音频历史。
 
@@ -159,7 +187,7 @@
 - 录音结束后将降噪后的 WAV 提交给 sidecar，获取转写结果进入 LLM 润色和注入。
 - 支持传入个人词典 hotword 参数。
 - 设备优先使用 MPS（Metal Performance Shaders）推理，不可用时回退 CPU。
-- ASR 超时固定 15 秒，超时后取消请求并清理 sidecar 状态。
+- ASR 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`。
 - 资源缺失时返回明确配置错误，阻止录音。
 - 正式分发时，内嵌 Python runtime、`.dylib`、`.so` 必须在 App 签名前完成显式签名；App 使用 Hardened Runtime，并固定启用 `com.apple.security.cs.allow-unsigned-executable-memory` 与 `com.apple.security.cs.disable-library-validation` entitlement。
 
@@ -211,7 +239,7 @@
 - 引擎 `16k_zh-PY`，用于中文优先的混合语音识别。
 - 使用 TC3-HMAC-SHA256 签名算法，通过 CommonCrypto 实现。
 - 音频 base64 编码后通过 POST 请求发送。
-- 超时固定 15 秒。
+- 超时按分段时长动态计算。
 - 直接调用 `tencentcloudapi.com` API，无 SDK 依赖。
 - 配置项：`SecretId`、`SecretKey`，存储在 `~/.typoless/config.json` 的 `asr.tencentCloud` 段。
 - 配置不完整时返回 `cloudASRConfigurationIncomplete` 错误。
@@ -224,7 +252,7 @@
   直接调用火山引擎文件识别接口，上传 base64 编码后的 `wav` 音频。
 - `XunfeiSentenceASRProvider`
   使用科大讯飞语音听写 WebSocket 协议，录音结束后将 `wav` 中的 PCM 数据按帧发送，最终对外仍返回单次 final text。
-- 三家云 Provider 均固定 15 秒超时，支持取消，并统一映射到云 ASR 错误模型。
+- 三家云 Provider 均按分段时长动态计算超时：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`，支持取消，并统一映射到云 ASR 错误模型。
 
 #### 5.5.6 ModelDownloadManager
 
@@ -301,6 +329,30 @@
 - 记录结构化处理诊断字段：`mode`、`correction_applied`、`parse_success`、`fallback`。
 - Debug 构建可输出 ASR 原文与 LLM 输出；Release 构建仅输出脱敏摘要。
 
+Session 级分段诊断字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `segment_count` | Int | 本次 session 实际产生的分段数 |
+| `queued_segment_count` | Int | 进入 ASR 队列的分段数 |
+| `max_pending_segments` | Int | 队列中等待 ASR 的最大分段数 |
+| `total_recording_ms` | Int | 录音总时长（毫秒） |
+| `joined_transcript_chars` | Int | 拼接后转写文本总字符数 |
+
+Segment 级诊断字段（每段独立记录）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `segment_index` | Int | 分段序号，从 0 开始 |
+| `segment_duration_ms` | Int | 该分段音频时长（毫秒） |
+| `voiced_detected` | Bool | 该分段是否检测到语音活动 |
+| `forced_cut` | Bool | 是否因达到 55s 上限强制切段 |
+| `silence_cut` | Bool | 是否因静音检测切段 |
+| `asr_timeout_ms` | Int | 该分段 ASR 超时阈值（毫秒） |
+| `asr_elapsed_ms` | Int | 该分段 ASR 实际耗时（毫秒） |
+| `asr_result_chars` | Int | 该分段 ASR 结果字符数 |
+| `failure_reason` | String? | 失败原因，成功时为 nil |
+
 ## 6. 状态机
 
 ### 6.1 状态定义
@@ -329,9 +381,10 @@
 ### 6.3 状态约束
 
 - 正在处理时禁止开启第二个 session
-- 超时录音自动结束后继续走主链路
+- App 不设置固定录音时长上限；录音期间后台分段 ASR 不影响 recording 状态
 - 低于 500ms 的短录音静默取消，不进入降噪、ASR、LLM 或文本注入
 - 用户取消后必须中断后续步骤，不允许再注入文本
+- 取消 session 时，需要取消录音和未完成 ASR 任务
 - 处理中（`transcribing / polishing / injecting`）再次按键忽略
 
 ## 7. 主数据流
@@ -351,18 +404,20 @@
 2. `HotkeyManager` 通知 `AppCoordinator`
 3. `AppCoordinator` 根据当前状态决定动作（idle → 开始录音，recording → 结束录音，其他 → 忽略）
 4. `SessionCoordinator` 校验录音条件并进入 `recording`
-5. `AudioRecorder` 开始采集音频
-6. 用户再次按下快捷键或达到 60 秒
-7. `AudioRecorder` 输出标准音频
-8. 若录音时长低于 500ms，则静默取消并通过 `DiagnosticsLogger` 记录 `short_recording_cancelled`
-9. `AudioPreprocessor` 执行 RNNoise 降噪
-10. `FunASRProvider` 提交降噪后音频给 sidecar，获取转写文本
-11. 若 LLM 配置不完整，则主链路直接报错并结束
-12. `LLMProvider` 发起润色请求
-13. 若 LLM 失败或返回空文本，则主链路直接报错并结束
-14. `TextInjector` 尝试注入最终文本
-15. `DiagnosticsLogger` 输出本次会话耗时与结果摘要
-16. 状态返回 `idle`
+5. `AudioRecorder` 开始采集音频，PCM chunk 输入 `AudioSegmenter`
+6. `AudioSegmenter` 根据静音检测和 55s 强制上限输出 sealed segment
+7. 已完成分段立即进入 `AudioPreprocessor` 降噪，然后串行提交 ASR
+8. 用户再次按下快捷键结束录音
+9. `AudioSegmenter` 输出最后一段
+10. 若录音时长低于 500ms，则静默取消并通过 `DiagnosticsLogger` 记录 `short_recording_cancelled`
+11. 最后一段完成降噪和 ASR 后，所有分段转写文本按时间顺序拼接
+12. 若拼接文本超过 8000 字符，返回 `transcriptTooLong` 错误
+13. 若 LLM 配置不完整，则主链路直接报错并结束
+14. `LLMProvider` 发起润色请求（Prompt 说明输入来自连续分段转写）
+15. 若 LLM 失败或返回空文本，则主链路直接报错并结束
+16. `TextInjector` 尝试注入最终文本
+17. `DiagnosticsLogger` 输出本次会话耗时与分段诊断摘要
+18. 状态返回 `idle`
 
 ## 8. 配置模型
 
@@ -467,9 +522,21 @@
 - 配置：API Key，存于 `asr.volcengine`。
 - `XunfeiSentenceASRProvider` 使用语音听写 WebSocket 接口，并从 `wav` 中提取 PCM 数据按帧发送。
 - 配置：AppID、API Key、API Secret，存于 `asr.xunfei`。
-- 所有云 Provider 超时均固定 15 秒。
+- 所有云 Provider 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`。
 
-### 9.6 Sidecar 生命周期
+### 9.6 分段 ASR 编排
+
+- 所有 ASR 平台统一走分段编排，包括本地 FunASR 和云端 ASR。
+- `AudioSegmenter` 在录音期间实时分析 PCM chunk，满足切段条件时输出 sealed segment。
+- 每个 sealed segment 先经 `AudioPreprocessor` 降噪，再提交给当前 ASR Provider。
+- 分段 ASR 串行执行，降低 sidecar 并发、WebSocket 并发和云服务限流风险。
+- 录音期间已完成的分段提前进行 ASR，用户结束录音后识别最后一段。
+- 所有分段 ASR 完成后，按 `segmentIndex` 顺序拼接转写文本。
+- 拼接后文本超过 8000 字符时，返回 `transcriptTooLong` 错误，不进入 LLM。
+- 任一有效分段 ASR 失败时，整次流程失败，不注入部分文本。
+- 分段音频仅作为临时数据使用，不保存历史音频。
+
+### 9.7 Sidecar 生命周期
 
 - 首次录音时触发后台预热，不阻塞录音。
 - 活跃请求之间复用同一 sidecar 进程。
@@ -478,7 +545,7 @@
 - 提供 ping 健康检查，录音前验证 sidecar 可用。
 - sidecar ping 超时时执行 force kill 后重启。
 
-### 9.7 输入输出
+### 9.8 输入输出
 
 输入：
 
@@ -491,7 +558,7 @@
   - `requestId`（可选）
   - `durationMs`
 
-### 9.8 错误映射
+### 9.9 错误映射
 
 通用错误：
 - 空音频数据 -> `asrEmptyAudio`
@@ -512,10 +579,14 @@
 - 空响应 -> `cloudASREmptyResponse`
 - 响应格式无效 -> `cloudASRInvalidResponse`
 
-### 9.9 超时与取消
+分段拼接错误：
+- 拼接文本超过 8000 字符 -> `transcriptTooLong`
 
-- 超时由 Provider 内部固定控制
-- 收到取消事件后应中断请求或丢弃响应结果
+### 9.10 超时与取消
+
+- ASR 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
+- 收到取消事件后应中断当前分段 ASR 请求并丢弃后续分段
+- 取消 session 时，需同时取消录音和未完成 ASR 任务
 
 ## 10. LLM 设计
 
@@ -539,6 +610,7 @@
 - 中英混合术语恢复：ASR 把英文术语识别成中文音近词时，恢复为正确英文写法
 - 在结构信号明确时，将内容保守整理为 `plain_text`、`list`、`message`
 - 在“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正场景下，优先保留最终明确表达
+- 当输入来自多段分段转写时，Prompt 明确说明：输入来自同一次语音输入的连续分段转写，请按原始顺序理解为一段连续表达；可以合并因分段造成的断句，但不得扩写、改写原意或补充事实
 
 禁止行为：
 
@@ -687,6 +759,7 @@
 - `llmEmptyResponse`
 - `textInjectionFailure`
 - `sessionCancelled`
+- `transcriptTooLong`
 
 错误需要同时支持：
 
@@ -701,6 +774,7 @@
 重点覆盖：
 
 - `SessionCoordinator`
+- `AudioSegmenter`
 - `FunASRProvider`
 - `ASRRuntimeManager`
 - `AudioPreprocessor`
@@ -729,6 +803,19 @@
 - FunASR/RNNoise 资源缺失时阻止录音
 - Debug/Release 日志脱敏策略
 
+分段 ASR 测试场景：
+
+- `AudioSegmenter` 静音检测切段（1.6s 静音 + ≥15s 已录时切段）
+- `AudioSegmenter` 55s 强制切段
+- `AudioSegmenter` 300ms 尾部静音保留
+- 分段 ASR 串行执行与结果按序拼接
+- 拼接文本超过 8000 字符触发 `transcriptTooLong`
+- 单段 ASR 失败导致整次流程失败
+- 用户取消时同时终止录音和未完成 ASR
+- 动态超时公式 `min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
+- 录音期间分段与 ASR 并行（录音未结束时已完成分段提前 ASR）
+- session 级与 segment 级诊断日志输出
+
 ### 15.2 集成与手工验收
 
 手工验证以下场景：
@@ -743,6 +830,9 @@
 - 注入失败后从菜单栏复制失败文本
 - 个人词典改善专有名词识别与润色
 - 列表口述和短消息口述可输出保守结构化结果
+- 长录音（>55s）自动分段并拼接转写
+- 分段 ASR 失败后整次流程报错
+- 取消长录音时正确终止所有分段 ASR
 
 ## 16. 开发顺序建议
 
@@ -751,13 +841,14 @@
 3. 录音与音频标准化
 4. 诊断耗时日志
 5. RNNoise 音频降噪
-6. ASR/LLM Debug 对照日志
-7. LLM Provider 与 Prompt 优化
-8. FunASR Provider 与 sidecar 集成
-9. 个人词典与 hotwords/Prompt 集成
-10. SessionCoordinator 与状态机整合
-11. 注入失败恢复与错误摘要
-12. 单元测试与端到端手工验收
+6. AudioSegmenter 分段切割
+7. ASR/LLM Debug 对照日志
+8. LLM Provider 与 Prompt 优化
+9. FunASR Provider 与 sidecar 集成
+10. 个人词典与 hotwords/Prompt 集成
+11. SessionCoordinator 与状态机整合（含分段 ASR 编排）
+12. 注入失败恢复与错误摘要
+13. 单元测试与端到端手工验收
 
 ## 17. 交付标准
 
