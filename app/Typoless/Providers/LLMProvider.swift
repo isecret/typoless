@@ -116,8 +116,14 @@ struct LLMProvider: Sendable {
 
     // MARK: - Public API
 
-    func polish(text: String) async throws -> PolishResult {
-        try await performRequest(text: text, responseHandler: parseResponse)
+    func polish(text: String, segmentCount: Int = 1) async throws -> PolishResult {
+        let effectiveText: String
+        if segmentCount > 1 {
+            effectiveText = "[以下文本来自同一次语音输入的 \(segmentCount) 个连续分段转写，请按原始顺序理解为一段连续表达；可以合并因分段造成的断句，但不得扩写、改写原意或补充事实]\n\n\(text)"
+        } else {
+            effectiveText = text
+        }
+        return try await performRequest(text: effectiveText, responseHandler: parseResponse)
     }
 
     func translate(text: String, targetLanguage: TranslationTargetLanguage) async throws -> String {

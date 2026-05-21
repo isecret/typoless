@@ -11,10 +11,12 @@ final class VolcengineSentenceASRProvider: ASRProvider, @unchecked Sendable {
         self.apiKey = apiKey
     }
 
-    func recognize(audioData: Data) async throws -> TranscriptResult {
+    func recognize(audioData: Data, timeout: TimeInterval? = nil) async throws -> TranscriptResult {
         guard !apiKey.isEmpty else {
             throw TypolessError.cloudASRConfigurationIncomplete
         }
+
+        let effectiveTimeout = timeout ?? Self.timeout
 
         let requestBody: [String: Any] = [
             "user": [
@@ -33,7 +35,7 @@ final class VolcengineSentenceASRProvider: ASRProvider, @unchecked Sendable {
         var request = URLRequest(url: Self.recognizeURL)
         request.httpMethod = "POST"
         request.httpBody = bodyData
-        request.timeoutInterval = Self.timeout
+        request.timeoutInterval = effectiveTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
         request.setValue(Self.resourceID, forHTTPHeaderField: "X-Api-Resource-Id")

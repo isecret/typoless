@@ -30,10 +30,12 @@ final class TencentSentenceASRProvider: ASRProvider, @unchecked Sendable {
 
     // MARK: - ASRProvider
 
-    func recognize(audioData: Data) async throws -> TranscriptResult {
+    func recognize(audioData: Data, timeout: TimeInterval? = nil) async throws -> TranscriptResult {
         guard !secretId.isEmpty, !secretKey.isEmpty else {
             throw TypolessError.cloudASRConfigurationIncomplete
         }
+
+        let effectiveTimeout = timeout ?? Self.timeout
 
         let base64Audio = audioData.base64EncodedString()
         let dataLen = audioData.count
@@ -64,7 +66,7 @@ final class TencentSentenceASRProvider: ASRProvider, @unchecked Sendable {
         var request = URLRequest(url: URL(string: "https://\(Self.host)")!)
         request.httpMethod = "POST"
         request.httpBody = bodyData
-        request.timeoutInterval = Self.timeout
+        request.timeoutInterval = effectiveTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(Self.host, forHTTPHeaderField: "Host")
         request.setValue(Self.action, forHTTPHeaderField: "X-TC-Action")

@@ -4,12 +4,14 @@ import Foundation
 /// 音频录制器，直接采集为 PCM/WAV 16kHz mono，并支持指定输入设备
 final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate, @unchecked Sendable {
 
-    static let maxDuration: TimeInterval = 60
     static let sampleRate: Double = 16_000
     static let channels: Int = 1
 
     /// 低于此阈值的录音视为误触，静默取消
     static let shortRecordingThreshold: TimeInterval = 0.5
+
+    /// PCM chunk 实时回调，用于分段器接收音频数据
+    var onPCMChunk: (@Sendable (Data) -> Void)?
 
     private var captureSession: AVCaptureSession?
     private var audioOutput: AVCaptureAudioDataOutput?
@@ -145,6 +147,7 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
     @MainActor
     private func cleanupRecordingState() {
         audioOutput?.setSampleBufferDelegate(nil, queue: nil)
+        onPCMChunk = nil
         if let captureSession, captureSession.isRunning {
             captureQueue.sync {
                 captureSession.stopRunning()
@@ -176,6 +179,8 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
             capturedPCMData.append(pcmData)
             latestLevel = level
         }
+
+        onPCMChunk?(pcmData)
     }
 
     private static func extractPCMData(from sampleBuffer: CMSampleBuffer) -> Data? {

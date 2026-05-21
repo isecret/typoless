@@ -28,6 +28,8 @@ enum TypolessError: Error, Equatable, Sendable {
     case llmEmptyResponse
     case textInjectionFailure(detail: String)
     case sessionCancelled
+    // 分段拼接错误
+    case transcriptTooLong(charCount: Int)
 
     /// 用户可理解的错误摘要，用于菜单栏和设置页展示
     var userMessage: String {
@@ -74,6 +76,8 @@ enum TypolessError: Error, Equatable, Sendable {
             "文本注入失败：\(detail)"
         case .sessionCancelled:
             "已取消"
+        case .transcriptTooLong(let charCount):
+            "转写文本过长（\(charCount) 字符），请缩短录音"
         }
     }
 
@@ -96,6 +100,8 @@ enum TypolessError: Error, Equatable, Sendable {
         case .textInjectionFailure:
             .injectionFailed
         case .sessionCancelled:
+            .recognitionFailed
+        case .transcriptTooLong:
             .recognitionFailed
         }
     }
