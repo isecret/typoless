@@ -57,7 +57,8 @@ final class AudioSegmenterTests: XCTestCase {
     func testComputeFrameRMS_loudSignal() {
         let frame = generatePCM(sampleCount: AudioSegmenter.frameSamples, amplitude: 10000)
         let rms = AudioSegmenter.computeFrameRMS(frame)
-        XCTAssertGreaterThan(rms, AudioSegmenter.silenceRMSThreshold)
+        // 常量振幅信号的 RMS 等于振幅本身
+        XCTAssertEqual(rms, 10000, accuracy: 1.0)
     }
 
     // MARK: - Silence Detection
@@ -253,5 +254,122 @@ final class AudioSegmenterTests: XCTestCase {
         segmenter.finalize()
         XCTAssertEqual(collector.count, 1)
         XCTAssertEqual(collector.segments[0].sealReason, .finalize)
+    }
+
+    // MARK: - 动态噪声底
+
+    func testDynamicNoiseFloor_adaptsDownward() {
+        let (segmenter, collector) = makeSegmenter()
+
+        // 先发送足够有声帧确立 voicedDetected（amplitude 5000 远高于默认阈值 ~796）
+        let voiceData = generatePCM(sampleCount: AudioSegmenter.minSegmentSamplesForSilenceCut, amplitude: 5000)
+        segmenter.appendPCMChunk(voiceData)
+
+        // 发送大量低振幅静音帧，噪声底应从 200 向 0 附近收敛
+        // 在收敛后，阈值也会降低，但 RMS=0 始终低于任何正阈值
+        let silenceData = generateSilentPCM(sampleCount: 28_000)
+        segmenter.appendPCMChunk(silenceData)
+
+        // 静音切段应正常触发（噪声底降低不影响零振幅帧的静音判定）
+        XCTAssertEqual(collector.count, 1)
+        XCTAssertEqual(collector.segments[0].sealReason, .silence)
+    }
+
+    func testDynamicNoiseFloor_highNoiseEnvironment() {
+        let (segmenter, collector) = makeSegmenter()
+
+        // 模拟高噪声环境：先发送「有声」帧（amplitude 5000）确立 voicedDetected
+        let voiceData = generatePCM(sampleCount: AudioSegmenter.minSegmentSamplesForSilenceCut, amplitude: 5000)
+        segmenter.appendPCMChunk(voiceData)
+
+        // 然后发送中等振幅的「环境噪声」帧（amplitude 300，低于默认阈值 ~796）
+        // 这些帧 RMS=300 < 动态阈值，被判为静音，同时推高噪声底
+        let noiseData = generatePCM(sampleCount: 28_000, amplitude: 300)
+        segmenter.appendPCMChunk(noiseData)
+
+        // 即使噪声不为零，只要低于动态阈值，静音切段仍应触发
+        XCTAssertEqual(collector.count, 1)
+        XCTAssertEqual(collector.segments[0].sealReason, .silence)
+    }
+
+    // MARK: - 尖峰容忍
+
+    func testSpikeTolerance_shortSpikesDoNotBreakSilence() {
+        let (segmenter, collector) = makeSegmenter()
+
+        // 发送 15 秒有声数据以达到最小段长
+        let voiceData = generatePCM(sampleCount: AudioSegmenter.minSegmentSamplesForSilenceCut, amplitude: 5000)
+        segmenter.appendPCMChunk(voiceData)
+
+        // 交替发送静音和短尖峰（≤3帧），模拟偶尔的环境噪声
+        // 策略：每次发送 0.4 秒静音 + 2 帧尖峰（40ms），循环多次超过 1.6 秒总静音
+        for _ in 0..<5 {
+            let silence = generateSilentPCM(sampleCount: 6400)  // 0.4s
+            segmenter.appendPCMChunk(silence)
+            // 2 帧尖峰（≤ maxSpikeFrames=3），不应中断静音累积
+            let spike = generatePCM(sampleCount: AudioSegmenter.frameSamples * 2, amplitude: 5000)
+            segmenter.appendPCMChunk(spike)
+        }
+
+        // 总静音时间 = 5 × 0.4s = 2.0s > 1.6s 阈值
+        // 但尖峰帧不更新 voicedDetectedInSegment（只有 >3 帧连续语音才会）
+        // 注意：这里 voicedDetectedInSegment 已经在前面的 15s 语音中被设为 true
+        // 所以静音切段应该触发
+        XCTAssertEqual(collector.count, 1)
+        XCTAssertEqual(collector.segments[0].sealReason, .silence)
+    }
+
+    func testSpikeTolerance_sustainedVoiceBreaksSilence() {
+        let (segmenter, collector) = makeSegmenter()
+
+        // 发送 15 秒有声数据
+        let voiceData = generatePCM(sampleCount: AudioSegmenter.minSegmentSamplesForSilenceCut, amplitude: 5000)
+        segmenter.appendPCMChunk(voiceData)
+
+        // 发送 1 秒静音
+        let silence1 = generateSilentPCM(sampleCount: 16_000)
+        segmenter.appendPCMChunk(silence1)
+
+        // 发送 5 帧（100ms）持续语音 — 超过 maxSpikeFrames(3)，应重置静音计数
+        let sustainedVoice = generatePCM(sampleCount: AudioSegmenter.frameSamples * 5, amplitude: 5000)
+        segmenter.appendPCMChunk(sustainedVoice)
+
+        // 再发送 1.6 秒静音，但加上之前的不够 1.6 秒（因为被重置了）
+        // 所以不应切段
+        let silence2 = generateSilentPCM(sampleCount: 20_000)  // 1.25s < 1.6s
+        segmenter.appendPCMChunk(silence2)
+
+        XCTAssertEqual(collector.count, 0)
+
+        // 再补足够的静音让总静音达到 1.6 秒 → 应触发切段
+        let silence3 = generateSilentPCM(sampleCount: 10_000)  // +0.625s
+        segmenter.appendPCMChunk(silence3)
+
+        XCTAssertEqual(collector.count, 1)
+        XCTAssertEqual(collector.segments[0].sealReason, .silence)
+    }
+
+    func testSpikeTolerance_spikesDoNotMarkVoiced() {
+        let (segmenter, collector) = makeSegmenter()
+
+        // 只发送静音和短尖峰（≤3帧），不发送持续语音
+        // voicedDetectedInSegment 应保持 false
+        let silence = generateSilentPCM(sampleCount: AudioSegmenter.minSegmentSamplesForSilenceCut)
+        segmenter.appendPCMChunk(silence)
+
+        // 插入 2 帧尖峰
+        let spike = generatePCM(sampleCount: AudioSegmenter.frameSamples * 2, amplitude: 5000)
+        segmenter.appendPCMChunk(spike)
+
+        // 再追加足够静音超过 1.6 秒
+        let moreSilence = generateSilentPCM(sampleCount: 28_000)
+        segmenter.appendPCMChunk(moreSilence)
+
+        // 不应触发静音切段（因为 voicedDetectedInSegment 应为 false）
+        XCTAssertEqual(collector.count, 0)
+
+        segmenter.finalize()
+        XCTAssertEqual(collector.count, 1)
+        XCTAssertFalse(collector.segments[0].voicedDetected)
     }
 }
