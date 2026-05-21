@@ -45,6 +45,8 @@ final class SessionCoordinator {
     private let segmenter = AudioSegmenter()
     private var segmentStream: AsyncStream<SealedSegment>?
     private var segmentContinuation: AsyncStream<SealedSegment>.Continuation?
+    /// 录音时长（毫秒），finishRecording 写入，processSegmentedAudio 读取
+    private var recordingDurationMs: Int = 0
 
     init(
         permissionsManager: PermissionsManager,
@@ -152,6 +154,26 @@ final class SessionCoordinator {
             if selectedPlatform == .localFunASR {
                 asrRuntimeManager.warmup()
             }
+
+            // 在录音开始时快照 ASR 配置（录音期间不变）
+            // LLM / processingMode 配置在录音结束后读取，保证 toggleProcessingMode 生效
+            let asrConfig = configStore.asrConfig
+            let hotwords = selectedPlatform == .localFunASR
+                ? (dictionaryStore?.hotwordsForFunASR() ?? "")
+                : ""
+
+            // 立即启动处理任务，for await 循环会实时消费分段并提前 ASR
+            diagnostics.log(sessionID: sessionID, event: "processing_task_started", detail: "concurrent ASR enabled")
+            processingTask = Task { [weak self] in
+                await self?.processSegmentedAudio(
+                    generation: generation,
+                    sessionID: sessionID,
+                    asrConfig: asrConfig,
+                    selectedPlatform: selectedPlatform,
+                    hotwords: hotwords
+                )
+                self?.processingTask = nil
+            }
         } catch {
             handleError(mapError(error))
         }
@@ -169,12 +191,15 @@ final class SessionCoordinator {
         lastRecordedAudio = audioData
         onFeedbackEvent?(.recordingStopped)
 
-        // 短录音静默取消（<500ms）
+        // 短录音静默取消（<500ms）：先取消处理任务，再清理流
         if recordingResult.isShortRecording {
             diagnostics.shortRecordingCancelled(
                 sessionID: currentSessionID,
                 durationMs: recordingResult.durationMs
             )
+            sessionGeneration &+= 1
+            processingTask?.cancel()
+            processingTask = nil
             lastRecordedAudio = nil
             targetApplicationPID = nil
             targetApplicationBundleID = nil
@@ -184,50 +209,23 @@ final class SessionCoordinator {
         }
 
         guard !audioData.isEmpty else {
+            sessionGeneration &+= 1
+            processingTask?.cancel()
+            processingTask = nil
             cleanupSegmenterState()
             handleError(.asrEmptyAudio)
             return
         }
 
-        // 通知分段器结束，触发最终分段
+        // 记录录音时长供处理任务读取
+        recordingDurationMs = recordingResult.durationMs
+
+        // 通知分段器结束，触发最终分段，关闭流
         segmenter.finalize()
         segmentContinuation?.finish()
 
-        let gen = sessionGeneration
-        let sessionID = currentSessionID
-        let recordingMs = recordingResult.durationMs
         state = .transcribing
-
-        // 在 session 开始时快照配置，保证长录音期间配置一致性
-        let asrConfig = configStore.asrConfig
-        let selectedPlatform = asrConfig.selectedPlatform
-        let llmConfig = configStore.llmConfig
-        let openAIAPIKey = configStore.openAIAPIKey
-        let isLLMConfigured = configStore.isLLMConfigured
-        let hotwords = selectedPlatform == .localFunASR
-            ? (dictionaryStore?.hotwordsForFunASR() ?? "")
-            : ""
-        let terms = dictionaryStore?.termsForPrompt() ?? []
-        let currentProcessingMode = processingMode
-        let translationTarget = configStore.generalConfig.translationTargetLanguage
-
-        processingTask = Task { [weak self] in
-            await self?.processSegmentedAudio(
-                generation: gen,
-                sessionID: sessionID,
-                recordingMs: recordingMs,
-                asrConfig: asrConfig,
-                selectedPlatform: selectedPlatform,
-                llmConfig: llmConfig,
-                openAIAPIKey: openAIAPIKey,
-                isLLMConfigured: isLLMConfigured,
-                hotwords: hotwords,
-                terms: terms,
-                processingMode: currentProcessingMode,
-                translationTarget: translationTarget
-            )
-            self?.processingTask = nil
-        }
+        diagnostics.log(sessionID: currentSessionID, event: "recording_finished", detail: "duration=\(recordingResult.durationMs)ms")
     }
 
     /// 取消当前任务
@@ -236,6 +234,9 @@ final class SessionCoordinator {
         case .recording:
             soundCueTask?.cancel()
             soundCueTask = nil
+            sessionGeneration &+= 1
+            processingTask?.cancel()
+            processingTask = nil
             _ = audioRecorder.stopRecording()
             cleanupSegmenterState()
             lastRecordedAudio = nil
@@ -278,20 +279,12 @@ final class SessionCoordinator {
     private nonisolated func processSegmentedAudio(
         generation: UInt64,
         sessionID: String,
-        recordingMs: Int,
         asrConfig: ASRConfig,
         selectedPlatform: ASRPlatform,
-        llmConfig: LLMConfig,
-        openAIAPIKey: String,
-        isLLMConfigured: Bool,
-        hotwords: String,
-        terms: [TermReference],
-        processingMode: TextProcessingMode,
-        translationTarget: TranslationTargetLanguage
+        hotwords: String
     ) async {
         let sessionStart = Date()
         var diag = SessionDiagnostics()
-        diag.recordingMs = recordingMs
         diag.targetBundleID = await MainActor.run { targetApplicationBundleID }
 
         let wasColdStart = asrRuntimeManager.warmupState != .warm
@@ -311,7 +304,7 @@ final class SessionCoordinator {
 
         guard let stream = await MainActor.run(body: { segmentStream }) else { return }
 
-        // 串行处理分段
+        // 串行处理分段（录音期间实时消费，提前 ASR）
         var transcripts: [String] = []
         var totalASRMs: Int = 0
         var totalDenoiseMs: Int = 0
@@ -319,6 +312,8 @@ final class SessionCoordinator {
         var segmentDiagList: [SegmentDiagnostics] = []
         var segmentCount = 0
         let maxChars = 8000
+
+        diagnostics.log(sessionID: sessionID, event: "asr_loop_started", detail: "waiting for segments")
 
         for await segment in stream {
             guard await MainActor.run(body: { sessionGeneration }) == generation,
@@ -364,6 +359,7 @@ final class SessionCoordinator {
 
             // ASR 识别（动态超时：按 AGENTS.md 规范 min(90s, max(15s, duration * 1.3 + 10s))）
             let dynamicTimeout = min(90.0, max(15.0, segment.durationSeconds * 1.3 + 10.0))
+            diagnostics.log(sessionID: sessionID, event: "segment_asr_started", detail: "index=\(segment.index) duration=\(Int(segment.durationSeconds * 1000))ms timeout=\(Int(dynamicTimeout))s")
             let asrStart = Date()
             let transcriptResult: TranscriptResult
             do {
@@ -384,7 +380,16 @@ final class SessionCoordinator {
                 diag.segmentDiagnostics = segmentDiagList
                 diagnostics.sessionError(sessionID: sessionID, error: mapped)
                 diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-                await MainActor.run { handleError(mapped) }
+                // ASR 错误可能发生在录音期间，需要停止录音并清理
+                await MainActor.run {
+                    if state == .recording {
+                        soundCueTask?.cancel()
+                        soundCueTask = nil
+                        _ = audioRecorder.stopRecording()
+                        cleanupSegmenterState()
+                    }
+                    handleError(mapped)
+                }
                 return
             }
 
@@ -405,6 +410,7 @@ final class SessionCoordinator {
             if !transcriptResult.text.isEmpty {
                 transcripts.append(transcriptResult.text)
                 accumulatedChars += transcriptResult.text.count
+                diagnostics.log(sessionID: sessionID, event: "segment_transcript", detail: "index=\(segment.index) chars=\(transcriptResult.text.count) accumulated=\(accumulatedChars)")
             }
 
             // 检查累计字符数
@@ -418,13 +424,38 @@ final class SessionCoordinator {
                 diag.errorClassification = tooLongError.diagnosticClassification
                 diagnostics.sessionError(sessionID: sessionID, error: tooLongError)
                 diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-                await MainActor.run { handleError(tooLongError) }
+                await MainActor.run {
+                    if state == .recording {
+                        soundCueTask?.cancel()
+                        soundCueTask = nil
+                        _ = audioRecorder.stopRecording()
+                        cleanupSegmenterState()
+                    }
+                    handleError(tooLongError)
+                }
                 return
             }
         }
 
+        // --- 流已结束（录音已停止，所有分段已处理）---
+
         guard await MainActor.run(body: { sessionGeneration }) == generation,
               !Task.isCancelled else { return }
+
+        // 读取录音结束后才确定的配置
+        let (recordingMs, currentProcessingMode, llmConfig, openAIAPIKey, isLLMConfigured, terms, translationTarget) = await MainActor.run {
+            (
+                recordingDurationMs,
+                processingMode,
+                configStore.llmConfig,
+                configStore.openAIAPIKey,
+                configStore.isLLMConfigured,
+                dictionaryStore?.termsForPrompt() ?? [],
+                configStore.generalConfig.translationTargetLanguage
+            )
+        }
+
+        diag.recordingMs = recordingMs
 
         let combinedTranscript = transcripts.joined()
         diag.asrMs = totalASRMs
@@ -516,7 +547,7 @@ final class SessionCoordinator {
 
         var finalText = polishResult.text
 
-        if processingMode == .translate {
+        if currentProcessingMode == .translate {
             let translateStart = Date()
             do {
                 let translated = try await llmProvider.translate(text: polishResult.text, targetLanguage: translationTarget)
