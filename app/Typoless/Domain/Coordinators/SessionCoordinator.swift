@@ -543,13 +543,13 @@ final class SessionCoordinator {
 
         let injectionStart = Date()
         do {
-            let targetPID = await MainActor.run { targetApplicationPID }
-            let targetBundleID = await MainActor.run { targetApplicationBundleID }
-            try textInjector.inject(
-                text: finalText,
-                targetPID: targetPID,
-                targetBundleID: targetBundleID
-            )
+            try await MainActor.run {
+                try textInjector.inject(
+                    text: finalText,
+                    targetPID: targetApplicationPID,
+                    targetBundleID: targetApplicationBundleID
+                )
+            }
         } catch {
             guard await MainActor.run(body: { sessionGeneration }) == generation else { return }
             let mapped = await MainActor.run { mapError(error) }
