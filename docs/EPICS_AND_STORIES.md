@@ -33,6 +33,7 @@
 | E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
 | E17 | ASR 平台选择与模型外置 | 支持本地 FunASR 外置模型下载和多云 ASR 平台 |
 | E18 | LLM 保守型结构化处理 | 在不扩写、不改原意前提下提升列表化、消息化和自我修正处理稳定性 |
+| E19 | 长录音分段 ASR | 通过音频静音分段支持长录音，55s 分段路由至现有 ASR 平台 |
 
 ## 3. Epic 详情
 
@@ -208,15 +209,11 @@
 - 处理中（`transcribing / polishing / injecting`）再次按键忽略
 - 录音状态能反映到菜单栏
 
-#### S4.3 实现录音时长与超时控制
+#### S4.3 ~~实现录音时长与超时控制~~（已由 E19 取代）
 
-作为产品，我需要限制单次录音长度，以控制延迟和成本。
+~~作为产品，我需要限制单次录音长度，以控制延迟和成本。~~
 
-验收标准：
-
-- 单次录音上限为 `60 秒`
-- 超时后自动结束录音
-- 超时结束后仍继续主链路处理
+> **注意**：固定 60 秒录音上限已由 E19 长录音分段 ASR 方案取代。App 不再设置固定录音时长上限，改为通过 AudioSegmenter 自动分段（55s 强制切段 + 静音检测切段），分段提交现有 ASR 平台。
 
 #### S4.6 实现短录音静默取消
 
@@ -613,7 +610,7 @@
 
 - FunASRProvider 接受 WAV 文件路径，返回 TranscriptResult
 - 首次录音时惰性启动 sidecar 成功
-- ASR 超时（15 秒）、取消、worker 异常可正常清理和恢复
+- ASR 超时（按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`）、取消、worker 异常可正常清理和恢复
 - 错误映射到统一 ASR 错误模型
 - sidecar 通过 stdio JSON-RPC 协议通信
 
@@ -737,7 +734,7 @@
 - 浏览器输入框可完成注入
 - 备忘录/常见编辑器可完成注入
 - 低于 500ms 的短录音静默取消
-- 60 秒录音自动结束后继续处理
+- 长录音通过 AudioSegmenter 自动分段，分段 ASR 结果按序拼接
 - 首次调用惰性启动 sidecar 成功并完成主链路
 - LLM 失败时直接报错且不注入文本
 
@@ -786,6 +783,7 @@
 16. `E16 FunASR 新链路集成验收`
 17. `E17 ASR 平台选择与模型外置`
 18. `E18 LLM 保守型结构化处理`
+19. `E19 长录音分段 ASR`
 
 ## E17. ASR 平台选择与模型外置
 
@@ -830,7 +828,7 @@
 - `TencentSentenceASRProvider` 实现 `ASRProvider` 协议
 - `AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider` 实现 `ASRProvider` 协议
 - 腾讯云使用 TC3-HMAC-SHA256；阿里云使用 `CreateToken + RESTful ASR`；火山引擎使用文件识别接口；科大讯飞使用 WebSocket 语音听写
-- 各云平台超时固定 15 秒
+- 各云平台超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
 - 配置项最小化：只暴露调用所需凭据
 - 错误映射完整：配置不全、鉴权失败、网络错误、空响应、响应无效
 
@@ -913,12 +911,89 @@
 - 继续验证 LLM 失败时不注入文本
 - `docs/PRD.md`、`docs/TDD.md`、`docs/EPICS_AND_STORIES.md` 同步反映结构化处理边界与实现拆分
 
+## E19. 长录音分段 ASR
+
+### 目标
+
+通过音频静音分段，移除固定录音时长上限，支持长时间录音。AudioSegmenter 对录音流实时分析，按静音检测和 55s 强制上限切段，分段串行提交至现有 ASR 平台，拼接转写文本后交给 LLM 润色。
+
+### Stories
+
+#### S19.1 实现 AudioSegmenter 组件
+
+作为系统，我需要一个音频分段器，能够实时分析 PCM 流并自动切段。
+
+验收标准：
+
+- `AudioSegmenter` 接收 PCM chunk 流（16kHz mono），实时分析音频能量
+- 支持静音检测切段：连续静音 ≥1.6s 且已录 ≥15s 时切段
+- 支持 55s 强制切段：单段达到 55s 时无条件切段
+- 切段后保留 300ms 尾部静音避免截断语音
+- 输出 `SealedSegment` 包含 `segmentIndex`、PCM 数据、时长、切段原因（静音/强制）
+- 最终调用 `finalize()` 输出最后一段
+
+#### S19.2 SessionCoordinator 分段 ASR 编排
+
+作为系统，我需要 SessionCoordinator 管理分段 ASR 队列，实现录音与 ASR 并行。
+
+验收标准：
+
+- 录音期间，已 sealed 的分段立即提交降噪和 ASR，不等待录音结束
+- 分段 ASR 严格串行执行，避免 sidecar/云服务并发问题
+- 录音结束后识别最后一段
+- 所有分段 ASR 完成后，按 `segmentIndex` 顺序拼接转写文本
+- 拼接后文本超过 8000 字符时，返回 `transcriptTooLong` 错误
+- 任一有效分段 ASR 失败时，整次流程失败，不注入部分文本
+- 取消 session 时，同时取消录音和未完成的 ASR 任务
+
+#### S19.3 ASR Provider 动态超时
+
+作为系统，我需要所有 ASR Provider 支持按分段时长动态计算超时。
+
+验收标准：
+
+- 超时公式：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
+- FunASRProvider、TencentSentenceASRProvider 及其他云 Provider 统一适用
+- Provider 接口支持传入分段时长参数
+
+#### S19.4 LLM Prompt 分段转写上下文
+
+作为系统，我需要 LLM Prompt 说明输入来自连续分段转写。
+
+验收标准：
+
+- 当输入来自多段分段转写时，Prompt 明确说明：输入来自同一次语音输入的连续分段转写
+- Prompt 指示 LLM 按原始顺序理解为一段连续表达
+- Prompt 允许合并因分段造成的断句，但禁止扩写、改写原意或补充事实
+
+#### S19.5 分段诊断日志
+
+作为开发者，我需要 session 级和 segment 级诊断字段，以便排查分段 ASR 问题。
+
+验收标准：
+
+- Session 级字段：`segment_count`、`queued_segment_count`、`max_pending_segments`、`total_recording_ms`、`joined_transcript_chars`
+- Segment 级字段：`segment_index`、`segment_duration_ms`、`voiced_detected`、`forced_cut`、`silence_cut`、`asr_timeout_ms`、`asr_elapsed_ms`、`asr_result_chars`、`failure_reason`
+- Debug 构建可输出完整字段；Release 构建遵守脱敏约束
+
+#### S19.6 分段 ASR 测试覆盖
+
+作为团队，我需要为分段 ASR 补齐测试覆盖。
+
+验收标准：
+
+- `AudioSegmenter` 单元测试：静音切段、强制切段、300ms 尾部保留、短录音不切段
+- `SessionCoordinator` 分段编排测试：串行 ASR、结果拼接、失败中止、取消行为
+- 动态超时公式验证
+- 拼接文本超过 8000 字符的 `transcriptTooLong` 测试
+- 分段诊断日志输出验证
+
 ## 5. MVP 完成定义
 
 以下条件全部满足，视为首版 MVP 完成：
 
 - 用户可完成首次配置和权限准备
-- 用户可通过全局快捷键完成一次中文短语音输入
+- 用户可通过全局快捷键完成一次中文语音输入（支持长录音自动分段）
 - RNNoise 可完成本地降噪处理
 - FunASR 可返回有效转写
 - OpenAI 兼容 LLM 可完成固定边界内的文本润色
