@@ -22,8 +22,9 @@ struct SealedSegment: Sendable {
 
 /// 实时音频分段器
 ///
-/// 接收 PCM 16kHz mono 16-bit 音频块，基于帧级能量分析检测静音，
+/// 接收 PCM 16kHz mono 16-bit 音频块，基于动态噪声底 + dB 阈值检测静音，
 /// 在静音边界或 55 秒强制截断处封存分段，通过回调通知调用方。
+/// 支持噪声尖峰容忍（轻量语音保护），避免瞬态噪声中断静音检测。
 ///
 /// 线程安全：使用 NSLock 保护内部状态，回调在锁外调用以避免死锁。
 /// 采用 `@unchecked Sendable` 而非 actor 以保证低延迟实时处理。
@@ -42,8 +43,19 @@ final class AudioSegmenter: @unchecked Sendable {
     static let tailPreservationSamples: Int = 4_800
     /// 静音自动切段的最小段长（15 秒 = 240,000 samples），不足 15 秒的段不触发静音切割
     static let minSegmentSamplesForSilenceCut: Int = 15 * 16_000
-    /// RMS 能量阈值，低于此值判定为静音帧
-    static let silenceRMSThreshold: Float = 80.0
+
+    // MARK: - 动态噪声底参数
+
+    /// 噪声底 RMS 初始值（覆盖常见麦克风基底噪声）
+    static let defaultNoiseFloorRMS: Float = 200.0
+    /// 噪声底 RMS 最小值，防止极安静环境导致阈值过低
+    static let minNoiseFloorRMS: Float = 10.0
+    /// 噪声底 EMA 更新系数（值越小适应越慢、越稳定）
+    static let noiseFloorUpdateAlpha: Float = 0.03
+    /// 语音判定阈值：帧 RMS 须超过噪声底此 dB 数才算语音（12 dB ≈ 4 倍）
+    static let voiceThresholdDB: Float = 12.0
+    /// 静音期间容忍的连续噪声尖峰帧数，超过此数量认为是真实语音
+    static let maxSpikeFrames: Int = 3
 
     // MARK: - Callback
 
@@ -62,6 +74,10 @@ final class AudioSegmenter: @unchecked Sendable {
     private var finalized: Bool = false
     // 缓冲残余 samples（不足一帧的部分）
     private var residualSamples = Data()
+    // 动态噪声底 RMS（EMA 跟踪环境噪声水平）
+    private var noiseFloorRMS: Float = AudioSegmenter.defaultNoiseFloorRMS
+    // 静音期间连续超阈值帧计数（用于尖峰容忍）
+    private var spikeFrameCount: Int = 0
 
     // MARK: - Public API
 
@@ -109,20 +125,36 @@ final class AudioSegmenter: @unchecked Sendable {
                 continue
             }
 
-            // 帧级能量分析
+            // 帧级能量分析（动态噪声底 + dB 阈值）
             let rms = Self.computeFrameRMS(frameData)
-            let isSilent = rms < AudioSegmenter.silenceRMSThreshold
+            let dynamicThreshold = noiseFloorRMS * pow(10.0, Self.voiceThresholdDB / 20.0)
+            let isSilent = rms < dynamicThreshold
+
+            // 用低于阈值的帧更新噪声底 EMA
+            if rms < dynamicThreshold {
+                noiseFloorRMS = noiseFloorRMS * (1 - Self.noiseFloorUpdateAlpha) + rms * Self.noiseFloorUpdateAlpha
+                noiseFloorRMS = max(noiseFloorRMS, Self.minNoiseFloorRMS)
+            }
 
             // 将帧数据加入当前分段
             currentPCM.append(frameData)
             currentSampleCount += AudioSegmenter.frameSamples
 
             if isSilent {
+                spikeFrameCount = 0
                 consecutiveSilentSamples += AudioSegmenter.frameSamples
             } else {
-                consecutiveSilentSamples = 0
-                lastVoicedSampleOffset = currentSampleCount
-                voicedDetectedInSegment = true
+                spikeFrameCount += 1
+                if spikeFrameCount <= Self.maxSpikeFrames {
+                    // 短暂尖峰：容忍，继续累积静音
+                    consecutiveSilentSamples += AudioSegmenter.frameSamples
+                } else {
+                    // 持续语音：确认为真实语音，重置静音计数
+                    consecutiveSilentSamples = 0
+                    spikeFrameCount = 0
+                    lastVoicedSampleOffset = currentSampleCount
+                    voicedDetectedInSegment = true
+                }
             }
 
             // 检查是否达到静音阈值（需同时满足 15 秒最小段长要求）
@@ -210,6 +242,8 @@ final class AudioSegmenter: @unchecked Sendable {
         voicedDetectedInSegment = false
         finalized = false
         residualSamples = Data()
+        noiseFloorRMS = AudioSegmenter.defaultNoiseFloorRMS
+        spikeFrameCount = 0
         lock.unlock()
     }
 
@@ -232,6 +266,7 @@ final class AudioSegmenter: @unchecked Sendable {
         consecutiveSilentSamples = 0
         lastVoicedSampleOffset = 0
         voicedDetectedInSegment = false
+        spikeFrameCount = 0
     }
 
     /// 计算一帧 PCM 16-bit LE 数据的 RMS 值
