@@ -142,6 +142,29 @@ final class DiagnosticsLogger: Sendable {
         )
     }
 
+    // MARK: - Segment Diagnostics
+
+    func segmentSealed(sessionID: String, index: Int, sampleCount: Int, reason: String) {
+        let durationMs = Int(Double(sampleCount) / 16.0)
+        logger.info(
+            "[\(sessionID)] segment_sealed | index=\(index) | samples=\(sampleCount) | duration=\(durationMs)ms | reason=\(reason, privacy: .public)"
+        )
+    }
+
+    func segmentASRCompleted(sessionID: String, segment: SegmentDiagnostics) {
+        logger.info(
+            """
+            [\(sessionID)] segment_asr_completed \
+            | index=\(segment.index) \
+            | audio=\(segment.audioDurationMs)ms \
+            | denoise=\(segment.denoiseMs)ms \
+            | asr=\(segment.asrMs)ms \
+            | chars=\(segment.charCount) \
+            | reason=\(segment.sealReason, privacy: .public)
+            """
+        )
+    }
+
     // MARK: - General Events
 
     func log(sessionID: String, event: String, detail: String? = nil) {
@@ -174,6 +197,19 @@ struct SessionDiagnostics: Sendable {
     var resultSource: String?
     var errorClassification: String?
     var targetBundleID: String?
+    // 分段相关
+    var segmentCount: Int = 0
+    var segmentDiagnostics: [SegmentDiagnostics] = []
+}
+
+/// 单段 ASR 诊断数据
+struct SegmentDiagnostics: Sendable {
+    let index: Int
+    let audioDurationMs: Int
+    let denoiseMs: Int
+    let asrMs: Int
+    let charCount: Int
+    let sealReason: String
 }
 
 // MARK: - TypolessError Diagnostic Classification
@@ -203,6 +239,7 @@ extension TypolessError {
         case .llmEmptyResponse: "llm_empty_response"
         case .textInjectionFailure: "text_injection_failure"
         case .sessionCancelled: "session_cancelled"
+        case .transcriptTooLong: "transcript_too_long"
         }
     }
 }

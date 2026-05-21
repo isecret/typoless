@@ -22,7 +22,7 @@ final class FunASRProvider: ASRProvider, @unchecked Sendable {
 
     // MARK: - ASRProvider
 
-    func recognize(audioData: Data) async throws -> TranscriptResult {
+    func recognize(audioData: Data, timeout: TimeInterval? = nil) async throws -> TranscriptResult {
         // 写入临时 WAV 文件供 sidecar 读取
         let tempDir = FileManager.default.temporaryDirectory
         let wavPath = tempDir.appendingPathComponent("typoless_asr_\(UUID().uuidString).wav")
@@ -38,7 +38,7 @@ final class FunASRProvider: ASRProvider, @unchecked Sendable {
         let result = try await runtimeManager.sendRequest(
             method: "recognize",
             params: params,
-            timeout: Self.recognizeTimeout
+            timeout: timeout ?? Self.recognizeTimeout
         )
 
         let text = result["text"] as? String ?? ""

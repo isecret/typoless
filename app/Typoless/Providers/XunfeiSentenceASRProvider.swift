@@ -18,12 +18,14 @@ final class XunfeiSentenceASRProvider: ASRProvider, @unchecked Sendable {
         self.apiSecret = apiSecret
     }
 
-    func recognize(audioData: Data) async throws -> TranscriptResult {
+    func recognize(audioData: Data, timeout: TimeInterval? = nil) async throws -> TranscriptResult {
         guard !appID.isEmpty, !apiKey.isEmpty, !apiSecret.isEmpty else {
             throw TypolessError.cloudASRConfigurationIncomplete
         }
 
-        return try await withTimeout { [self] in
+        let effectiveTimeout = timeout.map { UInt64($0) } ?? Self.timeoutSeconds
+
+        return try await withTimeout(seconds: effectiveTimeout) { [self] in
             try await self.performRecognition(audioData: audioData)
         }
     }
@@ -221,13 +223,13 @@ final class XunfeiSentenceASRProvider: ASRProvider, @unchecked Sendable {
         return Data(digest).base64EncodedString()
     }
 
-    private func withTimeout<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
+    private func withTimeout<T: Sendable>(seconds: UInt64 = XunfeiSentenceASRProvider.timeoutSeconds, _ operation: @escaping @Sendable () async throws -> T) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask {
                 try await operation()
             }
             group.addTask {
-                try await Task.sleep(for: .seconds(Self.timeoutSeconds))
+                try await Task.sleep(for: .seconds(seconds))
                 throw TypolessError.cloudASRNetworkFailure(message: "请求超时")
             }
 

@@ -34,13 +34,17 @@ final class SessionCoordinator {
     /// FunASR sidecar 运行时管理器，跨 session 复用
     private let asrRuntimeManager = ASRRuntimeManager()
 
-    private var timeoutTask: Task<Void, Never>?
     private var processingTask: Task<Void, Never>?
     private var resetToIdleTask: Task<Void, Never>?
     private var soundCueTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
     private var currentSessionID: String = ""
     private var processingMode: TextProcessingMode = .polish
+
+    // 分段相关
+    private let segmenter = AudioSegmenter()
+    private var segmentStream: AsyncStream<SealedSegment>?
+    private var segmentContinuation: AsyncStream<SealedSegment>.Continuation?
 
     init(
         permissionsManager: PermissionsManager,
@@ -114,6 +118,20 @@ final class SessionCoordinator {
         guard generation == sessionGeneration, state == .recording else { return }
 
         do {
+            // 配置分段器和 AsyncStream
+            segmenter.reset()
+            let (stream, continuation) = AsyncStream.makeStream(of: SealedSegment.self)
+            segmentStream = stream
+            segmentContinuation = continuation
+            segmenter.onSegmentSealed = { segment in
+                continuation.yield(segment)
+            }
+
+            // 配置录音器 PCM chunk 回调
+            audioRecorder.onPCMChunk = { [segmenter] chunk in
+                segmenter.appendPCMChunk(chunk)
+            }
+
             try audioRecorder.startRecording(device: audioDeviceManager.captureDeviceForRecording())
             diagnostics.sessionStarted(
                 sessionID: sessionID,
@@ -132,13 +150,6 @@ final class SessionCoordinator {
             if selectedPlatform == .localFunASR {
                 asrRuntimeManager.warmup()
             }
-
-            // 60 秒超时自动结束
-            timeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(AudioRecorder.maxDuration))
-                guard !Task.isCancelled else { return }
-                self?.finishRecording()
-            }
         } catch {
             handleError(mapError(error))
         }
@@ -150,8 +161,6 @@ final class SessionCoordinator {
 
         soundCueTask?.cancel()
         soundCueTask = nil
-        timeoutTask?.cancel()
-        timeoutTask = nil
 
         let recordingResult = audioRecorder.stopRecording()
         let audioData = recordingResult.data
@@ -167,26 +176,53 @@ final class SessionCoordinator {
             lastRecordedAudio = nil
             targetApplicationPID = nil
             targetApplicationBundleID = nil
+            cleanupSegmenterState()
             state = .idle
             return
         }
 
         guard !audioData.isEmpty else {
+            cleanupSegmenterState()
             handleError(.asrEmptyAudio)
             return
         }
+
+        // 通知分段器结束，触发最终分段
+        segmenter.finalize()
+        segmentContinuation?.finish()
 
         let gen = sessionGeneration
         let sessionID = currentSessionID
         let recordingMs = recordingResult.durationMs
         state = .transcribing
 
+        // 在 session 开始时快照配置，保证长录音期间配置一致性
+        let asrConfig = configStore.asrConfig
+        let selectedPlatform = asrConfig.selectedPlatform
+        let llmConfig = configStore.llmConfig
+        let openAIAPIKey = configStore.openAIAPIKey
+        let isLLMConfigured = configStore.isLLMConfigured
+        let hotwords = selectedPlatform == .localFunASR
+            ? (dictionaryStore?.hotwordsForFunASR() ?? "")
+            : ""
+        let terms = dictionaryStore?.termsForPrompt() ?? []
+        let currentProcessingMode = processingMode
+        let translationTarget = configStore.generalConfig.translationTargetLanguage
+
         processingTask = Task { [weak self] in
-            await self?.processAudio(
-                audioData,
+            await self?.processSegmentedAudio(
                 generation: gen,
                 sessionID: sessionID,
-                recordingMs: recordingMs
+                recordingMs: recordingMs,
+                asrConfig: asrConfig,
+                selectedPlatform: selectedPlatform,
+                llmConfig: llmConfig,
+                openAIAPIKey: openAIAPIKey,
+                isLLMConfigured: isLLMConfigured,
+                hotwords: hotwords,
+                terms: terms,
+                processingMode: currentProcessingMode,
+                translationTarget: translationTarget
             )
             self?.processingTask = nil
         }
@@ -198,9 +234,8 @@ final class SessionCoordinator {
         case .recording:
             soundCueTask?.cancel()
             soundCueTask = nil
-            timeoutTask?.cancel()
-            timeoutTask = nil
             _ = audioRecorder.stopRecording()
+            cleanupSegmenterState()
             lastRecordedAudio = nil
             targetApplicationPID = nil
             targetApplicationBundleID = nil
@@ -212,6 +247,7 @@ final class SessionCoordinator {
             sessionGeneration &+= 1
             processingTask?.cancel()
             processingTask = nil
+            cleanupSegmenterState()
             // 取消期间 worker 可能仍在推理，标记为不可信并销毁，防止旧响应污染后续 session
             if state == .transcribing {
                 asrRuntimeManager.invalidateCurrentWorker()
@@ -235,47 +271,30 @@ final class SessionCoordinator {
         onFeedbackEvent?(.modeSwitched(processingMode))
     }
 
-    // MARK: - Processing Pipeline
+    // MARK: - Segmented Processing Pipeline
 
-    private func processAudio(
-        _ audioData: Data,
+    private nonisolated func processSegmentedAudio(
         generation: UInt64,
         sessionID: String,
-        recordingMs: Int
+        recordingMs: Int,
+        asrConfig: ASRConfig,
+        selectedPlatform: ASRPlatform,
+        llmConfig: LLMConfig,
+        openAIAPIKey: String,
+        isLLMConfigured: Bool,
+        hotwords: String,
+        terms: [TermReference],
+        processingMode: TextProcessingMode,
+        translationTarget: TranslationTargetLanguage
     ) async {
         let sessionStart = Date()
         var diag = SessionDiagnostics()
         diag.recordingMs = recordingMs
-        diag.targetBundleID = targetApplicationBundleID
+        diag.targetBundleID = await MainActor.run { targetApplicationBundleID }
 
         let wasColdStart = asrRuntimeManager.warmupState != .warm
 
-        // 1. 音频降噪（与 ASR warmup 并行进行）
-        let denoiseStart = Date()
-        let processedAudio: Data
-        do {
-            processedAudio = try audioPreprocessor.denoise(wavData: audioData)
-            let denoiseMs = Int(Date().timeIntervalSince(denoiseStart) * 1000)
-            diag.denoiseMs = denoiseMs
-            diagnostics.denoiseCompleted(sessionID: sessionID, durationMs: denoiseMs)
-        } catch {
-            guard generation == sessionGeneration, !Task.isCancelled else { return }
-            let denoiseMs = Int(Date().timeIntervalSince(denoiseStart) * 1000)
-            diag.denoiseMs = denoiseMs
-            let mapped = mapError(error)
-            diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
-            diag.errorClassification = mapped.diagnosticClassification
-            diagnostics.denoiseFailed(sessionID: sessionID, reason: mapped.diagnosticClassification)
-            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            handleError(mapped)
-            return
-        }
-
-        guard generation == sessionGeneration, !Task.isCancelled else { return }
-
         // 本地 FunASR：等待预热完成
-        let warmupStart = Date()
-        let selectedPlatform = await MainActor.run { configStore.asrConfig.selectedPlatform }
         if selectedPlatform == .localFunASR {
             do {
                 try await asrRuntimeManager.awaitWarmupIfNeeded()
@@ -283,89 +302,193 @@ final class SessionCoordinator {
                 diagnostics.log(sessionID: sessionID, event: "warmup_failed", detail: error.localizedDescription)
             }
         }
-        let warmupWaitMs = Int(Date().timeIntervalSince(warmupStart) * 1000)
 
-        guard generation == sessionGeneration, !Task.isCancelled else { return }
-
-        // 2. 按平台选择 ASR Provider
-        let hotwords = selectedPlatform == .localFunASR
-            ? await MainActor.run { dictionaryStore?.hotwordsForFunASR() ?? "" }
-            : ""
-        let asrConfig = await MainActor.run { configStore.asrConfig }
+        // 构建 ASR Provider
         let asrProviderFactory = ASRProviderFactory(runtimeManager: asrRuntimeManager)
         let asrProvider = asrProviderFactory.makeProvider(for: asrConfig, hotwords: hotwords)
 
-        let asrStart = Date()
-        let transcriptResult: TranscriptResult
-        do {
-            transcriptResult = try await asrProvider.recognize(audioData: processedAudio)
-            if selectedPlatform == .localFunASR {
-                asrRuntimeManager.markRecognitionSucceeded()
+        guard let stream = await MainActor.run(body: { segmentStream }) else { return }
+
+        // 串行处理分段
+        var transcripts: [String] = []
+        var totalASRMs: Int = 0
+        var totalDenoiseMs: Int = 0
+        var accumulatedChars: Int = 0
+        var segmentDiagList: [SegmentDiagnostics] = []
+        var segmentCount = 0
+        let maxChars = 8000
+
+        for await segment in stream {
+            guard await MainActor.run(body: { sessionGeneration }) == generation,
+                  !Task.isCancelled else { return }
+
+            segmentCount += 1
+
+            // 跳过无语音的分段（如纯静音尾段）
+            if !segment.voicedDetected {
+                diagnostics.log(sessionID: sessionID, event: "segment_skipped_no_voice", detail: "index=\(segment.index)")
+                continue
             }
-        } catch {
-            guard generation == sessionGeneration, !Task.isCancelled else { return }
-            let mapped = mapError(error)
-            diag.asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+
+            diagnostics.segmentSealed(
+                sessionID: sessionID,
+                index: segment.index,
+                sampleCount: segment.sampleCount,
+                reason: segment.sealReason.rawValue
+            )
+
+            // 编码为 WAV
+            let wavData = WAVAudioEncoder.encodePCM16(
+                pcmData: segment.pcmData,
+                sampleRate: AudioSegmenter.sampleRate,
+                channels: 1
+            )
+
+            // 降噪
+            let denoiseStart = Date()
+            let processedAudio: Data
+            do {
+                processedAudio = try audioPreprocessor.denoise(wavData: wavData)
+            } catch {
+                diagnostics.denoiseFailed(sessionID: sessionID, reason: "segment \(segment.index): \(error.localizedDescription)")
+                // 降噪失败时使用原始音频
+                processedAudio = wavData
+            }
+            let denoiseMs = Int(Date().timeIntervalSince(denoiseStart) * 1000)
+            totalDenoiseMs += denoiseMs
+
+            guard await MainActor.run(body: { sessionGeneration }) == generation,
+                  !Task.isCancelled else { return }
+
+            // ASR 识别（动态超时：每秒音频 0.5 秒处理时间，最少 15 秒）
+            let dynamicTimeout = max(15.0, segment.durationSeconds * 0.5 + 10.0)
+            let asrStart = Date()
+            let transcriptResult: TranscriptResult
+            do {
+                transcriptResult = try await asrProvider.recognize(audioData: processedAudio, timeout: dynamicTimeout)
+                if selectedPlatform == .localFunASR {
+                    asrRuntimeManager.markRecognitionSucceeded()
+                }
+            } catch {
+                guard await MainActor.run(body: { sessionGeneration }) == generation,
+                      !Task.isCancelled else { return }
+                let mapped = await MainActor.run { mapError(error) }
+                let asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+                diag.asrMs = totalASRMs + asrMs
+                diag.denoiseMs = totalDenoiseMs
+                diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+                diag.errorClassification = mapped.diagnosticClassification
+                diag.segmentCount = segmentCount
+                diag.segmentDiagnostics = segmentDiagList
+                diagnostics.sessionError(sessionID: sessionID, error: mapped)
+                diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+                await MainActor.run { handleError(mapped) }
+                return
+            }
+
+            let asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
+            totalASRMs += asrMs
+
+            let segDiag = SegmentDiagnostics(
+                index: segment.index,
+                audioDurationMs: Int(segment.durationSeconds * 1000),
+                denoiseMs: denoiseMs,
+                asrMs: asrMs,
+                charCount: transcriptResult.text.count,
+                sealReason: segment.sealReason.rawValue
+            )
+            segmentDiagList.append(segDiag)
+            diagnostics.segmentASRCompleted(sessionID: sessionID, segment: segDiag)
+
+            if !transcriptResult.text.isEmpty {
+                transcripts.append(transcriptResult.text)
+                accumulatedChars += transcriptResult.text.count
+            }
+
+            // 检查累计字符数
+            if accumulatedChars > maxChars {
+                diag.asrMs = totalASRMs
+                diag.denoiseMs = totalDenoiseMs
+                diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
+                diag.segmentCount = segmentCount
+                diag.segmentDiagnostics = segmentDiagList
+                let tooLongError = TypolessError.transcriptTooLong(charCount: accumulatedChars)
+                diag.errorClassification = tooLongError.diagnosticClassification
+                diagnostics.sessionError(sessionID: sessionID, error: tooLongError)
+                diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+                await MainActor.run { handleError(tooLongError) }
+                return
+            }
+        }
+
+        guard await MainActor.run(body: { sessionGeneration }) == generation,
+              !Task.isCancelled else { return }
+
+        let combinedTranscript = transcripts.joined()
+        diag.asrMs = totalASRMs
+        diag.denoiseMs = totalDenoiseMs
+        diag.segmentCount = segmentCount
+        diag.segmentDiagnostics = segmentDiagList
+        diagnostics.asrCompleted(
+            sessionID: sessionID,
+            text: combinedTranscript,
+            durationMs: totalASRMs,
+            coldStart: wasColdStart,
+            warmupWaitMs: 0
+        )
+
+        // 空转写检查
+        if combinedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
-            diag.errorClassification = mapped.diagnosticClassification
-            diagnostics.sessionError(sessionID: sessionID, error: mapped)
+            diag.errorClassification = TypolessError.cloudASREmptyResponse.diagnosticClassification
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            handleError(mapped)
+            await MainActor.run { handleError(.cloudASREmptyResponse) }
             return
         }
 
-        guard generation == sessionGeneration, !Task.isCancelled else { return }
-
-        let asrMs = Int(Date().timeIntervalSince(asrStart) * 1000)
-        diag.asrMs = asrMs
-        diagnostics.asrCompleted(
-            sessionID: sessionID,
-            text: transcriptResult.text,
-            durationMs: asrMs,
-            coldStart: wasColdStart,
-            warmupWaitMs: warmupWaitMs
-        )
-
-        // 3. LLM 润色必须配置完整且成功，否则直接报错
-        guard configStore.isLLMConfigured else {
+        // LLM 润色
+        guard isLLMConfigured else {
             diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
             diag.errorClassification = TypolessError.llmConfigurationIncomplete.diagnosticClassification
             diagnostics.sessionError(sessionID: sessionID, error: .llmConfigurationIncomplete)
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            handleError(.llmConfigurationIncomplete)
+            await MainActor.run { handleError(.llmConfigurationIncomplete) }
             return
         }
 
-        state = .polishing
-        let terms = await MainActor.run { dictionaryStore?.termsForPrompt() ?? [] }
-        let llmProvider = LLMProvider(
-            baseURL: configStore.llmConfig.baseURL,
-            apiKey: configStore.openAIAPIKey,
-            model: configStore.llmConfig.model,
-            thinkingDisabled: configStore.llmConfig.thinkingDisabled,
-            dictionaryTerms: terms,
-            onThinkingUnsupported: { [self] in
-                try? self.configStore.markThinkingDisabledForCurrentLLM()
-            }
-        )
+        await MainActor.run { state = .polishing }
+        let llmProvider = await MainActor.run {
+            LLMProvider(
+                baseURL: llmConfig.baseURL,
+                apiKey: openAIAPIKey,
+                model: llmConfig.model,
+                thinkingDisabled: llmConfig.thinkingDisabled,
+                dictionaryTerms: terms,
+                onThinkingUnsupported: { [self] in
+                    try? self.configStore.markThinkingDisabledForCurrentLLM()
+                }
+            )
+        }
 
         let llmStart = Date()
         let polishResult: PolishResult
         do {
-            polishResult = try await llmProvider.polish(text: transcriptResult.text)
+            polishResult = try await llmProvider.polish(text: combinedTranscript, segmentCount: transcripts.count)
         } catch {
-            guard generation == sessionGeneration, !Task.isCancelled else { return }
-            let mapped = mapError(error)
+            guard await MainActor.run(body: { sessionGeneration }) == generation,
+                  !Task.isCancelled else { return }
+            let mapped = await MainActor.run { mapError(error) }
             diag.llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
             diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
             diag.errorClassification = mapped.diagnosticClassification
             diagnostics.sessionError(sessionID: sessionID, error: mapped)
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            handleError(mapped)
+            await MainActor.run { handleError(mapped) }
             return
         }
 
-        guard generation == sessionGeneration, !Task.isCancelled else { return }
+        guard await MainActor.run(body: { sessionGeneration }) == generation,
+              !Task.isCancelled else { return }
         let llmMs = Int(Date().timeIntervalSince(llmStart) * 1000)
         diag.llmMs = llmMs
         diagnostics.llmCompleted(
@@ -382,8 +505,8 @@ final class SessionCoordinator {
             fallback: polishResult.structured == nil
         )
 
-        // 4. 文本注入（支持翻译模式）
-        state = .injecting
+        // 文本注入（支持翻译模式）
+        await MainActor.run { state = .injecting }
         diag.resultSource = polishResult.source.rawValue
 
         var finalText = polishResult.text
@@ -391,56 +514,73 @@ final class SessionCoordinator {
         if processingMode == .translate {
             let translateStart = Date()
             do {
-                let targetLanguage = await MainActor.run { configStore.generalConfig.translationTargetLanguage }
-                let translated = try await llmProvider.translate(text: polishResult.text, targetLanguage: targetLanguage)
+                let translated = try await llmProvider.translate(text: polishResult.text, targetLanguage: translationTarget)
                 finalText = translated
                 let translateMs = Int(Date().timeIntervalSince(translateStart) * 1000)
                 diag.llmMs = (diag.llmMs ?? 0) + translateMs
                 diagnostics.llmCompleted(sessionID: sessionID, text: finalText, source: polishResult.source.rawValue, durationMs: translateMs)
             } catch {
-                guard generation == sessionGeneration, !Task.isCancelled else { return }
-                let mapped = mapError(error)
+                guard await MainActor.run(body: { sessionGeneration }) == generation,
+                      !Task.isCancelled else { return }
+                let mapped = await MainActor.run { mapError(error) }
                 let translateMs = Int(Date().timeIntervalSince(translateStart) * 1000)
                 diag.llmMs = (diag.llmMs ?? 0) + translateMs
                 diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
                 diag.errorClassification = mapped.diagnosticClassification
                 diagnostics.sessionError(sessionID: sessionID, error: mapped)
                 diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-                handleError(mapped)
+                await MainActor.run { handleError(mapped) }
                 return
             }
         }
 
-        lastResult = SessionResult(text: finalText, source: polishResult.source)
+        await MainActor.run { lastResult = SessionResult(text: finalText, source: polishResult.source) }
 
         let injectionStart = Date()
         do {
+            let targetPID = await MainActor.run { targetApplicationPID }
+            let targetBundleID = await MainActor.run { targetApplicationBundleID }
             try textInjector.inject(
                 text: finalText,
-                targetPID: targetApplicationPID,
-                targetBundleID: targetApplicationBundleID
+                targetPID: targetPID,
+                targetBundleID: targetBundleID
             )
         } catch {
-            guard generation == sessionGeneration else { return }
+            guard await MainActor.run(body: { sessionGeneration }) == generation else { return }
+            let mapped = await MainActor.run { mapError(error) }
             diag.injectionMs = Int(Date().timeIntervalSince(injectionStart) * 1000)
             diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
-            diag.errorClassification = mapError(error).diagnosticClassification
-            diagnostics.sessionError(sessionID: sessionID, error: mapError(error))
+            diag.errorClassification = mapped.diagnosticClassification
+            diagnostics.sessionError(sessionID: sessionID, error: mapped)
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            lastInjectionFailureText = finalText
-            handleError(mapError(error))
+            await MainActor.run {
+                lastInjectionFailureText = finalText
+                handleError(mapped)
+            }
             return
         }
 
-        guard generation == sessionGeneration else { return }
+        guard await MainActor.run(body: { sessionGeneration }) == generation else { return }
         diag.injectionMs = Int(Date().timeIntervalSince(injectionStart) * 1000)
         diag.totalMs = Int(Date().timeIntervalSince(sessionStart) * 1000)
 
-        lastInjectionFailureText = nil
-        state = .done
-        diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-        onFeedbackEvent?(.processingFinished)
-        scheduleResetToIdle()
+        await MainActor.run {
+            lastInjectionFailureText = nil
+            state = .done
+            diagnostics.sessionEnded(sessionID: sessionID, result: diag)
+            onFeedbackEvent?(.processingFinished)
+            scheduleResetToIdle()
+        }
+    }
+
+    // MARK: - Segmenter Cleanup
+
+    private func cleanupSegmenterState() {
+        segmenter.onSegmentSealed = nil
+        segmentContinuation?.finish()
+        segmentContinuation = nil
+        segmentStream = nil
+        segmenter.reset()
     }
 
     // MARK: - Error Handling

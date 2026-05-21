@@ -17,10 +17,12 @@ final class AliyunSentenceASRProvider: ASRProvider, @unchecked Sendable {
         self.appKey = appKey
     }
 
-    func recognize(audioData: Data) async throws -> TranscriptResult {
+    func recognize(audioData: Data, timeout: TimeInterval? = nil) async throws -> TranscriptResult {
         guard !accessKeyId.isEmpty, !accessKeySecret.isEmpty, !appKey.isEmpty else {
             throw TypolessError.cloudASRConfigurationIncomplete
         }
+
+        let effectiveTimeout = timeout ?? Self.timeout
 
         let token = try await fetchToken()
         var components = URLComponents(url: Self.speechURL, resolvingAgainstBaseURL: false)
@@ -37,7 +39,7 @@ final class AliyunSentenceASRProvider: ASRProvider, @unchecked Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = audioData
-        request.timeoutInterval = Self.timeout
+        request.timeoutInterval = effectiveTimeout
         request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "X-NLS-Token")
 
