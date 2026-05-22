@@ -10,6 +10,8 @@ import Foundation
 final class PersonalDictionaryStore {
 
     private(set) var entries: [DictionaryEntry] = []
+    private let directoryURL: URL
+    private let dictionaryURL: URL
 
     /// 仅返回已启用的词条
     var enabledEntries: [DictionaryEntry] {
@@ -18,27 +20,23 @@ final class PersonalDictionaryStore {
 
     // MARK: - 存储路径
 
-    private static let dictionaryURL: URL = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".typoless", isDirectory: true)
-            .appendingPathComponent("dictionary.json")
-    }()
-
-    private static let directoryURL: URL = {
+    private static let defaultDirectoryURL: URL = {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".typoless", isDirectory: true)
     }()
 
     // MARK: - 初始化
 
-    init() {
+    init(directoryURL: URL? = nil) {
+        self.directoryURL = directoryURL ?? Self.defaultDirectoryURL
+        self.dictionaryURL = self.directoryURL.appendingPathComponent("dictionary.json")
         loadEntries()
     }
 
     // MARK: - CRUD
 
     func addEntry(_ entry: DictionaryEntry) throws {
-        entries.append(entry)
+        entries.insert(entry, at: 0)
         try save()
     }
 
@@ -86,7 +84,7 @@ final class PersonalDictionaryStore {
     // MARK: - 持久化
 
     private func loadEntries() {
-        let url = Self.dictionaryURL
+        let url = dictionaryURL
 
         guard FileManager.default.fileExists(atPath: url.path) else {
             entries = []
@@ -104,8 +102,8 @@ final class PersonalDictionaryStore {
 
     private func save() throws {
         let fm = FileManager.default
-        let dirURL = Self.directoryURL
-        let fileURL = Self.dictionaryURL
+        let dirURL = directoryURL
+        let fileURL = dictionaryURL
 
         if !fm.fileExists(atPath: dirURL.path) {
             try fm.createDirectory(at: dirURL, withIntermediateDirectories: true)

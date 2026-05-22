@@ -3,6 +3,7 @@ import SwiftUI
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case asr
+    case dictionary
     case ai
     case permissions
 
@@ -14,6 +15,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
             "通用"
         case .asr:
             "语音"
+        case .dictionary:
+            "词典"
         case .ai:
             "模型"
         case .permissions:
@@ -27,6 +30,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
             "gearshape"
         case .asr:
             "waveform"
+        case .dictionary:
+            "text.book.closed"
         case .ai:
             "sparkles"
         case .permissions:
@@ -40,6 +45,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
             NSSize(width: SettingsFormLayout.windowContentWidth, height: 320)
         case .asr:
             NSSize(width: SettingsFormLayout.windowContentWidth, height: 270)
+        case .dictionary:
+            NSSize(width: SettingsFormLayout.windowContentWidth, height: 330)
         case .ai:
             NSSize(width: SettingsFormLayout.windowContentWidth, height: 250)
         case .permissions:
@@ -60,6 +67,8 @@ struct SettingsView: View {
                 })
             case .asr:
                 ASRSettingsView(configStore: appCoordinator.configStore)
+            case .dictionary:
+                PersonalDictionarySettingsView(dictionaryStore: appCoordinator.dictionaryStore)
             case .ai:
                 LLMSettingsView(configStore: appCoordinator.configStore)
             case .permissions:

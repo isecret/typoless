@@ -651,6 +651,7 @@
 - 词典存储于 `~/.typoless/dictionary.json`
 - 词条至少包含 `term` 和 `enabled`
 - 支持新增、删除、启用、禁用词条
+- 设置页仅维护术语文本，不展示发音提示和分类
 - 不保存历史输入文本
 
 #### S14.3 将个人词典接入 ASR hotwords 与 LLM Prompt
