@@ -466,6 +466,7 @@ Segment 级诊断字段（每段独立记录）：
 
 - 存储位置：`~/.typoless/dictionary.json`
 - 字段：`term`、`pronunciationHint`、`category`、`enabled`
+- 设置页首版仅维护 `term` 和 `enabled`；新增词条的 `pronunciationHint`、`category` 保存为 `nil`
 - 不存储历史输入文本或 ASR/LLM 响应正文
 
 ### 8.4 校验策略
