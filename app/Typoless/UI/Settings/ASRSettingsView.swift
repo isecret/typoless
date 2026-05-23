@@ -25,12 +25,25 @@ struct ASRSettingsView: View {
     var body: some View {
         SettingsPaneSection {
             SettingsFormRow(title: "语音引擎") {
-                Picker("语音引擎", selection: $selectedPlatform) {
-                    ForEach(ASRPlatform.allCases, id: \.self) { platform in
-                        Text(platform.displayName).tag(platform)
+                HStack(spacing: 8) {
+                    Picker("语音引擎", selection: $selectedPlatform) {
+                        ForEach(ASRPlatform.allCases, id: \.self) { platform in
+                            Text(platform.displayName).tag(platform)
+                        }
                     }
+                    .labelsHidden()
+                    .frame(width: 334, alignment: .leading)
+
+                    Link(destination: selectedPlatform.documentationURL) {
+                        Image(systemName: "arrow.up.forward.square")
+                            .font(.system(size: 14, weight: .regular))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .accessibilityLabel("打开\(selectedPlatform.displayName)文档")
+                    .help("打开\(selectedPlatform.displayName)文档")
                 }
-                .labelsHidden()
                 .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
             }
 

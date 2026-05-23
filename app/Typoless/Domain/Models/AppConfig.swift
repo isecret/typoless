@@ -47,6 +47,21 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             "科大讯飞模式：语音会发送到科大讯飞语音识别服务。"
         }
     }
+
+    var documentationURL: URL {
+        switch self {
+        case .localFunASR:
+            URL(string: "https://github.com/modelscope/FunASR")!
+        case .tencentCloudSentence:
+            URL(string: "https://cloud.tencent.com/document/product/1093/35646")!
+        case .aliyunSentence:
+            URL(string: "https://help.aliyun.com/zh/isi/developer-reference/short-sentence-recognition")!
+        case .volcengineSentence:
+            URL(string: "https://www.volcengine.com/docs/6561/1257584")!
+        case .xunfeiSentence:
+            URL(string: "https://www.xfyun.cn/doc/asr/voicedictation/API.html")!
+        }
+    }
 }
 
 /// ASR 总配置
