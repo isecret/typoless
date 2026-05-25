@@ -1,10 +1,35 @@
 import SwiftUI
 
 struct PersonalDictionarySettingsView: View {
+    private static let dictionaryListBottomAnchorID = "dictionary-list-bottom-anchor"
+
+    private enum Layout {
+        static let listHeight: CGFloat = 190
+        static let rowHeight: CGFloat = 28
+        static let rowSpacing: CGFloat = 6
+        static let leadingInset: CGFloat = 4
+        static let trailingInset: CGFloat = 0
+        static let scrollbarReserve: CGFloat = 20
+        static let deleteButtonWidth: CGFloat = 22
+        static let rowControlSpacing: CGFloat = 3
+        static let footerOffset: CGFloat =
+            (SettingsFormLayout.contentWidth - SettingsFormLayout.controlWidth) / 2
+            - (SettingsFormLayout.labelWidth + SettingsFormLayout.rowSpacing)
+            + leadingInset
+        static let editorWidth: CGFloat =
+            SettingsFormLayout.controlWidth
+            - leadingInset
+            - trailingInset
+            - scrollbarReserve
+            - deleteButtonWidth
+            - rowControlSpacing
+    }
+
     @State private var viewModel: PersonalDictionaryViewModel
     @State private var draftTerms: [String: String] = [:]
-    @State private var isDeleteConfirmationPresented = false
-    @State private var entryPendingDeletion: DictionaryEntry?
+    @State private var selection: String?
+    @State private var pendingScrollTargetID: String?
+    @FocusState private var focusedEntryID: String?
 
     init(dictionaryStore: PersonalDictionaryStore) {
         _viewModel = State(wrappedValue: PersonalDictionaryViewModel(store: dictionaryStore))
@@ -12,34 +37,13 @@ struct PersonalDictionarySettingsView: View {
 
     var body: some View {
         SettingsPaneSection {
-            SettingsFormRow(title: "新增词条") {
-                HStack(spacing: 8) {
-                    SettingsTextInputField(
-                        text: $viewModel.newTerm,
-                        width: 286,
-                        placeholder: "添加人名、产品名、术语"
-                    )
-
-                    Button("添加") {
-                        viewModel.addTerm()
-                        syncDraftTerms()
-                    }
-                }
+            VStack(alignment: .leading, spacing: 0) {
+                dictionaryContent
             }
-
-            SettingsFormRow(title: "词条列表") {
-                dictionaryList
-            }
-
-            if let errorMessage = viewModel.errorMessage {
-                SettingsFormRow(title: "") {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
+            .frame(maxWidth: .infinity, alignment: .center)
         } footer: {
-            Text("共 \(viewModel.totalCount) 个词条，启用 \(viewModel.enabledCount) 个")
+            Text("添加后可直接编辑词条，点击词条后的删除图标可删除。")
+                .offset(x: Layout.footerOffset)
         }
         .onAppear { syncDraftTerms() }
         .onChange(of: viewModel.editRevision) {
@@ -49,64 +53,82 @@ struct PersonalDictionarySettingsView: View {
             viewModel.flushPendingEdits()
             syncDraftTerms()
         }
-        .confirmationDialog(
-            "删除词条？",
-            isPresented: $isDeleteConfirmationPresented
-        ) {
-            Button("删除", role: .destructive) {
-                if let entry = entryPendingDeletion {
-                    viewModel.deleteEntry(entry)
-                }
-                entryPendingDeletion = nil
-                syncDraftTerms()
-            }
-            Button("取消", role: .cancel) {
-                entryPendingDeletion = nil
-            }
-        } message: {
-            if let term = entryPendingDeletion?.term {
-                Text("将删除“\(term)”")
-            }
-        }
-        .onChange(of: isDeleteConfirmationPresented) {
-            if !isDeleteConfirmationPresented {
-                entryPendingDeletion = nil
-            }
-        }
     }
 
-    @ViewBuilder
+    private var dictionaryContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            dictionaryList
+            controls
+
+            if let errorMessage = viewModel.errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+    }
+
     private var dictionaryList: some View {
-        if viewModel.entries.isEmpty {
-            Text("暂无词条")
-                .foregroundStyle(.secondary)
-                .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
-                    ForEach(viewModel.entries) { entry in
-                        dictionaryRow(entry)
+        ScrollViewReader { proxy in
+            Group {
+                if viewModel.entries.isEmpty {
+                    Text("暂无词条")
+                        .foregroundStyle(.secondary)
+                        .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: Layout.rowSpacing) {
+                            ForEach(viewModel.entries) { entry in
+                                dictionaryRow(for: entry)
+                                    .id(entry.id)
+                            }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(Self.dictionaryListBottomAnchorID)
+                        }
+                        .padding(.vertical, 2)
+                        .padding(.leading, Layout.leadingInset)
+                        .padding(.trailing, Layout.trailingInset + Layout.scrollbarReserve)
                     }
+                    .frame(width: SettingsFormLayout.controlWidth, height: Layout.listHeight)
                 }
-                .padding(.vertical, 2)
             }
-            .frame(width: SettingsFormLayout.controlWidth, height: 190)
+            .onChange(of: pendingScrollTargetID) {
+                guard let targetID = pendingScrollTargetID else { return }
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        proxy.scrollTo(Self.dictionaryListBottomAnchorID, anchor: .bottom)
+                    }
+                    focusedEntryID = targetID
+                    selection = targetID
+                    pendingScrollTargetID = nil
+                }
+            }
+        }
+        .onDeleteCommand {
+            removeSelection()
         }
     }
 
-    private func dictionaryRow(_ entry: DictionaryEntry) -> some View {
-        HStack(spacing: 8) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { entry.enabled },
-                    set: { _ in viewModel.toggleEnabled(id: entry.id) }
-                )
-            )
-            .toggleStyle(.checkbox)
-            .labelsHidden()
-            .help(entry.enabled ? "禁用词条" : "启用词条")
+    private var controls: some View {
+        HStack {
+            Button("添加") {
+                let placeholder = makePlaceholderTerm()
+                viewModel.addPlaceholderTerm(placeholder)
+                syncDraftTerms()
+                pendingScrollTargetID = viewModel.entries.last?.id
+            }
+            .help("添加词条")
 
+            Spacer()
+        }
+        .padding(.leading, Layout.leadingInset)
+    }
+
+    private func dictionaryRow(for entry: DictionaryEntry) -> some View {
+        HStack(spacing: Layout.rowControlSpacing) {
             SettingsTextInputField(
                 text: Binding(
                     get: { draftTerms[entry.id] ?? entry.term },
@@ -115,24 +137,66 @@ struct PersonalDictionarySettingsView: View {
                         viewModel.scheduleTermUpdate(id: entry.id, term: value)
                     }
                 ),
-                width: 282
+                width: Layout.editorWidth
             )
+            .focused($focusedEntryID, equals: entry.id)
+            .frame(width: Layout.editorWidth, height: Layout.rowHeight, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                selection = entry.id
+                if focusedEntryID != entry.id {
+                    focusedEntryID = entry.id
+                }
+            }
 
             Button {
-                entryPendingDeletion = entry
-                isDeleteConfirmationPresented = true
+                viewModel.deleteEntry(entry)
+                draftTerms.removeValue(forKey: entry.id)
+                if selection == entry.id {
+                    selection = nil
+                }
+                if focusedEntryID == entry.id {
+                    focusedEntryID = nil
+                }
             } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 13))
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .frame(width: Layout.deleteButtonWidth, height: Layout.rowHeight)
             .help("删除词条")
-            .accessibilityLabel("删除词条")
         }
-        .frame(height: 28)
+        .onChange(of: focusedEntryID) {
+            if focusedEntryID == entry.id {
+                selection = entry.id
+            }
+        }
+    }
+
+    private func removeSelection() {
+        guard let selection,
+              let entry = viewModel.entries.first(where: { $0.id == selection }) else { return }
+        viewModel.deleteEntry(entry)
+        self.selection = nil
+        focusedEntryID = nil
+        syncDraftTerms()
     }
 
     private func syncDraftTerms() {
         draftTerms = Dictionary(uniqueKeysWithValues: viewModel.entries.map { ($0.id, $0.term) })
+    }
+
+    private func makePlaceholderTerm() -> String {
+        let base = "新词条"
+        guard viewModel.entries.contains(where: { $0.term == base }) else {
+            return base
+        }
+
+        var index = 2
+        while viewModel.entries.contains(where: { $0.term == "\(base) \(index)" }) {
+            index += 1
+        }
+        return "\(base) \(index)"
     }
 }

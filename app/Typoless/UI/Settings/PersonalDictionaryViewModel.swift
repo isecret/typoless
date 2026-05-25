@@ -9,7 +9,6 @@ final class PersonalDictionaryViewModel {
         case saveFailed = "保存失败"
     }
 
-    var newTerm: String = ""
     var errorMessage: String?
     private(set) var entries: [DictionaryEntry]
     private(set) var editRevision = 0
@@ -29,27 +28,9 @@ final class PersonalDictionaryViewModel {
         entries.count
     }
 
-    var enabledCount: Int {
-        entries.filter(\.enabled).count
-    }
-
-    func addTerm() {
-        let term = normalizedTerm(newTerm)
-        guard validateNewTerm(term) else { return }
-
+    func addPlaceholderTerm(_ term: String) {
         do {
-            try store.addEntry(DictionaryEntry(term: term, pronunciationHint: nil, category: nil, enabled: true))
-            refreshEntries()
-            newTerm = ""
-            clearError()
-        } catch {
-            showError(.saveFailed)
-        }
-    }
-
-    func toggleEnabled(id: String) {
-        do {
-            try store.toggleEnabled(id: id)
+            try store.addEntry(DictionaryEntry(term: term))
             refreshEntries()
             clearError()
         } catch {
@@ -103,6 +84,13 @@ final class PersonalDictionaryViewModel {
             clearError()
             return
         }
+
+        if term.isEmpty {
+            deleteEntry(entry)
+            clearError()
+            return
+        }
+
         guard validateEditedTerm(term, editingID: id) else { return }
 
         var updated = entry

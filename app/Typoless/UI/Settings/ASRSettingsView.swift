@@ -4,7 +4,7 @@ struct ASRSettingsView: View {
     let configStore: ConfigStore
 
     @State private var downloadManager: ModelDownloadManager?
-    @State private var selectedPlatform: ASRPlatform = .localFunASR
+    @State private var selectedPlatform: ASRPlatform = .localSenseVoice
 
     @State private var tencentSecretId: String = ""
     @State private var tencentSecretKey: String = ""
@@ -25,14 +25,14 @@ struct ASRSettingsView: View {
     var body: some View {
         SettingsPaneSection {
             SettingsFormRow(title: "语音引擎") {
-                HStack(spacing: 8) {
+                HStack(spacing: 4) {
                     Picker("语音引擎", selection: $selectedPlatform) {
                         ForEach(ASRPlatform.allCases, id: \.self) { platform in
                             Text(platform.displayName).tag(platform)
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 334, alignment: .leading)
+                    .fixedSize()
 
                     Link(destination: selectedPlatform.documentationURL) {
                         Image(systemName: "arrow.up.forward.square")
@@ -43,13 +43,15 @@ struct ASRSettingsView: View {
                     .frame(width: 18, height: 18)
                     .accessibilityLabel("打开\(selectedPlatform.displayName)文档")
                     .help("打开\(selectedPlatform.displayName)文档")
+
+                    Spacer(minLength: 0)
                 }
                 .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
             }
 
             switch selectedPlatform {
-            case .localFunASR:
-                localFunASRPanel
+            case .localSenseVoice:
+                localSenseVoicePanel
             case .tencentCloudSentence:
                 tencentCloudPanel
             case .aliyunSentence:
@@ -85,7 +87,7 @@ struct ASRSettingsView: View {
     // MARK: - Panels
 
     @ViewBuilder
-    private var localFunASRPanel: some View {
+    private var localSenseVoicePanel: some View {
         let status = configStore.asrConfig.local.modelStatus
         let error = localModelError(for: status)
 

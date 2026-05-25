@@ -22,13 +22,14 @@ final class AppCoordinator {
 
     var selectedSettingsTab: SettingsTab = .general {
         didSet {
-            resizeSettingsWindow(to: selectedSettingsTab, animated: true)
+            scheduleSettingsWindowResize(to: selectedSettingsTab, animated: true)
         }
     }
 
     private var settingsWindowController: NSWindowController?
     private var settingsToolbarCoordinator: SettingsToolbarCoordinator?
     private var settingsContentSizes: [SettingsTab: NSSize] = [:]
+    private var pendingSettingsResize: DispatchWorkItem?
 
     init() {
         let store = ConfigStore()
@@ -131,7 +132,7 @@ final class AppCoordinator {
 
         settingsContentSizes[tab] = contentSize
         guard tab == selectedSettingsTab else { return }
-        resizeSettingsWindow(to: tab, animated: settingsWindowController?.window?.isVisible == true)
+        scheduleSettingsWindowResize(to: tab, animated: settingsWindowController?.window?.isVisible == true)
     }
 
     /// 将最近一次注入失败文本复制到系统剪贴板
@@ -192,6 +193,16 @@ final class AppCoordinator {
         toolbar.autosavesConfiguration = false
         toolbar.selectedItemIdentifier = .settingsTab(.general)
         return toolbar
+    }
+
+    private func scheduleSettingsWindowResize(to tab: SettingsTab, animated: Bool) {
+        pendingSettingsResize?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.resizeSettingsWindow(to: tab, animated: animated)
+        }
+        pendingSettingsResize = workItem
+        DispatchQueue.main.async(execute: workItem)
     }
 
     private func resizeSettingsWindow(to tab: SettingsTab, animated: Bool) {

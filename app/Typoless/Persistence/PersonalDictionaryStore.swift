@@ -3,7 +3,7 @@ import Foundation
 /// 个人词典存储，管理用户维护的专有名词、术语等词条
 ///
 /// 存储位置：`~/.typoless/dictionary.json`（文件权限 0600）
-/// 词条字段：`term`（必填）、`pronunciationHint`、`category`、`enabled`
+/// 词条字段：`term`（必填）、`pronunciationHint`、`category`
 /// 不存储历史输入文本或 ASR/LLM 响应正文
 @MainActor
 @Observable
@@ -12,11 +12,6 @@ final class PersonalDictionaryStore {
     private(set) var entries: [DictionaryEntry] = []
     private let directoryURL: URL
     private let dictionaryURL: URL
-
-    /// 仅返回已启用的词条
-    var enabledEntries: [DictionaryEntry] {
-        entries.filter(\.enabled)
-    }
 
     // MARK: - 存储路径
 
@@ -36,7 +31,7 @@ final class PersonalDictionaryStore {
     // MARK: - CRUD
 
     func addEntry(_ entry: DictionaryEntry) throws {
-        entries.insert(entry, at: 0)
+        entries.append(entry)
         try save()
     }
 
@@ -51,19 +46,13 @@ final class PersonalDictionaryStore {
         try save()
     }
 
-    func toggleEnabled(id: String) throws {
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
-        entries[index].enabled.toggle()
-        try save()
-    }
-
     // MARK: - Hotwords 生成
 
     /// 为 FunASR 生成 hotwords 参数字符串（空格分隔）
     ///
     /// 优先使用 `pronunciationHint`（帮助 ASR 识别发音），若缺失则退回 `term`。
     func hotwordsForFunASR() -> String {
-        enabledEntries
+        entries
             .compactMap { entry -> String? in
                 let hint = entry.pronunciationHint?.trimmingCharacters(in: .whitespaces)
                 if let hint, !hint.isEmpty {
@@ -76,7 +65,7 @@ final class PersonalDictionaryStore {
 
     /// 为 LLM Prompt 提供结构化术语参考（包含 term 和 pronunciationHint）
     func termsForPrompt() -> [TermReference] {
-        enabledEntries
+        entries
             .filter { !$0.term.isEmpty }
             .map { TermReference(term: $0.term, pronunciationHint: $0.pronunciationHint) }
     }
@@ -93,7 +82,16 @@ final class PersonalDictionaryStore {
 
         do {
             let data = try Data(contentsOf: url)
-            entries = try JSONDecoder().decode([DictionaryEntry].self, from: data)
+            let decodedEntries = try JSONDecoder().decode([StoredDictionaryEntry].self, from: data)
+            let migratedEntries = decodedEntries
+                .filter { $0.enabled != false }
+                .map(\.dictionaryEntry)
+            let shouldRewriteFile = decodedEntries.contains { $0.enabled != nil }
+            entries = migratedEntries
+
+            if shouldRewriteFile {
+                try? save()
+            }
         } catch {
             // 文件损坏时重置为空词典，不阻止应用启动
             entries = []
@@ -126,24 +124,38 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, Sendable {
     var term: String
     var pronunciationHint: String?
     var category: String?
-    var enabled: Bool = true
 
     enum CodingKeys: String, CodingKey {
-        case id, term, pronunciationHint, category, enabled
+        case id, term, pronunciationHint, category
     }
 
     init(
         id: String = UUID().uuidString,
         term: String,
         pronunciationHint: String? = nil,
-        category: String? = nil,
-        enabled: Bool = true
+        category: String? = nil
     ) {
         self.id = id
         self.term = term
         self.pronunciationHint = pronunciationHint
         self.category = category
-        self.enabled = enabled
+    }
+}
+
+private struct StoredDictionaryEntry: Decodable {
+    let id: String
+    let term: String
+    let pronunciationHint: String?
+    let category: String?
+    let enabled: Bool?
+
+    var dictionaryEntry: DictionaryEntry {
+        DictionaryEntry(
+            id: id,
+            term: term,
+            pronunciationHint: pronunciationHint,
+            category: category
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -152,7 +164,11 @@ struct DictionaryEntry: Codable, Identifiable, Equatable, Sendable {
         term = try container.decode(String.self, forKey: .term)
         pronunciationHint = try container.decodeIfPresent(String.self, forKey: .pronunciationHint)
         category = try container.decodeIfPresent(String.self, forKey: .category)
-        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, term, pronunciationHint, category, enabled
     }
 }
 
