@@ -6,16 +6,38 @@ import Foundation
 
 /// 文本注入器：默认通过剪贴板粘贴注入，失败时回退到 AX 写入
 struct TextInjector: Sendable {
-    private static let focusRetryIntervals: [TimeInterval] = [0.03, 0.05, 0.08, 0.12, 0.18]
-    private static let pasteboardPropagationDelay: TimeInterval = 0.12
-    private static let pasteCommandSettleDelay: TimeInterval = 0.35
-    private static let slowPasteboardRestoreDelay: TimeInterval = 1.5
-    private static let frontmostRetryIntervals: [TimeInterval] = [0.03, 0.05, 0.08, 0.12]
+    private static let focusRetryIntervals: [TimeInterval] = [0.01, 0.02, 0.04]
+    private static let pasteboardPropagationDelay: TimeInterval = 0.03
+    private static let fastPasteboardRestoreDelay: TimeInterval = 0.15
+    private static let slowPasteboardRestoreDelay: TimeInterval = 0.8
+    private static let frontmostRetryIntervals: [TimeInterval] = [0.01, 0.02, 0.04]
     private static let slowPasteboardBundleIDs = [
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "abnerworks.Typora"
     ]
+
+    struct InjectionResult: Sendable {
+        let path: InjectionPath
+        let breakdown: InjectionBreakdown
+    }
+
+    enum InjectionPath: String, Sendable {
+        case paste
+        case axFallback
+    }
+
+    struct InjectionBreakdown: Sendable {
+        var activateTargetMs: Int = 0
+        var focusBeforeMs: Int = 0
+        var pasteboardWriteMs: Int = 0
+        var pasteboardPropagationMs: Int = 0
+        var postPasteShortcutMs: Int = 0
+        var pasteVerificationMs: Int = 0
+        var axFallbackMs: Int = 0
+        var pasteboardRestoreMs: Int = 0
+        var totalMs: Int = 0
+    }
 
     // MARK: - Public API
 
@@ -24,28 +46,56 @@ struct TextInjector: Sendable {
         text: String,
         targetPID: pid_t?,
         targetBundleID: String?
-    ) throws {
+    ) throws -> InjectionResult {
         guard AXIsProcessTrusted() else {
             throw TypolessError.accessibilityPermissionDenied
         }
 
+        let injectionStart = Date()
+        var breakdown = InjectionBreakdown()
+
         if let targetPID {
+            let start = Date()
             _ = restoreTargetApplication(pid: targetPID)
+            breakdown.activateTargetMs = millisecondsSince(start)
         }
 
+        let focusBeforeStart = Date()
         let focusedElementBeforePaste = tryGetInjectableElement(targetPID: targetPID)
+        breakdown.focusBeforeMs = millisecondsSince(focusBeforeStart)
         let snapshotBeforePaste = focusedElementBeforePaste.flatMap(snapshotValue(for:))
 
         do {
-            try pasteViaClipboard(text: text, targetBundleID: targetBundleID)
-            let focusedElementAfterPaste = tryGetInjectableElement(targetPID: targetPID)
-            let snapshotAfterPaste = focusedElementAfterPaste.flatMap(snapshotValue(for:))
+            let pasteResult = try pasteViaClipboard(text: text, targetBundleID: targetBundleID)
+            breakdown.pasteboardWriteMs = pasteResult.pasteboardWriteMs
+            breakdown.pasteboardPropagationMs = pasteResult.pasteboardPropagationMs
+            breakdown.postPasteShortcutMs = pasteResult.postPasteShortcutMs
+            breakdown.pasteboardRestoreMs = pasteResult.restoreDelayMs
 
-            if !Self.shouldFallbackToAX(
-                beforeValue: snapshotBeforePaste,
-                afterValue: snapshotAfterPaste
-            ) {
-                return
+            let verificationStart = Date()
+            let requiresStrictVerification = Self.shouldUseStrictPasteVerification(
+                targetBundleID: targetBundleID
+            )
+
+            let shouldFallback: Bool
+            if requiresStrictVerification {
+                let focusedElementAfterPaste = tryGetInjectableElement(targetPID: targetPID)
+                let snapshotAfterPaste = focusedElementAfterPaste.flatMap(snapshotValue(for:))
+                shouldFallback = Self.shouldFallbackToAX(
+                    beforeValue: snapshotBeforePaste,
+                    afterValue: snapshotAfterPaste
+                )
+            } else {
+                shouldFallback = false
+            }
+            breakdown.pasteVerificationMs = millisecondsSince(verificationStart)
+
+            if !shouldFallback {
+                breakdown.totalMs = millisecondsSince(injectionStart)
+                return InjectionResult(
+                    path: .paste,
+                    breakdown: breakdown
+                )
             }
         } catch {
             // 粘贴主路径失败时，继续尝试 AX 回退
@@ -53,8 +103,14 @@ struct TextInjector: Sendable {
 
         if let focusedElement = tryGetInjectableElement(targetPID: targetPID) {
             // 粘贴未生效时，使用 AXSelectedText 在光标位置插入（非破坏性）
+            let fallbackStart = Date()
             if tryInsertViaAX(element: focusedElement, text: text) {
-                return
+                breakdown.axFallbackMs = millisecondsSince(fallbackStart)
+                breakdown.totalMs = millisecondsSince(injectionStart)
+                return InjectionResult(
+                    path: .axFallback,
+                    breakdown: breakdown
+                )
             }
         }
 
@@ -173,28 +229,41 @@ struct TextInjector: Sendable {
 
     // MARK: - Pasteboard Primary
 
-    private func pasteViaClipboard(text: String, targetBundleID: String?) throws {
+    private func pasteViaClipboard(text: String, targetBundleID: String?) throws -> PasteOperationResult {
         let pasteboard = NSPasteboard.general
         let snapshot = snapshotPasteboard(pasteboard)
 
+        let writeStart = Date()
         pasteboard.clearContents()
         guard pasteboard.setString(text, forType: .string) else {
             restorePasteboard(snapshot, pasteboard: pasteboard)
             throw TypolessError.textInjectionFailure(detail: "无法写入系统剪贴板")
         }
+        let pasteboardWriteMs = millisecondsSince(writeStart)
 
         let restoreDelay = shouldUseSlowPasteboardRestore(for: targetBundleID)
             ? Self.slowPasteboardRestoreDelay
-            : Self.pasteCommandSettleDelay
+            : Self.fastPasteboardRestoreDelay
 
-        defer {
-            RunLoop.current.run(until: Date().addingTimeInterval(restoreDelay))
-            restorePasteboard(snapshot, pasteboard: pasteboard)
-        }
+        schedulePasteboardRestore(
+            snapshot,
+            after: restoreDelay
+        )
 
+        let propagationStart = Date()
         RunLoop.current.run(until: Date().addingTimeInterval(Self.pasteboardPropagationDelay))
+        let pasteboardPropagationMs = millisecondsSince(propagationStart)
 
+        let shortcutStart = Date()
         try postPasteShortcut()
+        let postPasteShortcutMs = millisecondsSince(shortcutStart)
+
+        return PasteOperationResult(
+            pasteboardWriteMs: pasteboardWriteMs,
+            pasteboardPropagationMs: pasteboardPropagationMs,
+            postPasteShortcutMs: postPasteShortcutMs,
+            restoreDelayMs: Int(restoreDelay * 1000)
+        )
     }
 
     private func snapshotPasteboard(_ pasteboard: NSPasteboard) -> [[NSPasteboard.PasteboardType: Data]] {
@@ -226,6 +295,16 @@ struct TextInjector: Sendable {
         }
     }
 
+    private func schedulePasteboardRestore(
+        _ snapshot: [[NSPasteboard.PasteboardType: Data]],
+        after delay: TimeInterval
+    ) {
+        let restoreSnapshot = snapshot
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            self.restorePasteboard(restoreSnapshot, pasteboard: NSPasteboard.general)
+        }
+    }
+
     private func postPasteShortcut() throws {
         let shortcut = Self.resolvePasteShortcut()
 
@@ -250,6 +329,11 @@ struct TextInjector: Sendable {
     private func shouldUseSlowPasteboardRestore(for targetBundleID: String?) -> Bool {
         guard let targetBundleID else { return false }
         return Self.slowPasteboardBundleIDs.contains(targetBundleID)
+    }
+
+    private static func shouldUseStrictPasteVerification(targetBundleID: String?) -> Bool {
+        guard let targetBundleID else { return false }
+        return slowPasteboardBundleIDs.contains(targetBundleID)
     }
 
     private static func resolvePasteShortcut() -> (keyCode: CGKeyCode, flags: CGEventFlags) {
@@ -319,6 +403,31 @@ struct TextInjector: Sendable {
         if modifiers.contains(.shift) { flags.insert(.maskShift) }
         return flags
     }
+
+    private func millisecondsSince(_ start: Date) -> Int {
+        Int(Date().timeIntervalSince(start) * 1000)
+    }
+}
+
+extension TextInjector {
+    static func debugShouldUseStrictPasteVerification(targetBundleID: String?) -> Bool {
+        shouldUseStrictPasteVerification(targetBundleID: targetBundleID)
+    }
+
+    static func debugPasteboardRestoreDelay(targetBundleID: String?) -> Int {
+        Int(
+            (slowPasteboardBundleIDs.contains(targetBundleID ?? "")
+             ? slowPasteboardRestoreDelay
+             : fastPasteboardRestoreDelay) * 1000
+        )
+    }
+}
+
+private struct PasteOperationResult: Sendable {
+    let pasteboardWriteMs: Int
+    let pasteboardPropagationMs: Int
+    let postPasteShortcutMs: Int
+    let restoreDelayMs: Int
 }
 
 private struct KeyboardLayout {

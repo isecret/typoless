@@ -165,6 +165,30 @@ final class DiagnosticsLogger: Sendable {
         )
     }
 
+    // MARK: - Injection Diagnostics
+
+    func injectionCompleted(
+        sessionID: String,
+        path: TextInjector.InjectionPath,
+        breakdown: TextInjector.InjectionBreakdown
+    ) {
+        logger.info(
+            """
+            [\(sessionID)] injection_breakdown \
+            | path=\(path.rawValue, privacy: .public) \
+            | activate_target=\(breakdown.activateTargetMs)ms \
+            | focus_before=\(breakdown.focusBeforeMs)ms \
+            | pasteboard_write=\(breakdown.pasteboardWriteMs)ms \
+            | pasteboard_propagation=\(breakdown.pasteboardPropagationMs)ms \
+            | post_paste_shortcut=\(breakdown.postPasteShortcutMs)ms \
+            | paste_verification=\(breakdown.pasteVerificationMs)ms \
+            | ax_fallback=\(breakdown.axFallbackMs)ms \
+            | pasteboard_restore=\(breakdown.pasteboardRestoreMs)ms \
+            | total=\(breakdown.totalMs)ms
+            """
+        )
+    }
+
     // MARK: - General Events
 
     func log(sessionID: String, event: String, detail: String? = nil) {
