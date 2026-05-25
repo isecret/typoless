@@ -4,7 +4,7 @@ struct PersonalDictionarySettingsView: View {
     private static let dictionaryListBottomAnchorID = "dictionary-list-bottom-anchor"
 
     private enum Layout {
-        static let listHeight: CGFloat = 190
+        static let listHeight: CGFloat = 315
         static let rowHeight: CGFloat = 28
         static let rowSpacing: CGFloat = 6
         static let leadingInset: CGFloat = 4
@@ -42,7 +42,7 @@ struct PersonalDictionarySettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
         } footer: {
-            Text("添加后可直接编辑词条，点击词条后的删除图标可删除。")
+            Text("词典将辅助语音识别和模型处理文本提高识别率。")
                 .offset(x: Layout.footerOffset)
         }
         .onAppear { syncDraftTerms() }
