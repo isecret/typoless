@@ -1,7 +1,7 @@
 import CommonCrypto
 import Foundation
 
-final class XunfeiSentenceASRProvider: ASRProvider, @unchecked Sendable {
+final class XunfeiSentenceASRProvider: ASRProvider, CloudASRValidating, @unchecked Sendable {
     private static let host = "iat-api.xfyun.cn"
     private static let path = "/v2/iat"
     private static let chunkSize = 1280
@@ -28,6 +28,11 @@ final class XunfeiSentenceASRProvider: ASRProvider, @unchecked Sendable {
         return try await withTimeout(seconds: effectiveTimeout) { [self] in
             try await self.performRecognition(audioData: audioData)
         }
+    }
+
+    func validateCredentials() async throws {
+        let silentAudio = WAVAudioEncoder.encodePCM16(pcmData: Data(repeating: 0, count: 3200), sampleRate: 16_000, channels: 1)
+        _ = try await recognize(audioData: silentAudio, timeout: 15)
     }
 
     private func performRecognition(audioData: Data) async throws -> TranscriptResult {

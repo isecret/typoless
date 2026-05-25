@@ -27,11 +27,11 @@
 | E10 | 集成验证与发布准备 | 完成端到端验收与项目交付准备 |
 | E11 | 诊断日志与 ASR/LLM 对照 | 建立可排查延迟和文本质量的 Debug 日志能力 |
 | E12 | 本地音频降噪 | 通过 RNNoise 降低噪声对识别率的影响 |
-| E13 | FunASR 本地识别 | 将默认 ASR 链路切换为本地 FunASR 离线识别 |
+| E13 | SenseVoice 本地识别 | 将默认 ASR 链路切换为本地 SenseVoice 离线识别 |
 | E14 | Prompt 与个人词典 | 优化 LLM 纠错边界，并引入术语词典提升专名稳定性 |
 | E15 | FunASR 运行时与模型资源 | 管理内置 Python runtime、FunASR 模型与降噪资源 |
 | E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
-| E17 | ASR 平台选择与模型外置 | 支持本地 FunASR 外置模型下载和多云 ASR 平台 |
+| E17 | ASR 平台选择与模型外置 | 支持本地 SenseVoice 外置模型下载和多云 ASR 平台 |
 | E18 | LLM 保守型结构化处理 | 在不扩写、不改原意前提下提升列表化、消息化和自我修正处理稳定性 |
 | E19 | 长录音分段 ASR | 通过音频静音分段支持长录音，55s 分段路由至现有 ASR 平台 |
 
@@ -586,13 +586,13 @@
 
 ### 目标
 
-将默认 ASR 从旧 sherpa-onnx 流式链路切换为本地 `FunASR` 离线识别，通过内置 Python sidecar 运行固定模型组合（paraformer-zh + fsmn-vad）。
+将默认 ASR 切换为本地 `SenseVoiceSmall-onnx` 离线识别，通过内置 `sherpa-onnx` 运行时加载固定 ONNX 模型。
 
 ### Stories
 
 #### S13.1 接入 FunASR worker 与固定模型组合
 
-作为开发者，我需要在项目中集成 FunASR Python sidecar worker，以便支持本地离线 ASR。
+作为开发者，我需要在项目中集成 `sherpa-onnx` 运行时与 SenseVoice 模型加载能力，以便支持本地离线 ASR。
 
 验收标准：
 
@@ -602,13 +602,13 @@
 - 单次 WAV 请求可返回转写文本
 - 不暴露流式 partial 结果
 
-#### S13.2 实现 FunASRProvider 与 ASRRuntimeManager
+#### S13.2 实现 SenseVoiceASRProvider 与 SenseVoiceRuntimeManager
 
 作为系统，我需要 Swift 端 Provider 管理 sidecar 生命周期与识别请求。
 
 验收标准：
 
-- FunASRProvider 接受 WAV 文件路径，返回 TranscriptResult
+- SenseVoiceASRProvider 接受 WAV 数据并返回 TranscriptResult
 - 首次录音时惰性启动 sidecar 成功
 - ASR 超时（按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`）、取消、worker 异常可正常清理和恢复
 - 错误映射到统一 ASR 错误模型
@@ -620,7 +620,7 @@
 
 验收标准：
 
-- 默认主链路使用 FunASRProvider
+- 默认主链路使用 SenseVoiceASRProvider
 - 资源缺失时不回退到旧 ASR，直接阻止录音并提示配置错误
 - 旧 sherpa-onnx 和 Whisper 默认路径分支已移除
 
@@ -649,8 +649,8 @@
 验收标准：
 
 - 词典存储于 `~/.typoless/dictionary.json`
-- 词条至少包含 `term` 和 `enabled`
-- 支持新增、删除、启用、禁用词条
+- 词条至少包含 `term`
+- 支持新增、删除、编辑词条
 - 设置页仅维护术语文本，不展示发音提示和分类
 - 不保存历史输入文本
 
@@ -790,13 +790,13 @@
 
 ### 目标
 
-将 FunASR 模型从 App Bundle 迁移到用户目录外置下载，并新增腾讯云、阿里云、火山引擎、科大讯飞作为可选云 ASR 平台。
+将本地 SenseVoice 模型改为用户目录外置下载，并新增腾讯云、阿里云、火山引擎、科大讯飞作为可选云 ASR 平台。
 
 ### Stories
 
 #### S17.1 ASR 配置模型与平台切换
 
-作为用户，我希望在设置页选择 ASR 平台（本地 FunASR 或四种云 ASR），以便根据需求选择合适的识别方式。
+作为用户，我希望在设置页选择 ASR 平台（本地 SenseVoice 或四种云 ASR），以便根据需求选择合适的识别方式。
 
 验收标准：
 
@@ -804,15 +804,17 @@
 - `ConfigStore` 提供 `asrConfig` 读写和 `isASRReady` 判断
 - 平台切换通过 `selectedPlatform` 字段控制
 - 配置不完整时 `isASRReady` 返回 `false` 并携带原因描述
+- 云端平台新增持久化验证状态（unvalidated / validating / verified / failed）与最近失败摘要
+- 云端平台仅在字段完整且真实请求验证成功后才视为 ready
 
 #### S17.2 本地模型下载管理
 
-作为用户，我希望在设置页下载本地 FunASR 模型，不再依赖 App 打包模型。
+作为用户，我希望在设置页下载本地 SenseVoice 模型，不再依赖 App 打包模型。
 
 验收标准：
 
-- `ModelDownloadManager` 管理 `~/.typoless/models/funasr/` 下模型的下载、验证和删除
-- 优先使用 ModelScope API 下载；备选 git clone
+- `ModelDownloadManager` 管理 `~/.typoless/models/sensevoice-small-onnx/` 下模型的下载、验证和删除
+- 默认使用 Hugging Face 上 sherpa-onnx 维护的模型文件下载
 - 下载进度通过 `AsyncStream` 实时报告
 - 支持配置镜像源
 - 模型状态跟踪（notDownloaded / downloading / ready / failed）
@@ -832,6 +834,8 @@
 - 各云平台超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
 - 配置项最小化：只暴露调用所需凭据
 - 错误映射完整：配置不全、鉴权失败、网络错误、空响应、响应无效
+- 设置页保存云端凭据后自动触发真实验证，并展示验证中 / 已就绪 / 验证失败状态
+- 修改任一云端凭据字段后，原验证结果立即失效
 
 #### S17.4 录音链路适配多 ASR 平台
 
@@ -840,7 +844,7 @@
 验收标准：
 
 - `SessionCoordinator` 录音前检查 `isASRReady`，未就绪时阻止录音
-- 本地平台走 `ASRRuntimeManager` 预热 + `FunASRProvider`
+- 本地平台走 `SenseVoiceRuntimeManager` 预热 + `SenseVoiceASRProvider`
 - 云平台通过 `ASRProviderFactory` 分发到腾讯云、阿里云、火山引擎、科大讯飞对应 Provider
 - 不做平台间自动回退
 
@@ -954,7 +958,7 @@
 验收标准：
 
 - 超时公式：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
-- FunASRProvider、TencentSentenceASRProvider 及其他云 Provider 统一适用
+- SenseVoiceASRProvider、TencentSentenceASRProvider 及其他云 Provider 统一适用
 - Provider 接口支持传入分段时长参数
 
 #### S19.4 LLM Prompt 分段转写上下文

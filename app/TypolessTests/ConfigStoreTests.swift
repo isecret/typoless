@@ -63,6 +63,7 @@ final class ConfigStoreTests: XCTestCase {
         var asrConfig = firstStore.asrConfig
         asrConfig.selectedPlatform = .volcengineSentence
         asrConfig.volcengine.apiKey = "volc-key"
+        asrConfig.volcengine.validationStatus = .verified
         asrConfig.aliyun.accessKeyId = "ak"
         asrConfig.aliyun.accessKeySecret = "secret"
         asrConfig.aliyun.appKey = "app"
@@ -71,9 +72,28 @@ final class ConfigStoreTests: XCTestCase {
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertEqual(secondStore.asrConfig.selectedPlatform, .volcengineSentence)
         XCTAssertEqual(secondStore.asrConfig.volcengine.apiKey, "volc-key")
+        XCTAssertEqual(secondStore.asrConfig.volcengine.validationStatus, .verified)
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeyId, "ak")
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeySecret, "secret")
         XCTAssertEqual(secondStore.asrConfig.aliyun.appKey, "app")
+    }
+
+    @MainActor
+    func testChangingCloudCredentialsInvalidatesValidationState() throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var asrConfig = store.asrConfig
+        asrConfig.selectedPlatform = .tencentCloudSentence
+        asrConfig.tencentCloud.secretId = "secret-id"
+        asrConfig.tencentCloud.secretKey = "secret-key"
+        try store.saveASRConfig(asrConfig)
+        try store.updateCloudValidationState(for: .tencentCloudSentence, status: .verified)
+
+        var changedConfig = store.asrConfig
+        changedConfig.tencentCloud.secretKey = "new-secret-key"
+        try store.saveASRConfig(changedConfig)
+
+        XCTAssertEqual(store.asrConfig.tencentCloud.validationStatus, .unvalidated)
+        XCTAssertNil(store.asrConfig.tencentCloud.lastValidationError)
     }
 
     @MainActor

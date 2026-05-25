@@ -5,29 +5,37 @@ final class ASRConfigTests: XCTestCase {
     func testReadinessForEachPlatform() {
         var config = ASRConfig()
 
-        config.selectedPlatform = .localFunASR
+        config.selectedPlatform = .localSenseVoice
         XCTAssertFalse(config.isReady(localModelsAvailable: false))
         XCTAssertTrue(config.isReady(localModelsAvailable: true))
 
         config.selectedPlatform = .tencentCloudSentence
         config.tencentCloud.secretId = "id"
         config.tencentCloud.secretKey = "key"
+        XCTAssertFalse(config.isReady(localModelsAvailable: false))
+        config.tencentCloud.validationStatus = .verified
         XCTAssertTrue(config.isReady(localModelsAvailable: false))
 
         config.selectedPlatform = .aliyunSentence
         config.aliyun.accessKeyId = "ak"
         config.aliyun.accessKeySecret = "secret"
         config.aliyun.appKey = "app"
+        XCTAssertFalse(config.isReady(localModelsAvailable: false))
+        config.aliyun.validationStatus = .verified
         XCTAssertTrue(config.isReady(localModelsAvailable: false))
 
         config.selectedPlatform = .volcengineSentence
         config.volcengine.apiKey = "api-key"
+        XCTAssertFalse(config.isReady(localModelsAvailable: false))
+        config.volcengine.validationStatus = .verified
         XCTAssertTrue(config.isReady(localModelsAvailable: false))
 
         config.selectedPlatform = .xunfeiSentence
         config.xunfei.appID = "appid"
         config.xunfei.apiKey = "api-key"
         config.xunfei.apiSecret = "api-secret"
+        XCTAssertFalse(config.isReady(localModelsAvailable: false))
+        config.xunfei.validationStatus = .verified
         XCTAssertTrue(config.isReady(localModelsAvailable: false))
     }
 
@@ -38,6 +46,14 @@ final class ASRConfigTests: XCTestCase {
         XCTAssertEqual(
             config.notReadyReason(localModelsAvailable: false),
             "阿里云 ASR 配置不完整，请填写 AccessKey ID、AccessKey Secret 和 AppKey"
+        )
+
+        config.aliyun.accessKeyId = "ak"
+        config.aliyun.accessKeySecret = "secret"
+        config.aliyun.appKey = "app"
+        XCTAssertEqual(
+            config.notReadyReason(localModelsAvailable: false),
+            "阿里云 ASR 尚未通过真实请求验证，请先在设置页完成验证"
         )
 
         config.selectedPlatform = .volcengineSentence
@@ -54,10 +70,14 @@ final class ASRConfigTests: XCTestCase {
     }
 
     func testProviderFactoryRoutesToExpectedProviderType() {
-        let runtimeManager = ASRRuntimeManager()
+        let runtimeManager = SenseVoiceRuntimeManager()
         let factory = ASRProviderFactory(runtimeManager: runtimeManager)
 
         var config = ASRConfig()
+        config.selectedPlatform = .localSenseVoice
+        let local = factory.makeProvider(for: config, hotwords: "")
+        XCTAssertEqual(String(describing: type(of: local)), "SenseVoiceASRProvider")
+
         config.selectedPlatform = .aliyunSentence
         let aliyun = factory.makeProvider(for: config, hotwords: "")
         XCTAssertEqual(String(describing: type(of: aliyun)), "AliyunSentenceASRProvider")
@@ -69,5 +89,11 @@ final class ASRConfigTests: XCTestCase {
         config.selectedPlatform = .xunfeiSentence
         let xunfei = factory.makeProvider(for: config, hotwords: "")
         XCTAssertEqual(String(describing: type(of: xunfei)), "XunfeiSentenceASRProvider")
+    }
+
+    func testDecodingLegacyLocalFunASRValueMigratesToSenseVoice() throws {
+        let data = Data(#"{"selectedPlatform":"localFunASR","local":{"modelStatus":"notDownloaded"}}"#.utf8)
+        let decoded = try JSONDecoder().decode(ASRConfig.self, from: data)
+        XCTAssertEqual(decoded.selectedPlatform, .localSenseVoice)
     }
 }

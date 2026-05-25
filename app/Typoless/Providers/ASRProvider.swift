@@ -9,6 +9,10 @@ protocol ASRProvider: Sendable {
     func recognize(audioData: Data, timeout: TimeInterval?) async throws -> TranscriptResult
 }
 
+protocol CloudASRValidating: Sendable {
+    func validateCredentials() async throws
+}
+
 extension ASRProvider {
     /// 兼容旧调用方式，timeout 默认为 nil
     func recognize(audioData: Data) async throws -> TranscriptResult {

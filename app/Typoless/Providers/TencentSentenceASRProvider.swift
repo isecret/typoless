@@ -7,7 +7,7 @@ import os.log
 /// 直接调用腾讯云 Cloud API，不依赖 SDK。
 /// 首版仅暴露 SecretId / SecretKey，按中英混合场景调用。
 /// 请求超时固定 15 秒。
-final class TencentSentenceASRProvider: ASRProvider, @unchecked Sendable {
+final class TencentSentenceASRProvider: ASRProvider, CloudASRValidating, @unchecked Sendable {
 
     private static let timeout: TimeInterval = 15
     private static let service = "asr"
@@ -100,6 +100,11 @@ final class TencentSentenceASRProvider: ASRProvider, @unchecked Sendable {
         }
 
         return try parseResponse(responseData, durationMs: durationMs)
+    }
+
+    func validateCredentials() async throws {
+        let silentAudio = Self.validationAudioData()
+        _ = try await recognize(audioData: silentAudio, timeout: 15)
     }
 
     // MARK: - Response Parsing
@@ -198,5 +203,9 @@ final class TencentSentenceASRProvider: ASRProvider, @unchecked Sendable {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone(identifier: "UTC")
         return formatter.string(from: date)
+    }
+
+    private static func validationAudioData() -> Data {
+        WAVAudioEncoder.encodePCM16(pcmData: Data(repeating: 0, count: 3200), sampleRate: 16_000, channels: 1)
     }
 }

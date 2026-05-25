@@ -1,6 +1,6 @@
 import Foundation
 
-final class VolcengineSentenceASRProvider: ASRProvider, @unchecked Sendable {
+final class VolcengineSentenceASRProvider: ASRProvider, CloudASRValidating, @unchecked Sendable {
     private static let timeout: TimeInterval = 15
     private static let recognizeURL = URL(string: "https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash")!
     private static let resourceID = "volc.bigasr.auc_turbo"
@@ -88,5 +88,10 @@ final class VolcengineSentenceASRProvider: ASRProvider, @unchecked Sendable {
         }
 
         return TranscriptResult(text: text, requestId: logID, durationMs: durationMs)
+    }
+
+    func validateCredentials() async throws {
+        let silentAudio = WAVAudioEncoder.encodePCM16(pcmData: Data(repeating: 0, count: 3200), sampleRate: 16_000, channels: 1)
+        _ = try await recognize(audioData: silentAudio, timeout: 15)
     }
 }

@@ -256,11 +256,14 @@ final class ConfigStore {
     // MARK: - ASR 配置保存
 
     func saveASRConfig(_ config: ASRConfig) throws {
+        var normalizedConfig = config
+        invalidateCloudValidationStateIfNeeded(from: asrConfig, to: &normalizedConfig)
+
         var configFile = buildConfigFile()
-        configFile.asr = config
+        configFile.asr = normalizedConfig
         try writeConfigFile(configFile)
 
-        asrConfig = config
+        asrConfig = normalizedConfig
     }
 
     // MARK: - 音频输入配置保存
@@ -279,6 +282,36 @@ final class ConfigStore {
         var configFile = buildConfigFile()
         configFile.asr = asrConfig
         try writeConfigFile(configFile)
+    }
+
+    func updateCloudValidationState(
+        for platform: ASRPlatform,
+        status: CloudASRValidationStatus,
+        error: String? = nil
+    ) throws {
+        var updatedConfig = asrConfig
+
+        switch platform {
+        case .localSenseVoice:
+            return
+        case .tencentCloudSentence:
+            updatedConfig.tencentCloud.validationStatus = status
+            updatedConfig.tencentCloud.lastValidationError = error
+        case .aliyunSentence:
+            updatedConfig.aliyun.validationStatus = status
+            updatedConfig.aliyun.lastValidationError = error
+        case .volcengineSentence:
+            updatedConfig.volcengine.validationStatus = status
+            updatedConfig.volcengine.lastValidationError = error
+        case .xunfeiSentence:
+            updatedConfig.xunfei.validationStatus = status
+            updatedConfig.xunfei.lastValidationError = error
+        }
+
+        var configFile = buildConfigFile()
+        configFile.asr = updatedConfig
+        try writeConfigFile(configFile)
+        asrConfig = updatedConfig
     }
 
     func refreshLocalModelStatusFromDisk() {
@@ -337,15 +370,40 @@ final class ConfigStore {
             || openAIAPIKey != apiKey
     }
 
+    private func invalidateCloudValidationStateIfNeeded(from oldConfig: ASRConfig, to newConfig: inout ASRConfig) {
+        if oldConfig.tencentCloud.secretId != newConfig.tencentCloud.secretId
+            || oldConfig.tencentCloud.secretKey != newConfig.tencentCloud.secretKey {
+            newConfig.tencentCloud.validationStatus = .unvalidated
+            newConfig.tencentCloud.lastValidationError = nil
+        }
+
+        if oldConfig.aliyun.accessKeyId != newConfig.aliyun.accessKeyId
+            || oldConfig.aliyun.accessKeySecret != newConfig.aliyun.accessKeySecret
+            || oldConfig.aliyun.appKey != newConfig.aliyun.appKey {
+            newConfig.aliyun.validationStatus = .unvalidated
+            newConfig.aliyun.lastValidationError = nil
+        }
+
+        if oldConfig.volcengine.apiKey != newConfig.volcengine.apiKey {
+            newConfig.volcengine.validationStatus = .unvalidated
+            newConfig.volcengine.lastValidationError = nil
+        }
+
+        if oldConfig.xunfei.appID != newConfig.xunfei.appID
+            || oldConfig.xunfei.apiKey != newConfig.xunfei.apiKey
+            || oldConfig.xunfei.apiSecret != newConfig.xunfei.apiSecret {
+            newConfig.xunfei.validationStatus = .unvalidated
+            newConfig.xunfei.lastValidationError = nil
+        }
+    }
+
     private static func localModelsAvailable() -> Bool {
         let fm = FileManager.default
-        let requiredDirectories = ["paraformer-zh", "fsmn-vad"]
 
-        for directory in requiredDirectories {
-            let modelDir = LocalASRConfig.modelRoot.appendingPathComponent(directory)
-            guard fm.fileExists(atPath: modelDir.path),
-                  let contents = try? fm.contentsOfDirectory(atPath: modelDir.path),
-                  !contents.isEmpty else {
+        for fileName in LocalASRConfig.requiredFileNames {
+            let fileURL = LocalASRConfig.modelRoot.appendingPathComponent(fileName)
+            guard fm.fileExists(atPath: fileURL.path),
+                  ((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0 else {
                 return false
             }
         }

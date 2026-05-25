@@ -1,7 +1,7 @@
 import CommonCrypto
 import Foundation
 
-final class AliyunSentenceASRProvider: ASRProvider, @unchecked Sendable {
+final class AliyunSentenceASRProvider: ASRProvider, CloudASRValidating, @unchecked Sendable {
     private static let timeout: TimeInterval = 15
     private static let tokenHost = "nls-meta.cn-shanghai.aliyuncs.com"
     private static let tokenVersion = "2019-02-28"
@@ -68,6 +68,10 @@ final class AliyunSentenceASRProvider: ASRProvider, @unchecked Sendable {
         }
 
         return try parseRecognitionResponse(responseData, durationMs: durationMs)
+    }
+
+    func validateCredentials() async throws {
+        _ = try await fetchToken()
     }
 
     private func fetchToken() async throws -> String {

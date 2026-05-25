@@ -4,6 +4,7 @@ struct ASRSettingsView: View {
     let configStore: ConfigStore
 
     @State private var downloadManager: ModelDownloadManager?
+    @State private var validationService: CloudASRValidationService?
     @State private var selectedPlatform: ASRPlatform = .localSenseVoice
 
     @State private var tencentSecretId: String = ""
@@ -71,7 +72,7 @@ struct ASRSettingsView: View {
         .onDisappear { flushPendingSave() }
         .onChange(of: selectedPlatform) {
             savePlatform()
-            debouncedSaveCloudConfig()
+            validationService?.syncFromConfig(for: currentValidationInput())
         }
         .onChange(of: tencentSecretId) { debouncedSaveCloudConfig() }
         .onChange(of: tencentSecretKey) { debouncedSaveCloudConfig() }
@@ -110,7 +111,7 @@ struct ASRSettingsView: View {
     private var tencentCloudPanel: some View {
         cloudField(title: "SecretId", text: $tencentSecretId)
         cloudSecureField(title: "SecretKey", text: $tencentSecretKey)
-        cloudStatusRow(isReady: currentDraftConfig().tencentCloud.isComplete)
+        cloudStatusRow(for: .tencentCloudSentence)
     }
 
     @ViewBuilder
@@ -118,13 +119,13 @@ struct ASRSettingsView: View {
         cloudField(title: "AccessKey ID", text: $aliyunAccessKeyId)
         cloudSecureField(title: "AccessKey Secret", text: $aliyunAccessKeySecret)
         cloudField(title: "AppKey", text: $aliyunAppKey)
-        cloudStatusRow(isReady: currentDraftConfig().aliyun.isComplete)
+        cloudStatusRow(for: .aliyunSentence)
     }
 
     @ViewBuilder
     private var volcenginePanel: some View {
         cloudSecureField(title: "API Key", text: $volcengineAPIKey)
-        cloudStatusRow(isReady: currentDraftConfig().volcengine.isComplete)
+        cloudStatusRow(for: .volcengineSentence)
     }
 
     @ViewBuilder
@@ -132,7 +133,7 @@ struct ASRSettingsView: View {
         cloudField(title: "AppID", text: $xunfeiAppID)
         cloudField(title: "API Key", text: $xunfeiAPIKey)
         cloudSecureField(title: "API Secret", text: $xunfeiAPISecret)
-        cloudStatusRow(isReady: currentDraftConfig().xunfei.isComplete)
+        cloudStatusRow(for: .xunfeiSentence)
     }
 
     // MARK: - Shared Rows
@@ -149,13 +150,27 @@ struct ASRSettingsView: View {
         }
     }
 
-    private func cloudStatusRow(isReady: Bool) -> some View {
+    private func cloudStatusRow(for platform: ASRPlatform) -> some View {
         SettingsFormRow(title: "引擎状态") {
-            statusIndicator(
-                text: isReady ? "已就绪" : "未就绪",
-                systemImage: isReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill",
-                color: isReady ? .green : .orange
-            )
+            VStack(alignment: .leading, spacing: 4) {
+                cloudValidationStatusView(for: platform)
+
+                let draftConfig = currentDraftConfig()
+                let persistedError = persistedCloudValidationError(for: platform, in: draftConfig)
+                let serviceError = validationService?.lastErrorMessage
+                let errorMessage = serviceError?.isEmpty == false ? serviceError : persistedError
+
+                if let errorMessage,
+                   persistedCloudValidationState(for: platform, in: draftConfig) == .failed,
+                   selectedPlatform == platform,
+                   CloudASRValidationInput(platform: platform, asrConfig: draftConfig).isComplete {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                        .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+                }
+            }
         }
     }
 
@@ -244,6 +259,8 @@ struct ASRSettingsView: View {
         xunfeiAPISecret = configStore.asrConfig.xunfei.apiSecret
 
         downloadManager = ModelDownloadManager(configStore: configStore)
+        validationService = CloudASRValidationService(configStore: configStore)
+        validationService?.syncFromConfig(for: currentValidationInput())
 
         if configStore.asrConfig.local.modelStatus == .downloading {
             try? configStore.updateLocalModelStatus(.failed, error: "上次下载被中断")
@@ -268,6 +285,7 @@ struct ASRSettingsView: View {
     private func savePlatform() {
         guard isLoaded else { return }
         try? configStore.saveASRConfig(currentDraftConfig())
+        validationService?.syncFromConfig(for: currentValidationInput())
     }
 
     private func debouncedSaveCloudConfig() {
@@ -287,7 +305,14 @@ struct ASRSettingsView: View {
     }
 
     private func saveCloudConfig() {
-        try? configStore.saveASRConfig(currentDraftConfig())
+        let draftConfig = currentDraftConfig()
+        try? configStore.saveASRConfig(draftConfig)
+        validationService?.syncFromConfig(for: currentValidationInput())
+
+        let input = currentValidationInput()
+        if input.isCloudPlatform {
+            validationService?.validate(input)
+        }
     }
 
     @discardableResult
@@ -308,5 +333,76 @@ struct ASRSettingsView: View {
             Text(text)
         }
         .foregroundStyle(color)
+    }
+
+    private func currentValidationInput() -> CloudASRValidationInput {
+        CloudASRValidationInput(
+            platform: selectedPlatform,
+            asrConfig: currentDraftConfig()
+        )
+    }
+
+    @ViewBuilder
+    private func cloudValidationStatusView(for platform: ASRPlatform) -> some View {
+        if selectedPlatform != platform {
+            statusIndicator(text: "未就绪", systemImage: "exclamationmark.triangle.fill", color: .orange)
+        } else {
+            let draftConfig = currentDraftConfig()
+            let isComplete = CloudASRValidationInput(platform: platform, asrConfig: draftConfig).isComplete
+            let persistedState = persistedCloudValidationState(for: platform, in: draftConfig)
+
+            switch persistedState {
+            case .verified:
+                statusIndicator(
+                    text: "已就绪",
+                    systemImage: "checkmark.circle.fill",
+                    color: .green
+                )
+            case .failed:
+                let hasFailureMessage = (validationService?.lastErrorMessage?.isEmpty == false)
+                    || !(persistedCloudValidationError(for: platform, in: draftConfig)?.isEmpty ?? true)
+                statusIndicator(
+                    text: hasFailureMessage && isComplete ? "验证失败" : "未就绪",
+                    systemImage: hasFailureMessage && isComplete ? "xmark.circle.fill" : "exclamationmark.triangle.fill",
+                    color: hasFailureMessage && isComplete ? .red : .orange
+                )
+            case .unvalidated, .validating:
+                statusIndicator(
+                    text: "未就绪",
+                    systemImage: "exclamationmark.triangle.fill",
+                    color: .orange
+                )
+            }
+        }
+    }
+
+    private func persistedCloudValidationState(for platform: ASRPlatform, in config: ASRConfig) -> CloudASRValidationStatus {
+        switch platform {
+        case .localSenseVoice:
+            return .unvalidated
+        case .tencentCloudSentence:
+            return config.tencentCloud.validationStatus
+        case .aliyunSentence:
+            return config.aliyun.validationStatus
+        case .volcengineSentence:
+            return config.volcengine.validationStatus
+        case .xunfeiSentence:
+            return config.xunfei.validationStatus
+        }
+    }
+
+    private func persistedCloudValidationError(for platform: ASRPlatform, in config: ASRConfig) -> String? {
+        switch platform {
+        case .localSenseVoice:
+            return nil
+        case .tencentCloudSentence:
+            return config.tencentCloud.lastValidationError
+        case .aliyunSentence:
+            return config.aliyun.lastValidationError
+        case .volcengineSentence:
+            return config.volcengine.lastValidationError
+        case .xunfeiSentence:
+            return config.xunfei.lastValidationError
+        }
     }
 }

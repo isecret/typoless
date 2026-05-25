@@ -40,7 +40,7 @@
 ### 3.2 外部服务
 
 - 音频预处理：`RNNoise` 本地降噪
-- ASR 本地：`FunASR` 本地离线识别（通过 Python sidecar 运行 paraformer-zh + fsmn-vad）
+- ASR 本地：`SenseVoiceSmall-onnx` 本地离线识别（通过内置 `sherpa-onnx` 运行时加载 ONNX 模型）
 - ASR 云端：`腾讯云一句话识别`、`阿里云录音文件识别极速版`、`火山引擎文件识别`、`科大讯飞语音听写`
 - LLM：`OpenAI Chat Completions` 兼容接口
 - 更新检查：`Sparkle 2` + GitHub Releases release assets + `updates/appcast.xml`
@@ -65,7 +65,7 @@
 - `Domain`
   负责状态机、会话编排、错误模型、配置模型
 - `Providers`
-  负责本地 FunASR 离线语音识别和 OpenAI 兼容 LLM 的调用
+  负责本地 SenseVoice 离线语音识别和 OpenAI 兼容 LLM 的调用
 - `Platform`
   负责录音、权限、全局快捷键、文本注入
 - `Persistence`
@@ -85,10 +85,10 @@
   负责 RNNoise 本地降噪处理
 - `ASRProvider` (协议)
   统一的 ASR 识别接口
-- `FunASRProvider`
-  负责 FunASR 离线识别，通过 stdio JSON-RPC 与 Python sidecar 通信，输出转写结果
-- `ASRRuntimeManager`
-  负责 Python sidecar 生命周期管理、warmup、健康检查与异常恢复
+- `SenseVoiceASRProvider`
+  负责 SenseVoice 离线识别，加载 WAV 音频并交给本地运行时转写
+- `SenseVoiceRuntimeManager`
+  负责 sherpa-onnx recognizer 生命周期管理、warmup 与异常恢复
 - `LLMProvider`
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
@@ -102,7 +102,7 @@
 - `AppUpdateService`
   负责封装 Sparkle 更新器、迁移旧自动检查偏好，并驱动关于窗口更新入口
 - `PersonalDictionaryStore`
-  负责个人词典读写、启用词条过滤和 hotwords 文件生成
+  负责个人词典读写和 hotwords / Prompt 术语参考生成
 - `DiagnosticsLogger`
   负责主链路耗时、错误分类和 Debug ASR/LLM 对照日志
 
@@ -126,7 +126,7 @@
 - 任一分段 ASR 失败时整次流程失败，不注入部分文本
 - 普通模式：拼接 ASR 文本 → LLM 润色 → 注入
 - 翻译模式：拼接 ASR 文本 → LLM 润色 → LLM 翻译 → 注入
-- 默认使用 `FunASRProvider`
+- 默认使用 `SenseVoiceASRProvider`
 - 负责回退逻辑
 - 在内存中维护最近一次注入失败文本，成功注入后清空
 - 取消 session 时，需要取消录音和未完成 ASR 任务
@@ -185,59 +185,26 @@
 
 统一 ASR 协议需支持非流式 final 结果。
 
-#### 5.5.1 FunASRProvider
+#### 5.5.1 SenseVoiceASRProvider
 
-- 基于 `FunASR` 本地离线 ASR，使用固定模型组合 `paraformer-zh + fsmn-vad`。
-- 通过 `ASRRuntimeManager` 管理 Python sidecar 进程。
-- 使用 stdio JSON-RPC 协议与 sidecar 通信：请求发送 WAV 文件路径，响应返回转写文本。
-- 录音结束后将降噪后的 WAV 提交给 sidecar，获取转写结果进入 LLM 润色和注入。
-- 支持传入个人词典 hotword 参数。
-- 设备优先使用 MPS（Metal Performance Shaders）推理，不可用时回退 CPU。
+- 基于 `SenseVoiceSmall-onnx` 本地离线 ASR，使用固定 `model.int8.onnx + tokens.txt` 模型文件组合。
+- 通过 `SenseVoiceRuntimeManager` 管理 sherpa-onnx recognizer。
+- 录音结束后将降噪后的 WAV 解析为 float samples，交给本地 recognizer 返回转写文本。
+- 首版不再向本地链路传递 hotword 参数；个人词典只参与 LLM Prompt 参考。
+- 设备优先使用 CPU 推理，线程数使用保守固定值，避免菜单栏应用并发抖动。
 - ASR 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`。
 - 资源缺失时返回明确配置错误，阻止录音。
-- 正式分发时，内嵌 Python runtime、`.dylib`、`.so` 必须在 App 签名前完成显式签名；App 使用 Hardened Runtime，并固定启用 `com.apple.security.cs.allow-unsigned-executable-memory` 与 `com.apple.security.cs.disable-library-validation` entitlement。
+- 正式分发时，内嵌 `libsherpa-onnx-c-api.dylib` 与 `libonnxruntime*.dylib` 必须在 App 签名前完成显式签名。
 
-#### 5.5.2 ASRRuntimeManager
+#### 5.5.2 SenseVoiceRuntimeManager
 
-- 管理 Python sidecar 进程的启动、停止、重启。
+- 管理 sherpa-onnx recognizer 的加载、保活与失效重建。
 - 录音开始时触发后台预热（不阻塞录音），单飞机制避免重复预热。
 - 预热与降噪并行执行，降噪完成后等待预热结果即可识别。
-- 所有 RPC 请求通过串行队列发送，防止并发读写 stdio 导致响应串线。
-- 提供 `ping` 健康检查接口，在录音前验证 sidecar 可用性。
-- sidecar 异常退出后自动标记不可用，下次录音前尝试重启。
-- sidecar 卡死（ping 超时）时执行 force kill 后重启。
-- 自适应空闲保活策略：warmup-only 后保活 90 秒，识别成功后保活 180 秒。
-- 诊断日志区分 cold start / reused / warmup duration / idle policy。
-
-#### 5.5.3 Sidecar stdio JSON-RPC 协议
-
-请求格式：
-
-```json
-{"jsonrpc": "2.0", "method": "recognize", "params": {"wav_path": "/path/to/audio.wav", "hotwords": "张三 李四"}, "id": 1}
-```
-
-响应格式：
-
-```json
-{"jsonrpc": "2.0", "result": {"text": "转写结果文本", "duration_ms": 1234}, "id": 1}
-```
-
-健康检查：
-
-```json
-{"jsonrpc": "2.0", "method": "ping", "id": 0}
-```
-
-```json
-{"jsonrpc": "2.0", "result": {"status": "ok"}, "id": 0}
-```
-
-错误响应：
-
-```json
-{"jsonrpc": "2.0", "error": {"code": -1, "message": "model load failed"}, "id": 1}
-```
+- 所有识别请求通过串行队列执行，避免同一 recognizer 并发访问。
+- 通过 `dlopen` 加载 `libsherpa-onnx-c-api.dylib`，由薄 C bridge 包装底层 API，降低 Swift 侧绑定复杂度。
+- 运行时异常后自动标记为冷启动，下次录音前重建 recognizer。
+- 诊断日志区分 cold start / reused / warmup duration。
 
 #### 5.5.4 TencentSentenceASRProvider
 
@@ -262,10 +229,10 @@
 
 #### 5.5.6 ModelDownloadManager
 
-- 管理本地 FunASR 模型的下载、验证和删除。
-- 模型存储路径：`~/.typoless/models/funasr/`。
-- 需下载模型：`paraformer-zh`（ASR）、`fsmn-vad`（VAD）。
-- 下载源：优先使用 ModelScope API 获取文件列表并逐个下载；备选 git clone。
+- 管理本地 SenseVoice 模型的下载、验证和删除。
+- 模型存储路径：`~/.typoless/models/sensevoice-small-onnx/`。
+- 需下载模型：`model.int8.onnx`、`tokens.txt`。
+- 下载源：默认使用 Hugging Face 上 sherpa-onnx 维护的 SenseVoice ONNX 发布文件。
 - 支持用户配置镜像源（`mirrorSource`）。
 - 下载进度通过 `AsyncStream` 发布。
 - 断点续传通过 HTTP Range + If-Range 支持。
@@ -326,7 +293,7 @@
 
 - 使用 `~/.typoless/dictionary.json` 存储用户维护的个人词典。
 - 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`。
-- 生成 FunASR hotwords 参数，并为 LLM Prompt 提供术语参考。
+- 为 LLM Prompt 提供术语参考。
 
 ### 5.11 DiagnosticsLogger
 
@@ -448,25 +415,33 @@ Segment 级诊断字段（每段独立记录）：
 
 ### 8.3 ASR 配置
 
-- `asr.selectedPlatform`：当前选中的 ASR 平台（`localFunASR` / `tencentCloudSentence` / `aliyunSentence` / `volcengineSentence` / `xunfeiSentence`）
+- `asr.selectedPlatform`：当前选中的 ASR 平台（`localSenseVoice` / `tencentCloudSentence` / `aliyunSentence` / `volcengineSentence` / `xunfeiSentence`）
 - `asr.local.modelStatus`：本地模型状态（notDownloaded / downloading / ready / failed）
 - `asr.local.lastError`：最近一次下载失败的错误信息
 - `asr.local.mirrorSource`：自定义镜像源 URL
 - `asr.tencentCloud.secretId`：腾讯云 SecretId
 - `asr.tencentCloud.secretKey`：腾讯云 SecretKey
+- `asr.tencentCloud.validationStatus`：腾讯云配置验证状态（unvalidated / validating / verified / failed）
+- `asr.tencentCloud.lastValidationError`：腾讯云最近一次验证失败摘要
 - `asr.aliyun.accessKeyId`：阿里云 AccessKey ID
 - `asr.aliyun.accessKeySecret`：阿里云 AccessKey Secret
 - `asr.aliyun.appKey`：阿里云 AppKey
+- `asr.aliyun.validationStatus`：阿里云配置验证状态（unvalidated / validating / verified / failed）
+- `asr.aliyun.lastValidationError`：阿里云最近一次验证失败摘要
 - `asr.volcengine.apiKey`：火山引擎 API Key
+- `asr.volcengine.validationStatus`：火山引擎配置验证状态（unvalidated / validating / verified / failed）
+- `asr.volcengine.lastValidationError`：火山引擎最近一次验证失败摘要
 - `asr.xunfei.appID`：科大讯飞 AppID
 - `asr.xunfei.apiKey`：科大讯飞 API Key
 - `asr.xunfei.apiSecret`：科大讯飞 API Secret
+- `asr.xunfei.validationStatus`：科大讯飞配置验证状态（unvalidated / validating / verified / failed）
+- `asr.xunfei.lastValidationError`：科大讯飞最近一次验证失败摘要
 
 ### 8.4 个人词典配置
 
 - 存储位置：`~/.typoless/dictionary.json`
-- 字段：`term`、`pronunciationHint`、`category`、`enabled`
-- 设置页首版仅维护 `term` 和 `enabled`；新增词条的 `pronunciationHint`、`category` 保存为 `nil`
+- 字段：`term`、`pronunciationHint`、`category`
+- 设置页首版仅维护 `term`；新增词条的 `pronunciationHint`、`category` 保存为 `nil`
 - 不存储历史输入文本或 ASR/LLM 响应正文
 
 ### 8.4 校验策略
@@ -475,6 +450,7 @@ Segment 级诊断字段（每段独立记录）：
 
 - Base URL 非空时做 URL 基本格式校验
 - 快捷键冲突和有效性校验
+- 云端 ASR 凭据字段只做完整性校验，不在保存阶段做静态“ready”判定
 
 联网调用时进行严格校验：
 
@@ -482,14 +458,15 @@ Segment 级诊断字段（每段独立记录）：
 - 无效模型
 - 地域或 endpoint 不可用
 - 网络超时
+- 云端 ASR 在设置页保存后自动发起真实请求验证；只有验证成功后，`isASRReady` 才返回 `true`
 
 ## 9. 音频预处理与 ASR 设计
 
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议需支持 final 结果。
-- 用户在设置中手动选择 ASR 平台：`本地 FunASR`、`腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`。
-- 默认实现为 `FunASRProvider`，通过 `ASRRuntimeManager` 管理 Python sidecar。
+- 用户在设置中手动选择 ASR 平台：`本地 SenseVoice`、`腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`。
+- 默认实现为 `SenseVoiceASRProvider`，通过 `SenseVoiceRuntimeManager` 管理本地 recognizer。
 - 云端 Provider 固定为 `TencentSentenceASRProvider`、`AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`。
 - 不做平台间自动回退；所选平台不可用时直接报错阻止录音。
 
@@ -500,21 +477,20 @@ Segment 级诊断字段（每段独立记录）：
 - 输出：ASR 可消费的 WAV 数据。
 - 失败：返回明确错误并停止本次主链路。
 
-### 9.3 FunASR 离线识别
+### 9.3 SenseVoice 离线识别
 
-- 使用 Python sidecar 运行 FunASR，固定模型组合：`paraformer-zh`（语音识别）+ `fsmn-vad`（语音活动检测）。
-- 模型存储于用户目录 `~/.typoless/models/funasr/`，设置页引导下载。
-- 通过 stdio JSON-RPC 协议通信，每次请求传入 WAV 文件路径，返回转写文本。
-- 设备优先使用 MPS 推理加速，不可用时回退 CPU。
-- 支持 hotword 参数，来自个人词典启用词条。
-- 不暴露模型选择、线程数、hotwords 权重等高级参数。
+- 使用 `sherpa-onnx` 加载 `SenseVoiceSmall-onnx`，固定模型文件：`model.int8.onnx`、`tokens.txt`。
+- 模型存储于用户目录 `~/.typoless/models/sensevoice-small-onnx/`，设置页引导下载。
+- 客户端直接在本地进程内完成 recognizer 调用，不再依赖 Python sidecar。
+- 默认使用 CPU 推理。
+- 首版不暴露 hotword、线程数、模型切换等高级参数。
 
 ### 9.4 模型下载管理
 
 - `ModelDownloadManager` 管理本地模型的下载、验证和删除。
-- 下载源：优先 ModelScope API，备选 git clone。支持镜像源。
+- 下载源：默认 Hugging Face，可通过镜像源覆盖基础 URL。
 - 下载进度通过 `AsyncStream` 发布至设置页。
-- 模型验证：检查关键文件（model.onnx / model.bin）是否存在。
+- 模型验证：检查关键文件（`model.int8.onnx` / `tokens.txt`）是否存在。
 - 状态跟踪：`LocalModelStatus`（notDownloaded / downloading / ready / failed）。
 
 ### 9.5 云端 ASR Providers
@@ -530,10 +506,12 @@ Segment 级诊断字段（每段独立记录）：
 - `XunfeiSentenceASRProvider` 使用语音听写 WebSocket 接口，并从 `wav` 中提取 PCM 数据按帧发送。
 - 配置：AppID、API Key、API Secret，存于 `asr.xunfei`。
 - 所有云 Provider 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`。
+- 四个云 Provider 均需提供 `validateCredentials()` 能力，供设置页真实验证调用。
+- 验证请求以最小真实请求验证鉴权与接口可达性；若鉴权成功但测试音频返回空结果，仍视为验证通过。
 
 ### 9.6 分段 ASR 编排
 
-- 所有 ASR 平台统一走分段编排，包括本地 FunASR 和云端 ASR。
+- 所有 ASR 平台统一走分段编排，包括本地 SenseVoice 和云端 ASR。
 - `AudioSegmenter` 在录音期间实时分析 PCM chunk，满足切段条件时输出 sealed segment。
 - 每个 sealed segment 先经 `AudioPreprocessor` 降噪，再提交给当前 ASR Provider。
 - 分段 ASR 串行执行，降低 sidecar 并发、WebSocket 并发和云服务限流风险。
@@ -782,8 +760,8 @@ Segment 级诊断字段（每段独立记录）：
 
 - `SessionCoordinator`
 - `AudioSegmenter`
-- `FunASRProvider`
-- `ASRRuntimeManager`
+- `SenseVoiceASRProvider`
+- `SenseVoiceRuntimeManager`
 - `AudioPreprocessor`
 - `LLMProvider`
 - `TextInjector` 的错误分支
