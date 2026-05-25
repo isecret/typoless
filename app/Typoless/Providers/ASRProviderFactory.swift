@@ -1,15 +1,15 @@
 import Foundation
 
 struct ASRProviderFactory {
-    let runtimeManager: ASRRuntimeManager
+    let runtimeManager: SenseVoiceRuntimeManager
 
     func makeProvider(
         for config: ASRConfig,
         hotwords: String
     ) -> any ASRProvider {
         switch config.selectedPlatform {
-        case .localFunASR:
-            FunASRProvider(runtimeManager: runtimeManager, hotwords: hotwords)
+        case .localSenseVoice:
+            SenseVoiceASRProvider(runtimeManager: runtimeManager)
         case .tencentCloudSentence:
             TencentSentenceASRProvider(
                 secretId: config.tencentCloud.secretId,

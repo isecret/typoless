@@ -29,19 +29,14 @@ targets:
           - "**/.gitkeep"
           - "Resources/rnnoise"
           - "Resources/funasr"
+          - "Resources/sherpa-onnx"
     resources:
       - path: Typoless/Resources/zh-Hans.lproj
         buildPhase: resources
       - path: Typoless/Resources/rnnoise
         buildPhase: resources
         optional: true
-      - path: Typoless/Resources/funasr/manifest.json
-        buildPhase: resources
-        optional: true
-      - path: Typoless/Resources/funasr/runtime
-        buildPhase: resources
-        optional: true
-      - path: Typoless/Resources/funasr/worker
+      - path: Typoless/Resources/sherpa-onnx
         buildPhase: resources
         optional: true
     dependencies:
@@ -55,6 +50,7 @@ targets:
         CURRENT_PROJECT_VERSION: "0.1.6"
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: Typoless/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: Typoless/Platform/SherpaOnnxBridge.h
     preBuildScripts:
       - name: "Validate Source Resources"
         outputFiles:
@@ -67,14 +63,18 @@ targets:
             exit 1
           fi
 
-          # FunASR runtime 和 worker（模型外置到用户目录）
-          FUNASR_DIR="${SRCROOT}/Typoless/Resources/funasr"
-          if [ ! -f "${FUNASR_DIR}/manifest.json" ]; then
-            echo "error: FunASR manifest not found. Run ./scripts/setup-funasr.sh first."
+          # sherpa-onnx runtime（SenseVoice 本地 ASR）
+          SHERPA_DIR="${SRCROOT}/Typoless/Resources/sherpa-onnx"
+          if [ ! -f "${SHERPA_DIR}/lib/libsherpa-onnx-c-api.dylib" ]; then
+            echo "error: sherpa-onnx C API library not found."
             exit 1
           fi
-          if [ ! -f "${FUNASR_DIR}/worker/funasr_worker.py" ]; then
-            echo "error: FunASR worker not found. Run ./scripts/setup-funasr.sh first."
+          if [ ! -f "${SHERPA_DIR}/lib/libonnxruntime.1.24.4.dylib" ]; then
+            echo "error: onnxruntime library not found."
+            exit 1
+          fi
+          if [ ! -f "${SHERPA_DIR}/include/sherpa-onnx/c-api/c-api.h" ]; then
+            echo "error: sherpa-onnx C API header not found."
             exit 1
           fi
           touch "${SCRIPT_OUTPUT_FILE_0}"
@@ -83,26 +83,32 @@ targets:
         outputFiles:
           - "$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/.resources-copied.stamp"
         script: |
+          sign_resource_binary() {
+            local path="$1"
+            if [ -f "$path" ]; then
+              codesign --force --sign "${EXPANDED_CODE_SIGN_IDENTITY}" --timestamp=none "$path"
+            fi
+          }
+
           # RNNoise
           RNNOISE_SRC="${SRCROOT}/Typoless/Resources/rnnoise"
           RNNOISE_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/rnnoise"
           if [ -d "${RNNOISE_SRC}" ]; then
             mkdir -p "$(dirname "${RNNOISE_DST}")"
             ditto "${RNNOISE_SRC}" "${RNNOISE_DST}"
+            sign_resource_binary "${RNNOISE_DST}/lib/librnnoise.dylib"
           fi
 
-          # FunASR
-          FUNASR_SRC="${SRCROOT}/Typoless/Resources/funasr"
-          FUNASR_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/funasr"
-          if [ -d "${FUNASR_SRC}" ]; then
-            mkdir -p "$(dirname "${FUNASR_DST}")"
-            rm -rf "${FUNASR_DST}"
-            mkdir -p "${FUNASR_DST}"
-            [ -f "${FUNASR_SRC}/manifest.json" ] && ditto "${FUNASR_SRC}/manifest.json" "${FUNASR_DST}/manifest.json"
-            [ -d "${FUNASR_SRC}/runtime" ] && ditto "${FUNASR_SRC}/runtime" "${FUNASR_DST}/runtime"
-            [ -d "${FUNASR_SRC}/worker" ] && ditto "${FUNASR_SRC}/worker" "${FUNASR_DST}/worker"
-            [ -f "${FUNASR_DST}/runtime/python3" ] && chmod +x "${FUNASR_DST}/runtime/python3"
-            [ -f "${FUNASR_DST}/worker/funasr_worker.py" ] && chmod +x "${FUNASR_DST}/worker/funasr_worker.py"
+          # sherpa-onnx
+          SHERPA_SRC="${SRCROOT}/Typoless/Resources/sherpa-onnx"
+          SHERPA_DST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/sherpa-onnx"
+          if [ -d "${SHERPA_SRC}" ]; then
+            mkdir -p "$(dirname "${SHERPA_DST}")"
+            rm -rf "${SHERPA_DST}"
+            ditto "${SHERPA_SRC}" "${SHERPA_DST}"
+            sign_resource_binary "${SHERPA_DST}/lib/libonnxruntime.1.24.4.dylib"
+            sign_resource_binary "${SHERPA_DST}/lib/libonnxruntime.dylib"
+            sign_resource_binary "${SHERPA_DST}/lib/libsherpa-onnx-c-api.dylib"
           fi
           touch "${SCRIPT_OUTPUT_FILE_0}"
       - name: "Apply Derived App Version"

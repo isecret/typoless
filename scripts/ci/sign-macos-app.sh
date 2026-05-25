@@ -83,18 +83,11 @@ sign_code_path() {
     codesign "${CODESIGN_ARGS[@]}" "$@" "$path"
 }
 
-FUNASR_ROOT="$APP_PATH/Contents/Resources/funasr"
-if [[ -d "$FUNASR_ROOT" ]]; then
-    RUNTIME_SIGN_ARGS=(
-        --bundle-dir "$FUNASR_ROOT"
-        --identity "$SIGNING_IDENTITY"
-    )
-    if [[ "$TIMESTAMP" == "1" ]]; then
-        RUNTIME_SIGN_ARGS+=(--timestamp)
-    fi
-
-    "$PROJECT_ROOT/scripts/sign-funasr-runtime.sh" \
-        "${RUNTIME_SIGN_ARGS[@]}"
+SHERPA_ROOT="$APP_PATH/Contents/Resources/sherpa-onnx/lib"
+if [[ -d "$SHERPA_ROOT" ]]; then
+    sign_code_path "$SHERPA_ROOT/libonnxruntime.1.24.4.dylib"
+    sign_code_path "$SHERPA_ROOT/libonnxruntime.dylib"
+    sign_code_path "$SHERPA_ROOT/libsherpa-onnx-c-api.dylib"
 fi
 
 RNNOISE_LIB="$APP_PATH/Contents/Resources/rnnoise/lib/librnnoise.dylib"

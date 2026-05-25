@@ -3,8 +3,8 @@ import SwiftUI
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case asr
-    case dictionary
     case ai
+    case dictionary
     case permissions
 
     var id: String { rawValue }

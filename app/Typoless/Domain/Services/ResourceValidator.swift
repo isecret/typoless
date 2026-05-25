@@ -3,56 +3,35 @@ import Foundation
 /// 运行时资源校验器，在录音前检查 ASR 与降噪资源是否就绪
 struct ResourceValidator: Sendable {
 
-    /// 校验 FunASR 默认链路所需资源是否存在
+    /// 校验 SenseVoice 默认链路所需资源是否存在
     /// 资源缺失时抛出对应的 TypolessError
-    /// 本地模型必须存在于用户目录 ~/.typoless/models/funasr，App bundle 不提供模型兜底
+    /// 本地模型必须存在于用户目录 ~/.typoless/models/sensevoice-small-onnx，App bundle 不提供模型兜底
     static func validateASRResources() throws {
-        let funasrRoot = funasrResourceRoot()
+        let sherpaRoot = sherpaOnnxResourceRoot()
         let modelRoot = LocalASRConfig.modelRoot
         let fm = FileManager.default
 
-        // manifest.json
-        let manifestPath = funasrRoot.appendingPathComponent("manifest.json").path
-        guard fm.fileExists(atPath: manifestPath) else {
-            throw TypolessError.asrModelMissing
-        }
-
-        // 解析 manifest 校验模型目录
-        if let data = fm.contents(atPath: manifestPath),
-           let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let models = manifest["models"] as? [String: [String: Any]] {
-            for (_, model) in models {
-                let required = model["required"] as? Bool ?? false
-                if required, let path = model["path"] as? String {
-                    let userModelPath = modelRoot.appendingPathComponent(
-                        URL(fileURLWithPath: path).lastPathComponent
-                    ).path
-                    guard fm.fileExists(atPath: userModelPath) else {
-                        throw TypolessError.asrModelMissing
-                    }
-                }
+        for fileName in LocalASRConfig.requiredFileNames {
+            let modelPath = modelRoot.appendingPathComponent(fileName)
+            guard fm.fileExists(atPath: modelPath.path),
+                  ((try? modelPath.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0 else {
+                throw TypolessError.asrModelMissing
             }
         }
 
-        // worker 入口脚本
-        let workerPath = funasrRoot.appendingPathComponent("worker/funasr_worker.py").path
-        guard fm.fileExists(atPath: workerPath) else {
-            throw TypolessError.asrBinaryNotFound
+        let requiredRuntimeFiles = [
+            "lib/libsherpa-onnx-c-api.dylib",
+            "lib/libonnxruntime.1.24.4.dylib",
+            "include/sherpa-onnx/c-api/c-api.h",
+        ]
+        for relativePath in requiredRuntimeFiles {
+            guard fm.fileExists(atPath: sherpaRoot.appendingPathComponent(relativePath).path) else {
+                throw TypolessError.asrRuntimeMissing
+            }
         }
 
-        // Python runtime 可用性
-        let pythonCandidates = [
-            funasrRoot.appendingPathComponent("runtime/python3").path,
-            ProcessInfo.processInfo.environment["FUNASR_PYTHON_PATH"],
-            "\(NSHomeDirectory())/.pyenv/shims/python3",
-            ProcessInfo.processInfo.environment["PYENV_ROOT"].map { "\($0)/shims/python3" },
-            "/opt/homebrew/bin/python3",
-            "/usr/local/bin/python3",
-            "/usr/bin/python3",
-        ].compactMap { $0 }
-
-        let hasPython = pythonCandidates.contains { fm.isExecutableFile(atPath: $0) }
-        guard hasPython else {
+        let cAPILibraryPath = sherpaRoot.appendingPathComponent("lib/libsherpa-onnx-c-api.dylib").path
+        guard fm.fileExists(atPath: cAPILibraryPath) else {
             throw TypolessError.asrRuntimeMissing
         }
     }
@@ -67,11 +46,11 @@ struct ResourceValidator: Sendable {
 
     // MARK: - Resource Paths
 
-    static func funasrResourceRoot() -> URL {
-        if let envPath = ProcessInfo.processInfo.environment["FUNASR_RESOURCE_PATH"] {
+    static func sherpaOnnxResourceRoot() -> URL {
+        if let envPath = ProcessInfo.processInfo.environment["SHERPA_ONNX_RESOURCE_PATH"] {
             return URL(fileURLWithPath: envPath)
         }
-        return Bundle.main.resourceURL!.appendingPathComponent("funasr")
+        return Bundle.main.resourceURL!.appendingPathComponent("sherpa-onnx")
     }
 
     static func rnnoiseLibraryPath() -> String? {

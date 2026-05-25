@@ -17,49 +17,21 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testAddRejectsEmptyTerm() {
+    func testAddPlaceholderCreatesTermWithNilOptionalFields() {
         let viewModel = makeViewModel()
 
-        viewModel.newTerm = "   "
-        viewModel.addTerm()
-
-        XCTAssertEqual(viewModel.errorMessage, PersonalDictionaryViewModel.ValidationError.empty.rawValue)
-        XCTAssertTrue(viewModel.entries.isEmpty)
-    }
-
-    @MainActor
-    func testAddRejectsDuplicateTerm() {
-        let viewModel = makeViewModel()
-
-        viewModel.newTerm = "Typoless"
-        viewModel.addTerm()
-        viewModel.newTerm = " Typoless "
-        viewModel.addTerm()
-
-        XCTAssertEqual(viewModel.errorMessage, PersonalDictionaryViewModel.ValidationError.duplicate.rawValue)
-        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless"])
-    }
-
-    @MainActor
-    func testAddCreatesEnabledTermWithNilOptionalFields() {
-        let viewModel = makeViewModel()
-
-        viewModel.newTerm = " Typoless "
-        viewModel.addTerm()
+        viewModel.addPlaceholderTerm("Typoless")
 
         XCTAssertEqual(viewModel.entries.count, 1)
         XCTAssertEqual(viewModel.entries[0].term, "Typoless")
-        XCTAssertTrue(viewModel.entries[0].enabled)
         XCTAssertNil(viewModel.entries[0].pronunciationHint)
         XCTAssertNil(viewModel.entries[0].category)
-        XCTAssertEqual(viewModel.newTerm, "")
     }
 
     @MainActor
     func testDebouncedEditCommitsAfterDelay() async {
         let viewModel = makeViewModel(debounceDuration: .milliseconds(20))
-        viewModel.newTerm = "旧词"
-        viewModel.addTerm()
+        viewModel.addPlaceholderTerm("旧词")
         let id = viewModel.entries[0].id
 
         viewModel.scheduleTermUpdate(id: id, term: " 新词 ")
@@ -71,26 +43,28 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testEditRejectsEmptyAndDuplicateTerms() async {
         let viewModel = makeViewModel(debounceDuration: .milliseconds(20))
-        viewModel.newTerm = "Typoless"
-        viewModel.addTerm()
-        viewModel.newTerm = "FunASR"
-        viewModel.addTerm()
+        viewModel.addPlaceholderTerm("Typoless")
+        viewModel.addPlaceholderTerm("FunASR")
         let editedID = viewModel.entries[0].id
 
         viewModel.scheduleTermUpdate(id: editedID, term: " ")
-        await waitUntil { viewModel.errorMessage == PersonalDictionaryViewModel.ValidationError.empty.rawValue }
-        XCTAssertEqual(viewModel.entries[0].term, "FunASR")
+        await waitUntil { viewModel.entries.count == 1 }
+        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless"])
 
-        viewModel.scheduleTermUpdate(id: editedID, term: "Typoless")
+        let remainingID = viewModel.entries[0].id
+        viewModel.addPlaceholderTerm("FunASR")
+        let reloadedEditedID = viewModel.entries[0].id
+
+        viewModel.scheduleTermUpdate(id: reloadedEditedID, term: "Typoless")
         await waitUntil { viewModel.errorMessage == PersonalDictionaryViewModel.ValidationError.duplicate.rawValue }
-        XCTAssertEqual(viewModel.entries[0].term, "FunASR")
+        XCTAssertEqual(viewModel.entries.first(where: { $0.id == reloadedEditedID })?.term, "FunASR")
+        XCTAssertEqual(viewModel.entries.first(where: { $0.id == remainingID })?.term, "Typoless")
     }
 
     @MainActor
     func testDeleteEntryRemovesPersistedTerm() {
         let viewModel = makeViewModel()
-        viewModel.newTerm = "Typoless"
-        viewModel.addTerm()
+        viewModel.addPlaceholderTerm("Typoless")
         let entry = viewModel.entries[0]
 
         XCTAssertEqual(viewModel.entries.count, 1)
@@ -105,8 +79,7 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testFlushPendingEditsCommitsImmediately() {
         let viewModel = makeViewModel(debounceDuration: .seconds(10))
-        viewModel.newTerm = "旧词"
-        viewModel.addTerm()
+        viewModel.addPlaceholderTerm("旧词")
         let id = viewModel.entries[0].id
 
         viewModel.scheduleTermUpdate(id: id, term: "新词")
@@ -116,18 +89,16 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testToggleEnabledSavesImmediately() {
-        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
-        let viewModel = PersonalDictionaryViewModel(store: store)
-        viewModel.newTerm = "Typoless"
-        viewModel.addTerm()
+    func testEmptyEditDeletesPlaceholderTerm() async {
+        let viewModel = makeViewModel(debounceDuration: .milliseconds(20))
+        viewModel.addPlaceholderTerm("新词条")
         let id = viewModel.entries[0].id
 
-        viewModel.toggleEnabled(id: id)
+        viewModel.scheduleTermUpdate(id: id, term: " ")
 
-        XCTAssertFalse(viewModel.entries[0].enabled)
+        await waitUntil { viewModel.entries.isEmpty }
         let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
-        XCTAssertFalse(reloaded.entries[0].enabled)
+        XCTAssertTrue(reloaded.entries.isEmpty)
     }
 
     @MainActor

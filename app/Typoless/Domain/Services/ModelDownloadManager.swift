@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-/// 本地 FunASR 模型下载管理器
+/// 本地 SenseVoice 模型下载管理器
 ///
 /// 负责模型下载、进度报告、失败重试、完整性校验与删除。
 /// 下载任务绑定应用进程生命周期，退出即中断。
@@ -11,7 +11,7 @@ final class ModelDownloadManager {
 
     private struct RemoteModelFile {
         let name: String
-        let path: String
+        let urlPath: String
         let size: Int64?
     }
 
@@ -26,11 +26,21 @@ final class ModelDownloadManager {
     private var totalBytesExpected: Int64 = 0
     private var currentFileExpectedBytes: Int64 = 0
 
-    /// 固定模型下载列表
-    private static let models: [(name: String, repoId: String)] = [
-        ("paraformer-zh", "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"),
-        ("fsmn-vad", "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"),
+    /// 固定模型下载列表。文件来自 sherpa-onnx 维护的 SenseVoice ONNX 包。
+    private static let modelFiles: [RemoteModelFile] = [
+        RemoteModelFile(
+            name: LocalASRConfig.modelFileName,
+            urlPath: "model.int8.onnx",
+            size: nil
+        ),
+        RemoteModelFile(
+            name: LocalASRConfig.tokensFileName,
+            urlPath: "tokens.txt",
+            size: nil
+        ),
     ]
+
+    private static let defaultModelBaseURL = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main"
 
     init(configStore: ConfigStore) {
         self.configStore = configStore
@@ -95,14 +105,10 @@ final class ModelDownloadManager {
         let modelRoot = LocalASRConfig.modelRoot
         let fm = FileManager.default
 
-        for model in Self.models {
-            let modelDir = modelRoot.appendingPathComponent(model.name)
-            if !fm.fileExists(atPath: modelDir.path) {
-                return false
-            }
-            // 检查模型目录不为空
-            guard let contents = try? fm.contentsOfDirectory(atPath: modelDir.path),
-                  !contents.isEmpty else {
+        for fileName in LocalASRConfig.requiredFileNames {
+            let fileURL = modelRoot.appendingPathComponent(fileName)
+            guard fm.fileExists(atPath: fileURL.path),
+                  ((try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0 else {
                 return false
             }
         }
@@ -126,55 +132,35 @@ final class ModelDownloadManager {
         // 读取可选镜像源
         let mirrorSource = configStore?.asrConfig.local.mirrorSource
 
-        let totalModels = Double(Self.models.count)
-        var pendingDownloads: [(model: (name: String, repoId: String), destination: URL, files: [RemoteModelFile])] = []
+        let baseURL = configStore?.asrConfig.local.mirrorSource ?? Self.defaultModelBaseURL
+        let totalFiles = Double(Self.modelFiles.count)
+        totalBytesExpected = Self.modelFiles.compactMap(\.size).reduce(0, +)
 
-        for (index, model) in Self.models.enumerated() {
+        for (index, file) in Self.modelFiles.enumerated() {
             guard !Task.isCancelled else { return }
 
-            let modelDir = modelRoot.appendingPathComponent(model.name)
+            let destination = modelRoot.appendingPathComponent(file.name)
 
-            // 跳过已存在的模型
-            if fm.fileExists(atPath: modelDir.path),
-               let contents = try? fm.contentsOfDirectory(atPath: modelDir.path),
-               !contents.isEmpty {
-                progress = Double(index + 1) / totalModels
+            if fm.fileExists(atPath: destination.path),
+               ((try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0 {
+                progress = Double(index + 1) / totalFiles
                 continue
             }
 
-            logger.info("Downloading model: \(model.name, privacy: .public)")
-
-            if let files = try? await fetchRemoteFileList(repoId: model.repoId, mirrorSource: mirrorSource),
-               !files.isEmpty {
-                pendingDownloads.append((model, modelDir, files))
-            } else {
-                logger.info("Falling back to git clone for model: \(model.name, privacy: .public)")
-                pendingDownloads.append((model, modelDir, []))
-            }
-        }
-
-        totalBytesExpected = pendingDownloads
-            .flatMap(\.files)
-            .compactMap(\.size)
-            .reduce(0, +)
-
-        for (index, item) in pendingDownloads.enumerated() {
-            guard !Task.isCancelled else { return }
-
+            logger.info("Downloading SenseVoice model file: \(file.name, privacy: .public)")
             do {
-                try await downloadModel(
-                    repoId: item.model.repoId,
-                    destination: item.destination,
-                    mirrorSource: mirrorSource,
-                    files: item.files
+                try await downloadFile(
+                    from: try modelFileURL(baseURL: baseURL, file: file),
+                    to: destination,
+                    expectedSize: file.size
                 )
             } catch {
                 guard !Task.isCancelled else { return }
-                await handleDownloadFailure("下载 \(item.model.name) 失败：\(error.localizedDescription)")
+                await handleDownloadFailure("下载 \(file.name) 失败：\(error.localizedDescription)")
                 return
             }
 
-            progress = Double(index + 1) / totalModels
+            progress = Double(index + 1) / totalFiles
         }
 
         guard !Task.isCancelled else { return }
@@ -190,85 +176,12 @@ final class ModelDownloadManager {
         }
     }
 
-    private func downloadModel(
-        repoId: String,
-        destination: URL,
-        mirrorSource: String?,
-        files: [RemoteModelFile]
-    ) async throws {
-        let baseURL = mirrorSource ?? "https://modelscope.cn"
-        let fm = FileManager.default
-        try fm.createDirectory(at: destination, withIntermediateDirectories: true)
-
-        guard !files.isEmpty else {
-            try await downloadViaGitLFS(repoId: repoId, destination: destination, baseURL: baseURL)
-            return
-        }
-
-        for file in files {
-            guard !Task.isCancelled else { throw CancellationError() }
-
-            let downloadURL = "\(baseURL)/api/v1/models/\(repoId)/repo?Revision=master&FilePath=\(file.path)"
-            guard let fileURL = URL(string: downloadURL) else { continue }
-
-            let destFile = destination.appendingPathComponent(file.name)
-
-            // 确保父目录存在
-            try fm.createDirectory(at: destFile.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try await downloadFile(
-                from: fileURL,
-                to: destFile,
-                expectedSize: file.size
-            )
-        }
-    }
-
-    private func fetchRemoteFileList(
-        repoId: String,
-        mirrorSource: String?
-    ) async throws -> [RemoteModelFile] {
-        let baseURL = mirrorSource ?? "https://modelscope.cn"
-        let snapshotURL = "\(baseURL)/api/v1/models/\(repoId)/repo/files"
-
-        guard let url = URL(string: snapshotURL) else {
+    private func modelFileURL(baseURL: String, file: RemoteModelFile) throws -> URL {
+        let normalizedBase = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
+        guard let url = URL(string: "\(normalizedBase)/\(file.urlPath)") else {
             throw NSError(domain: "ModelDownload", code: -1, userInfo: [NSLocalizedDescriptionKey: "无效的下载 URL"])
         }
-
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 30
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            throw NSError(domain: "ModelDownload", code: -2, userInfo: [NSLocalizedDescriptionKey: "无法获取模型文件列表"])
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let payload = json["Data"] as? [String: Any],
-              let fileList = payload["Files"] as? [[String: Any]] else {
-            throw NSError(domain: "ModelDownload", code: -3, userInfo: [NSLocalizedDescriptionKey: "模型文件列表格式异常"])
-        }
-
-        return fileList.compactMap { file in
-            guard let fileName = file["Name"] as? String,
-                  let filePath = file["Path"] as? String else { return nil }
-
-            let sizeValue = file["Size"] ?? file["size"]
-            let size: Int64?
-            switch sizeValue {
-            case let int as Int:
-                size = Int64(int)
-            case let int64 as Int64:
-                size = int64
-            case let double as Double:
-                size = Int64(double)
-            case let string as String:
-                size = Int64(string)
-            default:
-                size = nil
-            }
-
-            return RemoteModelFile(name: fileName, path: filePath, size: size)
-        }
+        return url
     }
 
     private func downloadFile(
@@ -342,31 +255,6 @@ final class ModelDownloadManager {
         if totalBytesExpected > 0 {
             progress = min(Double(downloadedBytes) / Double(totalBytesExpected), 0.999)
         }
-    }
-
-    private func downloadViaGitLFS(repoId: String, destination: URL, baseURL: String) async throws {
-        // Fallback: 使用 git clone（需要 git-lfs）
-        let cloneURL = "\(baseURL)/\(repoId).git"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["clone", "--depth", "1", cloneURL, destination.path]
-        process.environment = ProcessInfo.processInfo.environment
-
-        let pipe = Pipe()
-        process.standardError = pipe
-        process.standardOutput = pipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw NSError(domain: "ModelDownload", code: Int(process.terminationStatus),
-                         userInfo: [NSLocalizedDescriptionKey: "git clone 失败: \(output.prefix(200))"])
-        }
-
-        // 清理 .git 目录
-        try? FileManager.default.removeItem(at: destination.appendingPathComponent(".git"))
     }
 
     private func handleDownloadFailure(_ message: String) async {

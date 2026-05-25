@@ -31,8 +31,8 @@ final class SessionCoordinator {
     private let textInjector = TextInjector()
     private let diagnostics = DiagnosticsLogger.shared
 
-    /// FunASR sidecar 运行时管理器，跨 session 复用
-    private let asrRuntimeManager = ASRRuntimeManager()
+    /// SenseVoice 运行时管理器，跨 session 复用
+    private let asrRuntimeManager = SenseVoiceRuntimeManager()
 
     private var processingTask: Task<Void, Never>?
     private var resetToIdleTask: Task<Void, Never>?
@@ -92,8 +92,8 @@ final class SessionCoordinator {
             guard configStore.isASRReady else {
                 throw TypolessError.asrPlatformNotReady(detail: configStore.asrNotReadyReason ?? "未知")
             }
-            // 本地 FunASR 额外校验运行时资源
-            if configStore.asrConfig.selectedPlatform == .localFunASR {
+            // 本地 SenseVoice 额外校验运行时资源
+            if configStore.asrConfig.selectedPlatform == .localSenseVoice {
                 try ResourceValidator.validateASRResources()
             }
             state = .recording
@@ -150,17 +150,15 @@ final class SessionCoordinator {
                 self.onFeedbackEvent?(.startSoundCue)
             }
 
-            // 本地 FunASR 模式下录音开始即后台预热 ASR worker（不阻塞录音）
-            if selectedPlatform == .localFunASR {
+            // 本地 SenseVoice 模式下录音开始即后台预热 ASR runtime（不阻塞录音）
+            if selectedPlatform == .localSenseVoice {
                 asrRuntimeManager.warmup()
             }
 
             // 在录音开始时快照 ASR 配置（录音期间不变）
             // LLM / processingMode 配置在录音结束后读取，保证 toggleProcessingMode 生效
             let asrConfig = configStore.asrConfig
-            let hotwords = selectedPlatform == .localFunASR
-                ? (dictionaryStore?.hotwordsForFunASR() ?? "")
-                : ""
+            let hotwords = ""
 
             // 立即启动处理任务，for await 循环会实时消费分段并提前 ASR
             diagnostics.log(sessionID: sessionID, event: "processing_task_started", detail: "concurrent ASR enabled")
@@ -251,7 +249,7 @@ final class SessionCoordinator {
             processingTask?.cancel()
             processingTask = nil
             cleanupSegmenterState()
-            // 取消期间 worker 可能仍在推理，标记为不可信并销毁，防止旧响应污染后续 session
+            // 取消期间 runtime 可能仍在推理，排队销毁旧 recognizer，防止旧状态污染后续 session
             if state == .transcribing {
                 asrRuntimeManager.invalidateCurrentWorker()
             }
@@ -287,10 +285,10 @@ final class SessionCoordinator {
         var diag = SessionDiagnostics()
         diag.targetBundleID = await MainActor.run { targetApplicationBundleID }
 
-        let wasColdStart = asrRuntimeManager.warmupState != .warm
+        let wasColdStart = !asrRuntimeManager.isWarm
 
-        // 本地 FunASR：等待预热完成
-        if selectedPlatform == .localFunASR {
+        // 本地 SenseVoice：等待预热完成
+        if selectedPlatform == .localSenseVoice {
             do {
                 try await asrRuntimeManager.awaitWarmupIfNeeded()
             } catch {
@@ -364,7 +362,7 @@ final class SessionCoordinator {
             let transcriptResult: TranscriptResult
             do {
                 transcriptResult = try await asrProvider.recognize(audioData: processedAudio, timeout: dynamicTimeout)
-                if selectedPlatform == .localFunASR {
+                if selectedPlatform == .localSenseVoice {
                     asrRuntimeManager.markRecognitionSucceeded()
                 }
             } catch {
