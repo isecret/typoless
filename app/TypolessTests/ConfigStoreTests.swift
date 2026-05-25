@@ -63,11 +63,11 @@ final class ConfigStoreTests: XCTestCase {
         var asrConfig = firstStore.asrConfig
         asrConfig.selectedPlatform = .volcengineSentence
         asrConfig.volcengine.apiKey = "volc-key"
-        asrConfig.volcengine.validationStatus = .verified
         asrConfig.aliyun.accessKeyId = "ak"
         asrConfig.aliyun.accessKeySecret = "secret"
         asrConfig.aliyun.appKey = "app"
         try firstStore.saveASRConfig(asrConfig)
+        try firstStore.updateCloudValidationState(for: .volcengineSentence, status: .verified)
 
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertEqual(secondStore.asrConfig.selectedPlatform, .volcengineSentence)

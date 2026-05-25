@@ -173,6 +173,7 @@ protocol CloudASRConfigState: Sendable {
     var isComplete: Bool { get }
     var validationStatus: CloudASRValidationStatus { get set }
     var lastValidationError: String? { get set }
+    func incompleteReason(platformName: String) -> String
 }
 
 extension CloudASRConfigState {
@@ -236,6 +237,23 @@ struct TencentASRConfig: Codable, Equatable, Sendable {
     var validationStatus: CloudASRValidationStatus = .unvalidated
     var lastValidationError: String?
 
+    enum CodingKeys: String, CodingKey {
+        case secretId
+        case secretKey
+        case validationStatus
+        case lastValidationError
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        secretId = try container.decodeIfPresent(String.self, forKey: .secretId) ?? ""
+        secretKey = try container.decodeIfPresent(String.self, forKey: .secretKey) ?? ""
+        validationStatus = try container.decodeIfPresent(CloudASRValidationStatus.self, forKey: .validationStatus) ?? .unvalidated
+        lastValidationError = try container.decodeIfPresent(String.self, forKey: .lastValidationError)
+    }
+
     var isComplete: Bool {
         !secretId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !secretKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -250,6 +268,25 @@ struct AliyunASRConfig: Codable, Equatable, Sendable {
     var validationStatus: CloudASRValidationStatus = .unvalidated
     var lastValidationError: String?
 
+    enum CodingKeys: String, CodingKey {
+        case accessKeyId
+        case accessKeySecret
+        case appKey
+        case validationStatus
+        case lastValidationError
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accessKeyId = try container.decodeIfPresent(String.self, forKey: .accessKeyId) ?? ""
+        accessKeySecret = try container.decodeIfPresent(String.self, forKey: .accessKeySecret) ?? ""
+        appKey = try container.decodeIfPresent(String.self, forKey: .appKey) ?? ""
+        validationStatus = try container.decodeIfPresent(CloudASRValidationStatus.self, forKey: .validationStatus) ?? .unvalidated
+        lastValidationError = try container.decodeIfPresent(String.self, forKey: .lastValidationError)
+    }
+
     var isComplete: Bool {
         !accessKeyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !accessKeySecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -263,6 +300,21 @@ struct VolcengineASRConfig: Codable, Equatable, Sendable {
     var validationStatus: CloudASRValidationStatus = .unvalidated
     var lastValidationError: String?
 
+    enum CodingKeys: String, CodingKey {
+        case apiKey
+        case validationStatus
+        case lastValidationError
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        validationStatus = try container.decodeIfPresent(CloudASRValidationStatus.self, forKey: .validationStatus) ?? .unvalidated
+        lastValidationError = try container.decodeIfPresent(String.self, forKey: .lastValidationError)
+    }
+
     var isComplete: Bool {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -275,6 +327,25 @@ struct XunfeiASRConfig: Codable, Equatable, Sendable {
     var apiSecret: String = ""
     var validationStatus: CloudASRValidationStatus = .unvalidated
     var lastValidationError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case appID
+        case apiKey
+        case apiSecret
+        case validationStatus
+        case lastValidationError
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appID = try container.decodeIfPresent(String.self, forKey: .appID) ?? ""
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        apiSecret = try container.decodeIfPresent(String.self, forKey: .apiSecret) ?? ""
+        validationStatus = try container.decodeIfPresent(CloudASRValidationStatus.self, forKey: .validationStatus) ?? .unvalidated
+        lastValidationError = try container.decodeIfPresent(String.self, forKey: .lastValidationError)
+    }
 
     var isComplete: Bool {
         !appID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

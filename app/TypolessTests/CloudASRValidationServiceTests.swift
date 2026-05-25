@@ -23,7 +23,7 @@ final class CloudASRValidationServiceTests: XCTestCase {
         let service = CloudASRValidationService(
             configStore: store,
             validatorFactory: { _ in
-                await counter.increment()
+                counter.increment()
                 return StubCloudASRValidator {}
             }
         )
@@ -37,7 +37,7 @@ final class CloudASRValidationServiceTests: XCTestCase {
 
         XCTAssertEqual(service.status, .incomplete)
         XCTAssertNil(service.lastErrorMessage)
-        XCTAssertEqual(await counter.currentValue(), 0)
+        XCTAssertEqual(counter.currentValue(), 0)
     }
 
     @MainActor
@@ -154,14 +154,19 @@ private struct StubCloudASRValidator: CloudASRValidating {
     }
 }
 
-private actor ValidationCounter {
+private final class ValidationCounter: @unchecked Sendable {
+    private let lock = NSLock()
     private var value = 0
 
     func increment() {
+        lock.lock()
         value += 1
+        lock.unlock()
     }
 
     func currentValue() -> Int {
-        value
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }

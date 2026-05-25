@@ -49,16 +49,16 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
 
         viewModel.scheduleTermUpdate(id: editedID, term: " ")
         await waitUntil { viewModel.entries.count == 1 }
-        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless"])
+        XCTAssertEqual(viewModel.entries.map(\.term), ["FunASR"])
 
         let remainingID = viewModel.entries[0].id
-        viewModel.addPlaceholderTerm("FunASR")
-        let reloadedEditedID = viewModel.entries[0].id
+        viewModel.addPlaceholderTerm("Typoless")
+        let reloadedEditedID = viewModel.entries[1].id
 
-        viewModel.scheduleTermUpdate(id: reloadedEditedID, term: "Typoless")
+        viewModel.scheduleTermUpdate(id: reloadedEditedID, term: "FunASR")
         await waitUntil { viewModel.errorMessage == PersonalDictionaryViewModel.ValidationError.duplicate.rawValue }
-        XCTAssertEqual(viewModel.entries.first(where: { $0.id == reloadedEditedID })?.term, "FunASR")
-        XCTAssertEqual(viewModel.entries.first(where: { $0.id == remainingID })?.term, "Typoless")
+        XCTAssertEqual(viewModel.entries.first(where: { $0.id == reloadedEditedID })?.term, "Typoless")
+        XCTAssertEqual(viewModel.entries.first(where: { $0.id == remainingID })?.term, "FunASR")
     }
 
     @MainActor

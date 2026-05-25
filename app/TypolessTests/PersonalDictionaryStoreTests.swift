@@ -25,12 +25,12 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try store.addEntry(DictionaryEntry(term: "Typoless"))
         try store.addEntry(DictionaryEntry(term: "FunASR"))
 
-        XCTAssertEqual(store.entries.map(\.term), ["FunASR", "Typoless"])
+        XCTAssertEqual(store.entries.map(\.term), ["Typoless", "FunASR"])
         XCTAssertNil(store.entries[0].pronunciationHint)
         XCTAssertNil(store.entries[0].category)
 
         let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
-        XCTAssertEqual(reloaded.entries.map(\.term), ["FunASR", "Typoless"])
+        XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless", "FunASR"])
         XCTAssertNil(reloaded.entries[0].pronunciationHint)
         XCTAssertNil(reloaded.entries[0].category)
     }
@@ -60,13 +60,13 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try store.addEntry(DictionaryEntry(term: "李四"))
         try store.addEntry(DictionaryEntry(term: "王五", pronunciationHint: nil))
 
-        XCTAssertEqual(store.hotwordsForFunASR(), "王五 李四 zhang san")
+        XCTAssertEqual(store.hotwordsForFunASR(), "zhang san 李四 王五")
         XCTAssertEqual(
             store.termsForPrompt(),
             [
-                TermReference(term: "王五", pronunciationHint: nil),
+                TermReference(term: "张三", pronunciationHint: "zhang san"),
                 TermReference(term: "李四", pronunciationHint: nil),
-                TermReference(term: "张三", pronunciationHint: "zhang san")
+                TermReference(term: "王五", pronunciationHint: nil)
             ]
         )
     }
