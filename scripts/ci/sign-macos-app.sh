@@ -85,8 +85,11 @@ sign_code_path() {
 
 SHERPA_ROOT="$APP_PATH/Contents/Resources/sherpa-onnx/lib"
 if [[ -d "$SHERPA_ROOT" ]]; then
+    if [[ -e "$SHERPA_ROOT/libonnxruntime.dylib" && ! -L "$SHERPA_ROOT/libonnxruntime.dylib" ]]; then
+        echo "error: $SHERPA_ROOT/libonnxruntime.dylib must be a symlink to libonnxruntime.1.24.4.dylib" >&2
+        exit 1
+    fi
     sign_code_path "$SHERPA_ROOT/libonnxruntime.1.24.4.dylib"
-    sign_code_path "$SHERPA_ROOT/libonnxruntime.dylib"
     sign_code_path "$SHERPA_ROOT/libsherpa-onnx-c-api.dylib"
 fi
 

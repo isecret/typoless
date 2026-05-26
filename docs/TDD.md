@@ -551,11 +551,11 @@ Segment 级诊断字段（每段独立记录）：
 
 本地音频与 ASR 错误：
 - 降噪资源缺失或处理失败 -> `audioPreprocessFailure`
-- Python runtime 缺失 -> `asrRuntimeMissing`
-- FunASR 模型缺失 -> `asrModelMissing`
-- sidecar worker 缺失 -> `asrBinaryNotFound`
+- 本地运行时资源缺失 -> `asrRuntimeMissing`
+- SenseVoice 模型缺失 -> `asrModelMissing`
+- 本地识别引擎二进制缺失 -> `asrBinaryNotFound`
 - 识别失败 -> `asrProcessFailure`
-- sidecar 健康检查失败 -> `asrRuntimeMissing`
+- 本地运行时初始化失败 -> `asrRuntimeMissing`
 
 云端 ASR 错误（腾讯云 / 阿里云 / 火山引擎 / 科大讯飞）：
 - 配置不完整 -> `cloudASRConfigurationIncomplete`
@@ -782,10 +782,10 @@ Segment 级诊断字段（每段独立记录）：
 - 用户取消
 - 低于 500ms 的短录音静默取消
 - ASR 超时
-- sidecar 异常退出与恢复
+- 本地运行时初始化失败与恢复
 - 并发 session 拒绝
 - 配置错误映射
-- FunASR/RNNoise 资源缺失时阻止录音
+- SenseVoice/RNNoise 资源缺失时阻止录音
 - Debug/Release 日志脱敏策略
 
 分段 ASR 测试场景：
@@ -829,8 +829,8 @@ Segment 级诊断字段（每段独立记录）：
 6. AudioSegmenter 分段切割
 7. ASR/LLM Debug 对照日志
 8. LLM Provider 与 Prompt 优化
-9. FunASR Provider 与 sidecar 集成
-10. 个人词典与 hotwords/Prompt 集成
+9. SenseVoice 运行时与 Provider 集成
+10. 个人词典与 Prompt 集成
 11. SessionCoordinator 与状态机整合（含分段 ASR 编排）
 12. 注入失败恢复与错误摘要
 13. 单元测试与端到端手工验收
@@ -842,7 +842,7 @@ Segment 级诊断字段（每段独立记录）：
 - 主链路从录音到注入可以稳定运行
 - 所有关键状态可在菜单栏中反映
 - 所有关键错误可被统一分类和展示
-- 本地降噪与 FunASR 离线 ASR 默认链路可运行
+- 本地降噪与 SenseVoice 离线 ASR 默认链路可运行
 - LLM 配置不完整或请求失败时不会注入任何文本
 - 注入失败时文本不会丢失
 - 配置、权限在重启后行为正确

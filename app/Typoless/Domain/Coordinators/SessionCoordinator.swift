@@ -158,7 +158,6 @@ final class SessionCoordinator {
             // 在录音开始时快照 ASR 配置（录音期间不变）
             // LLM / processingMode 配置在录音结束后读取，保证 toggleProcessingMode 生效
             let asrConfig = configStore.asrConfig
-            let hotwords = ""
 
             // 立即启动处理任务，for await 循环会实时消费分段并提前 ASR
             diagnostics.log(sessionID: sessionID, event: "processing_task_started", detail: "concurrent ASR enabled")
@@ -167,8 +166,7 @@ final class SessionCoordinator {
                     generation: generation,
                     sessionID: sessionID,
                     asrConfig: asrConfig,
-                    selectedPlatform: selectedPlatform,
-                    hotwords: hotwords
+                    selectedPlatform: selectedPlatform
                 )
                 self?.processingTask = nil
             }
@@ -278,8 +276,7 @@ final class SessionCoordinator {
         generation: UInt64,
         sessionID: String,
         asrConfig: ASRConfig,
-        selectedPlatform: ASRPlatform,
-        hotwords: String
+        selectedPlatform: ASRPlatform
     ) async {
         let sessionStart = Date()
         var diag = SessionDiagnostics()
@@ -298,7 +295,7 @@ final class SessionCoordinator {
 
         // 构建 ASR Provider
         let asrProviderFactory = ASRProviderFactory(runtimeManager: asrRuntimeManager)
-        let asrProvider = asrProviderFactory.makeProvider(for: asrConfig, hotwords: hotwords)
+        let asrProvider = asrProviderFactory.makeProvider(for: asrConfig)
 
         guard let stream = await MainActor.run(body: { segmentStream }) else { return }
 

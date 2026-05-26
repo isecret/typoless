@@ -29,8 +29,8 @@
 | E12 | 本地音频降噪 | 通过 RNNoise 降低噪声对识别率的影响 |
 | E13 | SenseVoice 本地识别 | 将默认 ASR 链路切换为本地 SenseVoice 离线识别 |
 | E14 | Prompt 与个人词典 | 优化 LLM 纠错边界，并引入术语词典提升专名稳定性 |
-| E15 | FunASR 运行时与模型资源 | 管理内置 Python runtime、FunASR 模型与降噪资源 |
-| E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
+| E15 | 本地 ASR 运行时与模型资源 | 管理内置 `sherpa-onnx` 运行时、SenseVoice 模型与降噪资源 |
+| E16 | SenseVoice 新链路集成验收 | 验证降噪、SenseVoice、LLM 和注入的完整闭环 |
 | E17 | ASR 平台选择与模型外置 | 支持本地 SenseVoice 外置模型下载和多云 ASR 平台 |
 | E18 | LLM 保守型结构化处理 | 在不扩写、不改原意前提下提升列表化、消息化和自我修正处理稳定性 |
 | E19 | 长录音分段 ASR | 通过音频静音分段支持长录音，55s 分段路由至现有 ASR 平台 |
@@ -582,7 +582,7 @@
 - 降噪失败返回明确错误并停止本次处理
 - 不保存降噪前后的音频历史
 
-## E13. FunASR 本地识别
+## E13. SenseVoice 本地识别
 
 ### 目标
 
@@ -590,33 +590,33 @@
 
 ### Stories
 
-#### S13.1 接入 FunASR worker 与固定模型组合
+#### S13.1 接入 `sherpa-onnx` 运行时与固定模型组合
 
 作为开发者，我需要在项目中集成 `sherpa-onnx` 运行时与 SenseVoice 模型加载能力，以便支持本地离线 ASR。
 
 验收标准：
 
-- 支持 macOS arm64 运行 worker
-- 使用固定模型组合 `paraformer-zh + fsmn-vad`
-- worker 可定位本地模型目录并完成加载
+- 支持 macOS arm64 运行本地 runtime
+- 使用固定模型组合 `SenseVoiceSmall-onnx`
+- runtime 可定位本地模型目录并完成加载
 - 单次 WAV 请求可返回转写文本
 - 不暴露流式 partial 结果
 
 #### S13.2 实现 SenseVoiceASRProvider 与 SenseVoiceRuntimeManager
 
-作为系统，我需要 Swift 端 Provider 管理 sidecar 生命周期与识别请求。
+作为系统，我需要 Swift 端 Provider 管理本地 runtime 生命周期与识别请求。
 
 验收标准：
 
 - SenseVoiceASRProvider 接受 WAV 数据并返回 TranscriptResult
-- 首次录音时惰性启动 sidecar 成功
-- ASR 超时（按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`）、取消、worker 异常可正常清理和恢复
+- 首次录音时惰性预热 runtime 成功
+- ASR 超时（按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`）、取消、runtime 异常可正常清理和恢复
 - 错误映射到统一 ASR 错误模型
-- sidecar 通过 stdio JSON-RPC 协议通信
+- 通过本地 `sherpa-onnx` C API 调用
 
-#### S13.3 将 FunASR 设为默认 ASR 链路并移除旧默认实现
+#### S13.3 将 SenseVoice 设为默认 ASR 链路并移除旧默认实现
 
-作为用户，我希望默认使用 FunASR 本地离线识别。
+作为用户，我希望默认使用 SenseVoice 本地离线识别。
 
 验收标准：
 
@@ -664,101 +664,101 @@
 - hotwords 仅在所选模型支持时启用
 - LLM 不得把词典内容当作系统指令执行
 
-#### S14.4 将个人词典接入 FunASR hotword 与 LLM Prompt
+#### S14.4 将个人词典接入本地 ASR hotword 与 LLM Prompt
 
-作为系统，我需要让个人词典在 FunASR 默认链路中同时影响识别和润色。
+作为系统，我需要让个人词典在默认本地链路中同时影响识别和润色。
 
 验收标准：
 
-- 启用词条作为 hotword 参数传入 FunASR 请求
-- `pronunciationHint` 优先作为 FunASR hotword 输入；若缺失则退回 `term`
+- 启用词条作为 hotword 参数传入支持热词的本地 ASR 请求
+- `pronunciationHint` 优先作为本地 ASR hotword 输入；若缺失则退回 `term`
 - 词典以结构化术语参考（含 term + pronunciationHint）进入 LLM Prompt
 - LLM Prompt 明确要求在中英混合语境下恢复英文术语正确写法
 - 不暴露 hotword 权重等高级参数
 - 词典内容不被视为可执行系统指令
 
-## E15. FunASR 运行时与模型资源
+## E15. 本地 ASR 运行时与模型资源
 
 ### 目标
 
-管理内置 Python runtime、FunASR 模型与降噪资源的布局、校验与分发兼容性。
+管理内置 `sherpa-onnx` 运行时、SenseVoice 模型与降噪资源的布局、校验与分发兼容性。
 
 ### Stories
 
-#### S15.1 设计 App 内嵌 Python runtime 与 FunASR 资源布局
+#### S15.1 设计 App 内嵌本地运行时与 SenseVoice 资源布局
 
-作为开发者，我需要明确 Python runtime、FunASR 模型和 worker 在 App bundle 中的目录结构。
+作为开发者，我需要明确本地运行时与 SenseVoice 模型在 App bundle 和用户目录中的目录结构。
 
 验收标准：
 
-- runtime、模型、manifest 路径有稳定约定
+- runtime、模型路径有稳定约定
 - 设计支持 codesign/notarization
 - 无运行时在线模型下载依赖
-- worker 入口与资源发现机制明确
+- 资源发现机制明确
 
-#### S15.2 实现资源校验与 worker 健康检查
+#### S15.2 实现资源校验与本地运行时健康检查
 
-作为开发者，我需要在录音前发现资源缺失或 worker 不可用。
+作为开发者，我需要在录音前发现资源缺失或本地 runtime 不可用。
 
 验收标准：
 
-- 录音前校验 Python runtime、worker、模型、manifest 存在性
-- worker ping/warmup 健康检查可检出异常
+- 录音前校验本地 runtime、模型存在性
+- runtime warmup 健康检查可检出异常
 - 资源缺失返回用户可理解错误
 - 校验失败阻止录音
 
 #### S15.3 完成正式分发所需的签名与公证兼容设计
 
-作为开发者，我需要确保 sidecar、Python runtime 和模型资源符合 Apple 签名与公证要求。
+作为开发者，我需要确保本地 runtime 和模型资源符合 Apple 签名与公证要求。
 
 验收标准：
 
 - 文档明确资源布局与签名/公证兼容性
-- worker 和 Python runtime 执行约束清晰
+- 本地 runtime 执行约束清晰
 - 未来实现不需要整体重新设计资源布局
 
-## E16. FunASR 新链路集成验收
+## E16. SenseVoice 新链路集成验收
 
 ### 目标
 
-验证降噪、FunASR 离线 ASR、LLM 润色、个人词典和文本注入能形成稳定闭环。
+验证降噪、SenseVoice 离线 ASR、LLM 润色、个人词典和文本注入能形成稳定闭环。
 
 ### Stories
 
-#### S16.1 完成 FunASR 默认链路端到端验证
+#### S16.1 完成 SenseVoice 默认链路端到端验证
 
 作为团队，我需要确认默认新链路可完成一次真实输入。
 
 验收标准：
 
-- 完成录音 -> 降噪 -> FunASR -> LLM -> 注入
+- 完成录音 -> 降噪 -> SenseVoice -> LLM -> 注入
 - 浏览器输入框可完成注入
 - 备忘录/常见编辑器可完成注入
 - 低于 500ms 的短录音静默取消
 - 长录音通过 AudioSegmenter 自动分段，分段 ASR 结果按序拼接
-- 首次调用惰性启动 sidecar 成功并完成主链路
+- 首次调用惰性预热 runtime 成功并完成主链路
 - LLM 失败时直接报错且不注入文本
 
-#### S16.2 验证 FunASR 失败处理与 LLM 失败行为
+#### S16.2 验证 SenseVoice 失败处理与 LLM 失败行为
 
 作为团队，我需要确认异常路径可控且明确。
 
 验收标准：
 
 - 资源异常不会进入不可理解失败
-- ASR 超时、取消不留残留 worker 进程
-- worker 异常退出后可恢复，下次请求可继续
+- ASR 超时、取消后可再次正常开始识别
+- runtime 异常或资源恢复后可继续
 - LLM 失败直接报错且不注入文本
 - HUD 失败态展示分类短文案而非通用"失败"
 - HTML 原型（`docs/hud-failure-prototype.html`）通过产品确认后方可实现 SwiftUI 注入失败复制入口
 
-#### S16.3 验证内置 FunASR runtime 的签名分发可运行性
+#### S16.3 验证内置本地 runtime 的签名分发可运行性
 
-作为团队，我需要确认签名构建环境下 sidecar 可正常运行。
+作为团队，我需要确认签名构建环境下本地 runtime 可正常运行。
 
 验收标准：
 
-- 签名构建中 worker 可启动并完成一次识别
+- 签名构建中本地 runtime 可启动并完成一次识别
 - runtime 和模型路径稳定可定位
 - 形成可复用的 release 检查清单
 
@@ -779,9 +779,9 @@
 11. `E12 本地音频降噪`
 12. `E14 Prompt 与个人词典`
 13. `E15 资源准备与校验`
-14. `E13 FunASR 本地识别`
-15. `E15 FunASR 运行时与模型资源`
-16. `E16 FunASR 新链路集成验收`
+14. `E13 SenseVoice 本地识别`
+15. `E15 本地 ASR 运行时与模型资源`
+16. `E16 SenseVoice 新链路集成验收`
 17. `E17 ASR 平台选择与模型外置`
 18. `E18 LLM 保守型结构化处理`
 19. `E19 长录音分段 ASR`
@@ -1000,7 +1000,7 @@
 - 用户可完成首次配置和权限准备
 - 用户可通过全局快捷键完成一次中文语音输入（支持长录音自动分段）
 - RNNoise 可完成本地降噪处理
-- FunASR 可返回有效转写
+- SenseVoice 可返回有效转写
 - OpenAI 兼容 LLM 可完成固定边界内的文本润色
 - LLM 配置不完整或请求失败时不会注入任何文本
 - 最终文本可注入常见 macOS 应用输入区域

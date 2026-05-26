@@ -75,23 +75,23 @@ final class ASRConfigTests: XCTestCase {
 
         var config = ASRConfig()
         config.selectedPlatform = .localSenseVoice
-        let local = factory.makeProvider(for: config, hotwords: "")
+        let local = factory.makeProvider(for: config)
         XCTAssertEqual(String(describing: type(of: local)), "SenseVoiceASRProvider")
 
         config.selectedPlatform = .aliyunSentence
-        let aliyun = factory.makeProvider(for: config, hotwords: "")
+        let aliyun = factory.makeProvider(for: config)
         XCTAssertEqual(String(describing: type(of: aliyun)), "AliyunSentenceASRProvider")
 
         config.selectedPlatform = .volcengineSentence
-        let volcengine = factory.makeProvider(for: config, hotwords: "")
+        let volcengine = factory.makeProvider(for: config)
         XCTAssertEqual(String(describing: type(of: volcengine)), "VolcengineSentenceASRProvider")
 
         config.selectedPlatform = .xunfeiSentence
-        let xunfei = factory.makeProvider(for: config, hotwords: "")
+        let xunfei = factory.makeProvider(for: config)
         XCTAssertEqual(String(describing: type(of: xunfei)), "XunfeiSentenceASRProvider")
     }
 
-    func testDecodingLegacyLocalFunASRValueMigratesToSenseVoice() throws {
+    func testDecodingLegacyLocalASRValueMigratesToSenseVoice() throws {
         let data = Data(#"{"selectedPlatform":"localFunASR","local":{"modelStatus":"notDownloaded"}}"#.utf8)
         let decoded = try JSONDecoder().decode(ASRConfig.self, from: data)
         XCTAssertEqual(decoded.selectedPlatform, .localSenseVoice)

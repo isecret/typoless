@@ -44,21 +44,21 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     func testEditRejectsEmptyAndDuplicateTerms() async {
         let viewModel = makeViewModel(debounceDuration: .milliseconds(20))
         viewModel.addPlaceholderTerm("Typoless")
-        viewModel.addPlaceholderTerm("FunASR")
+        viewModel.addPlaceholderTerm("SenseVoice")
         let editedID = viewModel.entries[0].id
 
         viewModel.scheduleTermUpdate(id: editedID, term: " ")
         await waitUntil { viewModel.entries.count == 1 }
-        XCTAssertEqual(viewModel.entries.map(\.term), ["FunASR"])
+        XCTAssertEqual(viewModel.entries.map(\.term), ["SenseVoice"])
 
         let remainingID = viewModel.entries[0].id
         viewModel.addPlaceholderTerm("Typoless")
         let reloadedEditedID = viewModel.entries[1].id
 
-        viewModel.scheduleTermUpdate(id: reloadedEditedID, term: "FunASR")
+        viewModel.scheduleTermUpdate(id: reloadedEditedID, term: "SenseVoice")
         await waitUntil { viewModel.errorMessage == PersonalDictionaryViewModel.ValidationError.duplicate.rawValue }
         XCTAssertEqual(viewModel.entries.first(where: { $0.id == reloadedEditedID })?.term, "Typoless")
-        XCTAssertEqual(viewModel.entries.first(where: { $0.id == remainingID })?.term, "FunASR")
+        XCTAssertEqual(viewModel.entries.first(where: { $0.id == remainingID })?.term, "SenseVoice")
     }
 
     @MainActor

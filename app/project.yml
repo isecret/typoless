@@ -28,7 +28,6 @@ targets:
         excludes:
           - "**/.gitkeep"
           - "Resources/rnnoise"
-          - "Resources/funasr"
           - "Resources/sherpa-onnx"
     resources:
       - path: Typoless/Resources/zh-Hans.lproj
@@ -73,6 +72,10 @@ targets:
             echo "error: onnxruntime library not found."
             exit 1
           fi
+          if [ -e "${SHERPA_DIR}/lib/libonnxruntime.dylib" ] && [ ! -L "${SHERPA_DIR}/lib/libonnxruntime.dylib" ]; then
+            echo "error: libonnxruntime.dylib must be a symlink to libonnxruntime.1.24.4.dylib"
+            exit 1
+          fi
           if [ ! -f "${SHERPA_DIR}/include/sherpa-onnx/c-api/c-api.h" ]; then
             echo "error: sherpa-onnx C API header not found."
             exit 1
@@ -107,7 +110,6 @@ targets:
             rm -rf "${SHERPA_DST}"
             ditto "${SHERPA_SRC}" "${SHERPA_DST}"
             sign_resource_binary "${SHERPA_DST}/lib/libonnxruntime.1.24.4.dylib"
-            sign_resource_binary "${SHERPA_DST}/lib/libonnxruntime.dylib"
             sign_resource_binary "${SHERPA_DST}/lib/libsherpa-onnx-c-api.dylib"
           fi
           touch "${SCRIPT_OUTPUT_FILE_0}"

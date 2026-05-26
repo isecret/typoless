@@ -48,10 +48,10 @@ final class PersonalDictionaryStore {
 
     // MARK: - Hotwords 生成
 
-    /// 为 FunASR 生成 hotwords 参数字符串（空格分隔）
+    /// 为本地 ASR 生成 hotwords 参数字符串（空格分隔）
     ///
     /// 优先使用 `pronunciationHint`（帮助 ASR 识别发音），若缺失则退回 `term`。
-    func hotwordsForFunASR() -> String {
+    func hotwordsForLocalASR() -> String {
         entries
             .compactMap { entry -> String? in
                 let hint = entry.pronunciationHint?.trimmingCharacters(in: .whitespaces)

@@ -23,14 +23,14 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         let store = PersonalDictionaryStore(directoryURL: tempDirectory)
 
         try store.addEntry(DictionaryEntry(term: "Typoless"))
-        try store.addEntry(DictionaryEntry(term: "FunASR"))
+        try store.addEntry(DictionaryEntry(term: "SenseVoice"))
 
-        XCTAssertEqual(store.entries.map(\.term), ["Typoless", "FunASR"])
+        XCTAssertEqual(store.entries.map(\.term), ["Typoless", "SenseVoice"])
         XCTAssertNil(store.entries[0].pronunciationHint)
         XCTAssertNil(store.entries[0].category)
 
         let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
-        XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless", "FunASR"])
+        XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless", "SenseVoice"])
         XCTAssertNil(reloaded.entries[0].pronunciationHint)
         XCTAssertNil(reloaded.entries[0].category)
     }
@@ -60,7 +60,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try store.addEntry(DictionaryEntry(term: "李四"))
         try store.addEntry(DictionaryEntry(term: "王五", pronunciationHint: nil))
 
-        XCTAssertEqual(store.hotwordsForFunASR(), "zhang san 李四 王五")
+        XCTAssertEqual(store.hotwordsForLocalASR(), "zhang san 李四 王五")
         XCTAssertEqual(
             store.termsForPrompt(),
             [
@@ -77,7 +77,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try store.addEntry(DictionaryEntry(term: ""))
         try store.addEntry(DictionaryEntry(term: "Typoless"))
 
-        XCTAssertEqual(store.hotwordsForFunASR(), "Typoless")
+        XCTAssertEqual(store.hotwordsForLocalASR(), "Typoless")
         XCTAssertEqual(store.termsForPrompt(), [TermReference(term: "Typoless", pronunciationHint: nil)])
     }
 

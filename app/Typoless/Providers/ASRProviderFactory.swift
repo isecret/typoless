@@ -3,10 +3,7 @@ import Foundation
 struct ASRProviderFactory {
     let runtimeManager: SenseVoiceRuntimeManager
 
-    func makeProvider(
-        for config: ASRConfig,
-        hotwords: String
-    ) -> any ASRProvider {
+    func makeProvider(for config: ASRConfig) -> any ASRProvider {
         switch config.selectedPlatform {
         case .localSenseVoice:
             SenseVoiceASRProvider(runtimeManager: runtimeManager)
