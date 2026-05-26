@@ -11,17 +11,12 @@ final class PersonalDictionaryViewModel {
 
     var errorMessage: String?
     private(set) var entries: [DictionaryEntry]
-    private(set) var editRevision = 0
 
     private let store: PersonalDictionaryStore
-    private var editTasks: [String: Task<Void, Never>] = [:]
-    private var pendingEdits: [String: String] = [:]
-    private let debounceDuration: Duration
 
-    init(store: PersonalDictionaryStore, debounceDuration: Duration = .milliseconds(500)) {
+    init(store: PersonalDictionaryStore) {
         self.store = store
         self.entries = store.entries
-        self.debounceDuration = debounceDuration
     }
 
     var totalCount: Int {
@@ -38,24 +33,7 @@ final class PersonalDictionaryViewModel {
         }
     }
 
-    func scheduleTermUpdate(id: String, term: String) {
-        editTasks[id]?.cancel()
-        let normalized = normalizedTerm(term)
-        pendingEdits[id] = normalized
-
-        editTasks[id] = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: debounceDuration)
-            guard !Task.isCancelled else { return }
-            self.commitTermUpdate(id: id, term: normalized)
-        }
-    }
-
     func deleteEntry(_ entry: DictionaryEntry) {
-        editTasks[entry.id]?.cancel()
-        editTasks[entry.id] = nil
-        pendingEdits[entry.id] = nil
-
         do {
             try store.removeEntry(id: entry.id)
             refreshEntries()
@@ -65,33 +43,21 @@ final class PersonalDictionaryViewModel {
         }
     }
 
-    func flushPendingEdits() {
-        let pending = pendingEdits
-        editTasks.values.forEach { $0.cancel() }
-        editTasks.removeAll()
-        pendingEdits.removeAll()
-
-        for (id, term) in pending {
-            commitTermUpdate(id: id, term: term)
-        }
-    }
-
-    private func commitTermUpdate(id: String, term: String) {
-        editTasks[id] = nil
-        pendingEdits[id] = nil
-        guard let entry = entries.first(where: { $0.id == id }) else { return }
+    @discardableResult
+    func commitTermUpdate(id: String, term: String) -> Bool {
+        let term = normalizedTerm(term)
+        guard let entry = entries.first(where: { $0.id == id }) else { return false }
         guard term != normalizedTerm(entry.term) else {
             clearError()
-            return
+            return true
         }
 
         if term.isEmpty {
-            deleteEntry(entry)
-            clearError()
-            return
+            showError(.empty)
+            return false
         }
 
-        guard validateEditedTerm(term, editingID: id) else { return }
+        guard validateEditedTerm(term, editingID: id) else { return false }
 
         var updated = entry
         updated.term = term
@@ -99,15 +65,12 @@ final class PersonalDictionaryViewModel {
         do {
             try store.updateEntry(updated)
             refreshEntries()
-            editRevision += 1
             clearError()
+            return true
         } catch {
             showError(.saveFailed)
+            return false
         }
-    }
-
-    private func validateNewTerm(_ term: String) -> Bool {
-        validateTerm(term, editingID: nil)
     }
 
     private func validateEditedTerm(_ term: String, editingID: String) -> Bool {
