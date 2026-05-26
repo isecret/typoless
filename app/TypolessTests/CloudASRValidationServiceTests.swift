@@ -127,6 +127,67 @@ final class CloudASRValidationServiceTests: XCTestCase {
     }
 
     @MainActor
+    func testSyncFromConfigRestoresVerifiedState() throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var config = store.asrConfig
+        config.selectedPlatform = .tencentCloudSentence
+        config.tencentCloud.secretId = "id"
+        config.tencentCloud.secretKey = "key"
+        try store.saveASRConfig(config)
+        try store.updateCloudValidationState(for: .tencentCloudSentence, status: .verified)
+
+        let service = CloudASRValidationService(configStore: store)
+        service.syncFromConfig(
+            for: CloudASRValidationInput(platform: .tencentCloudSentence, asrConfig: store.asrConfig)
+        )
+
+        XCTAssertEqual(service.status, .ready)
+        XCTAssertNil(service.lastErrorMessage)
+    }
+
+    @MainActor
+    func testSyncFromConfigRestoresFailedStateAndMessage() throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var config = store.asrConfig
+        config.selectedPlatform = .aliyunSentence
+        config.aliyun.accessKeyId = "ak"
+        config.aliyun.accessKeySecret = "secret"
+        config.aliyun.appKey = "app"
+        try store.saveASRConfig(config)
+        try store.updateCloudValidationState(
+            for: .aliyunSentence,
+            status: .failed,
+            error: "云端 ASR 认证失败，请检查当前平台凭据"
+        )
+
+        let service = CloudASRValidationService(configStore: store)
+        service.syncFromConfig(
+            for: CloudASRValidationInput(platform: .aliyunSentence, asrConfig: store.asrConfig)
+        )
+
+        XCTAssertEqual(service.status, .failed)
+        XCTAssertEqual(service.lastErrorMessage, "云端 ASR 认证失败，请检查当前平台凭据")
+    }
+
+    @MainActor
+    func testSyncFromConfigTreatsPersistedValidatingAsReadyDisplayState() throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var config = store.asrConfig
+        config.selectedPlatform = .volcengineSentence
+        config.volcengine.apiKey = "api-key"
+        try store.saveASRConfig(config)
+        try store.updateCloudValidationState(for: .volcengineSentence, status: .validating)
+
+        let service = CloudASRValidationService(configStore: store)
+        service.syncFromConfig(
+            for: CloudASRValidationInput(platform: .volcengineSentence, asrConfig: store.asrConfig)
+        )
+
+        XCTAssertEqual(service.status, .ready)
+        XCTAssertNil(service.lastErrorMessage)
+    }
+
+    @MainActor
     private func waitUntil(
         timeout: Duration = .seconds(1),
         condition: @escaping @MainActor () -> Bool

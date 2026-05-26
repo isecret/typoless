@@ -1,5 +1,88 @@
 import SwiftUI
 
+enum ASRCloudStatusPresentation: Equatable {
+    case ready
+    case notReady
+    case failed
+
+    static func initial(
+        isComplete: Bool,
+        persistedState: CloudASRValidationStatus,
+        errorMessage: String?
+    ) -> Self {
+        guard isComplete else { return .notReady }
+
+        switch persistedState {
+        case .verified:
+            return .ready
+        case .failed:
+            return normalizedErrorMessage(errorMessage) == nil ? .notReady : .failed
+        case .unvalidated, .validating:
+            return .notReady
+        }
+    }
+
+    static func currentSession(
+        isComplete: Bool,
+        serviceStatus: CloudASRValidationDisplayStatus,
+        errorMessage: String?
+    ) -> Self {
+        guard isComplete else { return .notReady }
+
+        switch serviceStatus {
+        case .incomplete:
+            return .notReady
+        case .checking, .ready:
+            return .ready
+        case .failed:
+            return normalizedErrorMessage(errorMessage) == nil ? .notReady : .failed
+        }
+    }
+
+    var text: String {
+        switch self {
+        case .ready:
+            return "已就绪"
+        case .notReady:
+            return "未就绪"
+        case .failed:
+            return "验证失败"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .ready:
+            return "checkmark.circle.fill"
+        case .notReady:
+            return "exclamationmark.triangle.fill"
+        case .failed:
+            return "xmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .ready:
+            return .green
+        case .notReady:
+            return .orange
+        case .failed:
+            return .red
+        }
+    }
+
+    var showsErrorMessage: Bool {
+        self == .failed
+    }
+
+    private static func normalizedErrorMessage(_ errorMessage: String?) -> String? {
+        guard let errorMessage else { return nil }
+        let trimmed = errorMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct ASRSettingsView: View {
     let configStore: ConfigStore
 
@@ -21,6 +104,7 @@ struct ASRSettingsView: View {
     @State private var xunfeiAPISecret: String = ""
 
     @State private var isLoaded = false
+    @State private var hasTriggeredValidation = false
     @State private var saveTask: Task<Void, Never>?
 
     var body: some View {
@@ -153,17 +237,15 @@ struct ASRSettingsView: View {
     private func cloudStatusRow(for platform: ASRPlatform) -> some View {
         SettingsFormRow(title: "引擎状态") {
             VStack(alignment: .leading, spacing: 4) {
-                cloudValidationStatusView(for: platform)
+                let presentation = cloudStatusPresentation(for: platform)
+                statusIndicator(
+                    text: presentation.text,
+                    systemImage: presentation.systemImage,
+                    color: presentation.color
+                )
 
-                let draftConfig = currentDraftConfig()
-                let persistedError = persistedCloudValidationError(for: platform, in: draftConfig)
-                let serviceError = validationService?.lastErrorMessage
-                let errorMessage = serviceError?.isEmpty == false ? serviceError : persistedError
-
-                if let errorMessage,
-                   persistedCloudValidationState(for: platform, in: draftConfig) == .failed,
-                   selectedPlatform == platform,
-                   CloudASRValidationInput(platform: platform, asrConfig: draftConfig).isComplete {
+                if presentation.showsErrorMessage,
+                   let errorMessage = cloudValidationErrorMessage(for: platform) {
                     Text(errorMessage)
                         .font(.caption)
                         .foregroundStyle(.red)
@@ -258,6 +340,7 @@ struct ASRSettingsView: View {
         xunfeiAPIKey = configStore.asrConfig.xunfei.apiKey
         xunfeiAPISecret = configStore.asrConfig.xunfei.apiSecret
 
+        hasTriggeredValidation = false
         downloadManager = ModelDownloadManager(configStore: configStore)
         validationService = CloudASRValidationService(configStore: configStore)
         validationService?.syncFromConfig(for: currentValidationInput())
@@ -285,6 +368,7 @@ struct ASRSettingsView: View {
     private func savePlatform() {
         guard isLoaded else { return }
         try? configStore.saveASRConfig(currentDraftConfig())
+        hasTriggeredValidation = false
         validationService?.syncFromConfig(for: currentValidationInput())
     }
 
@@ -311,6 +395,7 @@ struct ASRSettingsView: View {
 
         let input = currentValidationInput()
         if input.isCloudPlatform {
+            hasTriggeredValidation = true
             validationService?.validate(input)
         }
     }
@@ -342,38 +427,37 @@ struct ASRSettingsView: View {
         )
     }
 
-    @ViewBuilder
-    private func cloudValidationStatusView(for platform: ASRPlatform) -> some View {
-        if selectedPlatform != platform {
-            statusIndicator(text: "未就绪", systemImage: "exclamationmark.triangle.fill", color: .orange)
-        } else {
-            let draftConfig = currentDraftConfig()
-            let isComplete = CloudASRValidationInput(platform: platform, asrConfig: draftConfig).isComplete
-            let persistedState = persistedCloudValidationState(for: platform, in: draftConfig)
+    private func cloudStatusPresentation(for platform: ASRPlatform) -> ASRCloudStatusPresentation {
+        let draftConfig = currentDraftConfig()
+        let input = CloudASRValidationInput(platform: platform, asrConfig: draftConfig)
+        let errorMessage = cloudValidationErrorMessage(for: platform)
 
-            switch persistedState {
-            case .verified:
-                statusIndicator(
-                    text: "已就绪",
-                    systemImage: "checkmark.circle.fill",
-                    color: .green
-                )
-            case .failed:
-                let hasFailureMessage = (validationService?.lastErrorMessage?.isEmpty == false)
-                    || !(persistedCloudValidationError(for: platform, in: draftConfig)?.isEmpty ?? true)
-                statusIndicator(
-                    text: hasFailureMessage && isComplete ? "验证失败" : "未就绪",
-                    systemImage: hasFailureMessage && isComplete ? "xmark.circle.fill" : "exclamationmark.triangle.fill",
-                    color: hasFailureMessage && isComplete ? .red : .orange
-                )
-            case .unvalidated, .validating:
-                statusIndicator(
-                    text: "未就绪",
-                    systemImage: "exclamationmark.triangle.fill",
-                    color: .orange
-                )
-            }
+        if hasTriggeredValidation, selectedPlatform == platform {
+            return .currentSession(
+                isComplete: input.isComplete,
+                serviceStatus: validationService?.status ?? .incomplete,
+                errorMessage: errorMessage
+            )
         }
+
+        return .initial(
+            isComplete: input.isComplete,
+            persistedState: persistedCloudValidationState(for: platform, in: draftConfig),
+            errorMessage: persistedCloudValidationError(for: platform, in: draftConfig)
+        )
+    }
+
+    private func cloudValidationErrorMessage(for platform: ASRPlatform) -> String? {
+        let draftConfig = currentDraftConfig()
+        let persistedError = persistedCloudValidationError(for: platform, in: draftConfig)
+
+        guard selectedPlatform == platform,
+              let serviceError = validationService?.lastErrorMessage,
+              !serviceError.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return persistedError
+        }
+
+        return serviceError
     }
 
     private func persistedCloudValidationState(for platform: ASRPlatform, in config: ASRConfig) -> CloudASRValidationStatus {
