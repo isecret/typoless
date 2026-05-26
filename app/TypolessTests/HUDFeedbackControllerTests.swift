@@ -16,6 +16,32 @@ final class HUDFeedbackControllerTests: XCTestCase {
         }
     }
 
+    private final class DelayedFeedbackSoundPlayer: FeedbackSoundPlaying {
+        var delayedStartCount = 0
+        var stopCount = 0
+        var didEnterDelayedStart = false
+
+        func playStart() {
+            delayedStartCount += 1
+        }
+
+        func playStop() {
+            stopCount += 1
+        }
+
+        func playStartAfterOutputStabilizes(
+            maxWaitMs: Int,
+            minimumWaitMs: Int,
+            pollIntervalMs: Int,
+            retryDelayMs: Int
+        ) async {
+            didEnterDelayedStart = true
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled else { return }
+            delayedStartCount += 1
+        }
+    }
+
     func testFailureEventPresentsHUDWhenHidden() {
         let controller = HUDFeedbackController()
 
@@ -55,15 +81,30 @@ final class HUDFeedbackControllerTests: XCTestCase {
         XCTAssertEqual(soundPlayer.stopCount, 0)
     }
 
-    func testInteractionSoundEnabledPlaysStartAndStopSounds() {
+    func testInteractionSoundEnabledPlaysStartAndStopSounds() async {
         let soundPlayer = MockFeedbackSoundPlayer()
         let controller = HUDFeedbackController(soundPlayer: soundPlayer)
         controller.isInteractionSoundEnabled = { true }
 
         controller.handleEvent(.startSoundCue)
+        await waitForStartSound(soundPlayer)
         controller.handleEvent(.recordingStopped)
 
         XCTAssertEqual(soundPlayer.startCount, 1)
+        XCTAssertEqual(soundPlayer.stopCount, 1)
+    }
+
+    func testStoppingRecordingCancelsPendingStartSound() async {
+        let soundPlayer = DelayedFeedbackSoundPlayer()
+        let controller = HUDFeedbackController(soundPlayer: soundPlayer)
+        controller.isInteractionSoundEnabled = { true }
+
+        controller.handleEvent(.startSoundCue)
+        await waitForDelayedStartToBegin(soundPlayer)
+        controller.handleEvent(.recordingStopped)
+        try? await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertEqual(soundPlayer.delayedStartCount, 0)
         XCTAssertEqual(soundPlayer.stopCount, 1)
     }
 
@@ -107,6 +148,20 @@ final class HUDFeedbackControllerTests: XCTestCase {
     private func waitForModeCueToClear(_ controller: HUDFeedbackController) async {
         for _ in 0..<20 {
             if controller.modeCueLabel == nil { return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    private func waitForStartSound(_ soundPlayer: MockFeedbackSoundPlayer) async {
+        for _ in 0..<20 {
+            if soundPlayer.startCount > 0 { return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    private func waitForDelayedStartToBegin(_ soundPlayer: DelayedFeedbackSoundPlayer) async {
+        for _ in 0..<20 {
+            if soundPlayer.didEnterDelayedStart { return }
             try? await Task.sleep(for: .milliseconds(25))
         }
     }

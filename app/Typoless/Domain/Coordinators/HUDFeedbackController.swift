@@ -35,6 +35,7 @@ final class HUDFeedbackController {
     private var dismissTask: Task<Void, Never>?
     private var modeCueTask: Task<Void, Never>?
     private var levelPollingTask: Task<Void, Never>?
+    private var startSoundPlaybackTask: Task<Void, Never>?
     private var escEventTap: CFMachPort?
     private var escRunLoopSource: CFRunLoopSource?
     private var presentationGeneration: UInt64 = 0
@@ -62,6 +63,7 @@ final class HUDFeedbackController {
 
         switch event {
         case .recordingStarted:
+            cancelPendingStartSound()
             clearModeCue()
             hudState = .recording
             showHUD()
@@ -69,11 +71,10 @@ final class HUDFeedbackController {
             startEscMonitor()
 
         case .startSoundCue:
-            if shouldPlayInteractionSound {
-                soundPlayer.playStart()
-            }
+            playStartSoundWhenReady()
 
         case .recordingStopped:
+            cancelPendingStartSound()
             clearModeCue()
             if shouldPlayInteractionSound {
                 soundPlayer.playStop()
@@ -104,6 +105,7 @@ final class HUDFeedbackController {
             scheduleDismiss(after: 0.8)
 
         case .processingFailed(let reason):
+            cancelPendingStartSound()
             clearModeCue()
             stopLevelPolling()
             stopEscMonitor()
@@ -117,6 +119,7 @@ final class HUDFeedbackController {
             scheduleDismiss(after: 1.2)
 
         case .processingCancelled:
+            cancelPendingStartSound()
             clearModeCue()
             stopLevelPolling()
             stopEscMonitor()
@@ -125,6 +128,29 @@ final class HUDFeedbackController {
             updateMouseInteraction()
             scheduleDismiss(after: 0.8)
         }
+    }
+
+    private func playStartSoundWhenReady() {
+        cancelPendingStartSound()
+        guard shouldPlayInteractionSound else { return }
+
+        startSoundPlaybackTask = Task { [weak self] in
+            guard let self else { return }
+            await self.soundPlayer.playStartAfterOutputStabilizes(
+                maxWaitMs: 1_200,
+                minimumWaitMs: 600,
+                pollIntervalMs: 100,
+                retryDelayMs: 150
+            )
+            if !Task.isCancelled {
+                self.startSoundPlaybackTask = nil
+            }
+        }
+    }
+
+    private func cancelPendingStartSound() {
+        startSoundPlaybackTask?.cancel()
+        startSoundPlaybackTask = nil
     }
 
     // MARK: - Audio Level Polling

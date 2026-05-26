@@ -131,8 +131,9 @@ final class SessionCoordinator {
 
             // 配置录音器 PCM chunk 回调并启动录音
             // onPCMChunk 在 startRecording 内部 cleanup 后、startRunning 前设置，保证不被清理
+            let captureDevice = audioDeviceManager.captureDeviceForRecording()
             try audioRecorder.startRecording(
-                device: audioDeviceManager.captureDeviceForRecording(),
+                device: captureDevice,
                 onPCMChunk: { [segmenter] chunk in
                     segmenter.appendPCMChunk(chunk)
                 }
@@ -141,12 +142,18 @@ final class SessionCoordinator {
                 sessionID: sessionID,
                 targetBundleID: targetBundleID
             )
+            diagnostics.log(
+                sessionID: sessionID,
+                event: "recording_device_selected",
+                detail: "name=\(captureDevice?.localizedName ?? "system_default") id=\(captureDevice?.uniqueID ?? "system_default")"
+            )
 
-            // 录音器已启动，CoreAudio 硬件已重配置到 16kHz。
-            // 等 500ms 让硬件稳定后播放开始音效，避免音效被硬件切换中断。
+            // 录音器已启动。开始音效由 FeedbackSoundPlayer 等待输出路由稳定后播放，
+            // 以适配蓝牙耳机从 A2DP 到 HFP/HSP 的 profile 切换。
             soundCueTask = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(500))
+                await Task.yield()
                 guard !Task.isCancelled, let self, self.state == .recording else { return }
+                self.diagnostics.log(sessionID: sessionID, event: "start_sound_cue_requested")
                 self.onFeedbackEvent?(.startSoundCue)
             }
 
