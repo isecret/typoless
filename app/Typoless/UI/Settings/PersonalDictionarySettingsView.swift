@@ -51,13 +51,15 @@ struct PersonalDictionarySettingsView: View {
     private var dictionaryContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             dictionaryList
-            controls
 
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .padding(.leading, Layout.leadingInset)
             }
+
+            controls
         }
         .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
     }
