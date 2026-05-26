@@ -195,6 +195,7 @@ HUD 复制入口（待 HTML 原型验证）：
 #### E. 个人词典
 
 - 词条新增、删除、编辑入口
+- 词典 JSON 文件导入、导出入口
 - 词条至少包含术语文本
 - 设置页仅展示术语文本；`pronunciationHint` 和 `category` 暂不在 UI 中维护
 
@@ -341,6 +342,7 @@ LLM 文本处理边界如下：
 - 全部配置（含密钥）统一存储于 `~/.typoless/config.json`（UTF-8 JSON）。
 - 首次升级时自动从旧存储（UserDefaults + Keychain）迁移。
 - 个人词典存储于 `~/.typoless/dictionary.json`，仅保存用户显式维护的术语，不保存历史输入文本。
+- 个人词典导入、导出均使用 JSON 文件；导入时跳过重复术语，不覆盖现有词条。
 
 ## 11. 错误反馈策略
 

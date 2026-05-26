@@ -292,7 +292,7 @@
 ### 5.10 PersonalDictionaryStore
 
 - 使用 `~/.typoless/dictionary.json` 存储用户维护的个人词典。
-- 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`。
+- 词条至少包含 `term`，可选 `pronunciationHint`、`category`；旧版 `enabled` 字段仅用于读取迁移。
 - 为 LLM Prompt 提供术语参考。
 
 ### 5.11 DiagnosticsLogger
@@ -442,6 +442,8 @@ Segment 级诊断字段（每段独立记录）：
 - 存储位置：`~/.typoless/dictionary.json`
 - 字段：`term`、`pronunciationHint`、`category`
 - 设置页首版仅维护 `term`；新增词条的 `pronunciationHint`、`category` 保存为 `nil`
+- 设置页支持从 JSON 文件导入个人词典，并导出当前个人词典为 JSON 文件
+- 导入格式与 `dictionary.json` 一致，兼容旧版 `enabled` 字段；导入时按 `term` 去重并跳过重复词条，不覆盖现有词条
 - 不存储历史输入文本或 ASR/LLM 响应正文
 
 ### 8.4 校验策略

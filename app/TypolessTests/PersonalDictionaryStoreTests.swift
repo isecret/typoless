@@ -109,4 +109,74 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         XCTAssertFalse(persistedJSON.contains("\"enabled\""))
         XCTAssertFalse(persistedJSON.contains("Obsolete"))
     }
+
+    @MainActor
+    func testImportEntriesMergesJSONFileAndSkipsDuplicateTerms() throws {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        try store.addEntry(DictionaryEntry(id: "existing-id", term: "Typoless"))
+
+        let importURL = tempDirectory.appendingPathComponent("import.json")
+        let importJSON = """
+        [
+          {
+            "id": "duplicate-id",
+            "term": "Typoless"
+          },
+          {
+            "id": "existing-id",
+            "term": "FunASR",
+            "pronunciationHint": "fun a s r",
+            "category": "ASR"
+          },
+          {
+            "id": "disabled-id",
+            "term": "Disabled",
+            "enabled": false
+          }
+        ]
+        """
+        try importJSON.write(to: importURL, atomically: true, encoding: .utf8)
+
+        let summary = try store.importEntries(from: importURL)
+
+        XCTAssertEqual(summary, DictionaryImportSummary(importedCount: 1, skippedDuplicateCount: 1))
+        XCTAssertEqual(store.entries.map(\.term), ["Typoless", "FunASR"])
+        XCTAssertEqual(store.entries[1].pronunciationHint, "fun a s r")
+        XCTAssertEqual(store.entries[1].category, "ASR")
+        XCTAssertNotEqual(store.entries[1].id, "existing-id")
+
+        let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
+        XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless", "FunASR"])
+    }
+
+    @MainActor
+    func testImportInvalidJSONThrowsAndKeepsExistingEntries() throws {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        try store.addEntry(DictionaryEntry(term: "Typoless"))
+
+        let importURL = tempDirectory.appendingPathComponent("invalid.json")
+        try "{ invalid".write(to: importURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try store.importEntries(from: importURL))
+        XCTAssertEqual(store.entries.map(\.term), ["Typoless"])
+    }
+
+    @MainActor
+    func testExportEntriesWritesDictionaryJSONFile() throws {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        try store.addEntry(DictionaryEntry(id: "entry-1", term: "Typoless"))
+        try store.addEntry(DictionaryEntry(id: "entry-2", term: "FunASR", pronunciationHint: "fun a s r", category: "ASR"))
+
+        let exportURL = tempDirectory.appendingPathComponent("export.json")
+        try store.exportEntries(to: exportURL)
+
+        let exportedEntries = try JSONDecoder().decode([DictionaryEntry].self, from: Data(contentsOf: exportURL))
+        XCTAssertEqual(
+            exportedEntries,
+            [
+                DictionaryEntry(id: "entry-1", term: "Typoless"),
+                DictionaryEntry(id: "entry-2", term: "FunASR", pronunciationHint: "fun a s r", category: "ASR")
+            ]
+        )
+    }
 }
