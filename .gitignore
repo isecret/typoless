@@ -60,6 +60,7 @@ logs/
 # Test and coverage
 coverage/
 .coverage
+*.profraw
 
 # Temporary files
 tmp/
