@@ -3,14 +3,14 @@
     <channel>
         <title>Typoless</title>
         <item>
-            <title>1.0.2</title>
-            <pubDate>Tue, 26 May 2026 04:56:42 +0000</pubDate>
-            <link>https://github.com/isecret/typoless/releases/tag/v1.0.2</link>
-            <sparkle:fullReleaseNotesLink>https://github.com/isecret/typoless/releases/tag/v1.0.2</sparkle:fullReleaseNotesLink>
-            <sparkle:version>1.0.2</sparkle:version>
-            <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
+            <title>1.0.3</title>
+            <pubDate>Wed, 27 May 2026 05:48:21 +0000</pubDate>
+            <link>https://github.com/isecret/typoless/releases/tag/v1.0.3</link>
+            <sparkle:fullReleaseNotesLink>https://github.com/isecret/typoless/releases/tag/v1.0.3</sparkle:fullReleaseNotesLink>
+            <sparkle:version>1.0.3</sparkle:version>
+            <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/isecret/typoless/releases/download/v1.0.2/Typoless-v1.0.2.zip" length="32151152" type="application/octet-stream" sparkle:edSignature="NEtA8EuKHAKrrC1+Lq/vBEqqD61KePhX6M6cqvvCVG4xjjIw5Dqp5d5l/S/DJ6eBAFHeqLXJmJ57IFvvCZUHDw=="/>
+            <enclosure url="https://github.com/isecret/typoless/releases/download/v1.0.3/Typoless-v1.0.3.zip" length="32179229" type="application/octet-stream" sparkle:edSignature="MGRwruu+u6CNdFuV5u2BBmGpig82LVv/c+LfZItX35Ch1wrZNspuFos1Cl70R17TZCGkd34QDNeGG434LRmUDw=="/>
         </item>
     </channel>
 </rss>
