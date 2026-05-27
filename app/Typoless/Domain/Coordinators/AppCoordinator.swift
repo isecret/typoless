@@ -75,6 +75,7 @@ final class AppCoordinator {
     func handleAppLaunch() {
         setupHotkey()
         updateService.start()
+        updateInteractionSoundKeepAlive()
 
         // Ensure system login item state matches config
         if configStore.generalConfig.launchAtLogin {
@@ -86,6 +87,14 @@ final class AppCoordinator {
             try? await Task.sleep(for: .milliseconds(200))
             openSettingsWindow()
         }
+    }
+
+    func setInteractionSoundKeepAliveEnabled(_ enabled: Bool) {
+        hudFeedbackController.setInteractionSoundKeepAliveEnabled(enabled)
+    }
+
+    private func updateInteractionSoundKeepAlive() {
+        setInteractionSoundKeepAliveEnabled(configStore.generalConfig.interactionSoundEnabled)
     }
 
     /// 通过 AppKit 托管单例设置窗口，避免依赖 SwiftUI 默认 selector

@@ -6,6 +6,8 @@ final class HUDFeedbackControllerTests: XCTestCase {
     private final class MockFeedbackSoundPlayer: FeedbackSoundPlaying {
         var startCount = 0
         var stopCount = 0
+        var keepAliveEnabledValues: [Bool] = []
+        var delayedStartParameters: (maxWaitMs: Int, minimumWaitMs: Int, pollIntervalMs: Int, retryDelayMs: Int)?
 
         func playStart() {
             startCount += 1
@@ -13,6 +15,20 @@ final class HUDFeedbackControllerTests: XCTestCase {
 
         func playStop() {
             stopCount += 1
+        }
+
+        func setSilentKeepAliveEnabled(_ enabled: Bool) {
+            keepAliveEnabledValues.append(enabled)
+        }
+
+        func playStartAfterOutputStabilizes(
+            maxWaitMs: Int,
+            minimumWaitMs: Int,
+            pollIntervalMs: Int,
+            retryDelayMs: Int
+        ) async {
+            delayedStartParameters = (maxWaitMs, minimumWaitMs, pollIntervalMs, retryDelayMs)
+            startCount += 1
         }
     }
 
@@ -92,6 +108,20 @@ final class HUDFeedbackControllerTests: XCTestCase {
 
         XCTAssertEqual(soundPlayer.startCount, 1)
         XCTAssertEqual(soundPlayer.stopCount, 1)
+        XCTAssertEqual(soundPlayer.delayedStartParameters?.maxWaitMs, 2_200)
+        XCTAssertEqual(soundPlayer.delayedStartParameters?.minimumWaitMs, 600)
+        XCTAssertEqual(soundPlayer.delayedStartParameters?.pollIntervalMs, 100)
+        XCTAssertEqual(soundPlayer.delayedStartParameters?.retryDelayMs, 200)
+    }
+
+    func testInteractionSoundKeepAliveForwardsEnabledState() {
+        let soundPlayer = MockFeedbackSoundPlayer()
+        let controller = HUDFeedbackController(soundPlayer: soundPlayer)
+
+        controller.setInteractionSoundKeepAliveEnabled(true)
+        controller.setInteractionSoundKeepAliveEnabled(false)
+
+        XCTAssertEqual(soundPlayer.keepAliveEnabledValues, [true, false])
     }
 
     func testStoppingRecordingCancelsPendingStartSound() async {

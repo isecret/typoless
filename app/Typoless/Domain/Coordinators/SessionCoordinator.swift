@@ -36,6 +36,7 @@ final class SessionCoordinator {
 
     private var processingTask: Task<Void, Never>?
     private var resetToIdleTask: Task<Void, Never>?
+    private var recordingStartTask: Task<Void, Never>?
     private var soundCueTask: Task<Void, Never>?
     private var sessionGeneration: UInt64 = 0
     private var currentSessionID: String = ""
@@ -67,6 +68,8 @@ final class SessionCoordinator {
         guard state.allowsRecordingStart else { return }
 
         if state != .idle {
+            recordingStartTask?.cancel()
+            recordingStartTask = nil
             resetToIdleTask?.cancel()
             resetToIdleTask = nil
             state = .idle
@@ -100,12 +103,21 @@ final class SessionCoordinator {
             processingMode = .polish
             onFeedbackEvent?(.recordingStarted)
 
-            beginRecording(
-                generation: sessionGeneration,
-                sessionID: sessionID,
-                targetBundleID: targetBundleID,
-                selectedPlatform: selectedPlatform
-            )
+            let generation = sessionGeneration
+            recordingStartTask?.cancel()
+            recordingStartTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled, let self else { return }
+                await self.beginRecording(
+                    generation: generation,
+                    sessionID: sessionID,
+                    targetBundleID: targetBundleID,
+                    selectedPlatform: selectedPlatform
+                )
+                if !Task.isCancelled, self.sessionGeneration == generation {
+                    self.recordingStartTask = nil
+                }
+            }
         } catch {
             handleError(mapError(error))
         }
@@ -116,7 +128,7 @@ final class SessionCoordinator {
         sessionID: String,
         targetBundleID: String?,
         selectedPlatform: ASRPlatform
-    ) {
+    ) async {
         guard generation == sessionGeneration, state == .recording else { return }
 
         do {
@@ -132,12 +144,18 @@ final class SessionCoordinator {
             // 配置录音器 PCM chunk 回调并启动录音
             // onPCMChunk 在 startRecording 内部 cleanup 后、startRunning 前设置，保证不被清理
             let captureDevice = audioDeviceManager.captureDeviceForRecording()
-            try audioRecorder.startRecording(
+            try await audioRecorder.startRecording(
                 device: captureDevice,
                 onPCMChunk: { [segmenter] chunk in
                     segmenter.appendPCMChunk(chunk)
                 }
             )
+            guard !Task.isCancelled, generation == sessionGeneration, state == .recording else {
+                _ = audioRecorder.stopRecording()
+                cleanupSegmenterState()
+                return
+            }
+
             diagnostics.sessionStarted(
                 sessionID: sessionID,
                 targetBundleID: targetBundleID
@@ -178,6 +196,7 @@ final class SessionCoordinator {
                 self?.processingTask = nil
             }
         } catch {
+            guard !Task.isCancelled, generation == sessionGeneration else { return }
             handleError(mapError(error))
         }
     }
@@ -186,6 +205,8 @@ final class SessionCoordinator {
     func finishRecording() {
         guard state == .recording else { return }
 
+        recordingStartTask?.cancel()
+        recordingStartTask = nil
         soundCueTask?.cancel()
         soundCueTask = nil
 
@@ -235,6 +256,8 @@ final class SessionCoordinator {
     func cancel() {
         switch state {
         case .recording:
+            recordingStartTask?.cancel()
+            recordingStartTask = nil
             soundCueTask?.cancel()
             soundCueTask = nil
             sessionGeneration &+= 1
@@ -629,6 +652,10 @@ final class SessionCoordinator {
     // MARK: - Error Handling
 
     private func handleError(_ error: TypolessError) {
+        recordingStartTask?.cancel()
+        recordingStartTask = nil
+        soundCueTask?.cancel()
+        soundCueTask = nil
         currentError = error
         state = .error
         onFeedbackEvent?(.processingFailed(error.hudFailureReason))

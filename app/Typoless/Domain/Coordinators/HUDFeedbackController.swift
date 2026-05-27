@@ -54,6 +54,10 @@ final class HUDFeedbackController {
 
     // MARK: - Public Event Handler
 
+    func setInteractionSoundKeepAliveEnabled(_ enabled: Bool) {
+        soundPlayer.setSilentKeepAliveEnabled(enabled)
+    }
+
     /// 处理来自 SessionCoordinator 的反馈事件
     func handleEvent(_ event: SessionFeedbackEvent) {
         Self.logger.info("handleEvent | \(String(describing: event))")
@@ -137,10 +141,10 @@ final class HUDFeedbackController {
         startSoundPlaybackTask = Task { [weak self] in
             guard let self else { return }
             await self.soundPlayer.playStartAfterOutputStabilizes(
-                maxWaitMs: 1_200,
+                maxWaitMs: 2_200,
                 minimumWaitMs: 600,
                 pollIntervalMs: 100,
-                retryDelayMs: 150
+                retryDelayMs: 200
             )
             if !Task.isCancelled {
                 self.startSoundPlaybackTask = nil

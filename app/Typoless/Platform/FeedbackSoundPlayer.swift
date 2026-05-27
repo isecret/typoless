@@ -12,6 +12,7 @@ protocol FeedbackSoundPlaying: AnyObject {
         pollIntervalMs: Int,
         retryDelayMs: Int
     ) async
+    func setSilentKeepAliveEnabled(_ enabled: Bool)
 }
 
 extension FeedbackSoundPlaying {
@@ -24,18 +25,20 @@ extension FeedbackSoundPlaying {
         guard !Task.isCancelled else { return }
         playStart()
     }
+
+    func setSilentKeepAliveEnabled(_ enabled: Bool) {}
 }
 
 /// 反馈音效播放器，基于 AVAudioEngine 实现音效播放。
 ///
 /// 引擎在每次播放时按需启动，自动适配当前硬件采样率。
-/// 播放时机由 SessionCoordinator 控制：在 AVAudioRecorder 启动（触发硬件重配置）
-/// 之后延迟调用，确保引擎在稳定的硬件配置上启动。
+/// 开始音效会等待输出格式稳定，避免录音触发的硬件重配置吞掉提示音。
 @MainActor
 final class FeedbackSoundPlayer: FeedbackSoundPlaying {
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private let audioFormat: AVAudioFormat
+    private let silentKeepAlive = SilentOutputKeepAlive()
 
     private var startBuffer: AVAudioPCMBuffer?
     private var stopBuffer: AVAudioPCMBuffer?
@@ -73,6 +76,12 @@ final class FeedbackSoundPlayer: FeedbackSoundPlaying {
 
     func playStop() {
         play(stopBuffer, label: "stop")
+    }
+
+    func setSilentKeepAliveEnabled(_ enabled: Bool) {
+        Task { [silentKeepAlive] in
+            await silentKeepAlive.setEnabled(enabled)
+        }
     }
 
     func playStartAfterOutputStabilizes(
@@ -217,6 +226,107 @@ private struct OutputFormatSnapshot: Equatable, CustomStringConvertible {
 
     var description: String {
         "\(sampleRate)Hz/\(channelCount)ch"
+    }
+}
+
+private actor SilentOutputKeepAlive {
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private let audioFormat: AVAudioFormat
+    private let silentBuffer: AVAudioPCMBuffer?
+    private var keepAliveTask: Task<Void, Never>?
+
+    private static let logger = Logger(subsystem: "com.isecret.typoless", category: "FeedbackSound")
+    private static let interval: Duration = .seconds(12)
+
+    init() {
+        audioFormat = FeedbackSoundDesigner.makePlaybackFormat()
+        engine.attach(playerNode)
+        engine.connect(playerNode, to: engine.mainMixerNode, format: audioFormat)
+        silentBuffer = Self.makeSilentBuffer(format: audioFormat, durationMs: 70)
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        if enabled {
+            startIfNeeded()
+        } else {
+            stop()
+        }
+    }
+
+    private func startIfNeeded() {
+        guard keepAliveTask == nil else { return }
+        keepAliveTask = Task { [weak self] in
+            await self?.runLoop()
+        }
+        Self.logger.info("silent keep-alive enabled")
+    }
+
+    private func stop() {
+        keepAliveTask?.cancel()
+        keepAliveTask = nil
+        playerNode.stop()
+        engine.stop()
+        Self.logger.info("silent keep-alive disabled")
+    }
+
+    private func runLoop() async {
+        defer {
+            keepAliveTask = nil
+            playerNode.stop()
+        }
+
+        while !Task.isCancelled {
+            playTick()
+            do {
+                try await Task.sleep(for: Self.interval)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func playTick() {
+        guard let silentBuffer else {
+            Self.logger.error("silent keep-alive skipped | buffer is nil")
+            return
+        }
+        guard startEngineIfNeeded() else { return }
+
+        playerNode.stop()
+        playerNode.scheduleBuffer(silentBuffer, at: nil, options: [], completionHandler: nil)
+        playerNode.play()
+        Self.logger.info("silent keep-alive tick")
+    }
+
+    private func startEngineIfNeeded() -> Bool {
+        guard !engine.isRunning else { return true }
+
+        engine.prepare()
+        do {
+            try engine.start()
+            Self.logger.info("silent keep-alive engine started")
+            return true
+        } catch {
+            Self.logger.error("silent keep-alive engine start FAILED: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private static func makeSilentBuffer(format: AVAudioFormat, durationMs: Double) -> AVAudioPCMBuffer? {
+        let frameCount = AVAudioFrameCount(max(1, Int(format.sampleRate * durationMs / 1_000)))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else { return nil }
+        buffer.frameLength = frameCount
+
+        if let channelData = buffer.floatChannelData {
+            for channel in 0..<Int(format.channelCount) {
+                for frame in 0..<Int(frameCount) {
+                    channelData[channel][frame] = 0
+                }
+            }
+        }
+
+        return buffer
     }
 }
 

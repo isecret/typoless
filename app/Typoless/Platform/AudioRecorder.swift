@@ -29,7 +29,7 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
     ///   - device: 录音设备，为 nil 时使用系统默认
     ///   - onPCMChunk: PCM 数据实时回调，在 cleanup 后、startRunning 前设置，避免被清理
     @MainActor
-    func startRecording(device: AVCaptureDevice?, onPCMChunk: (@Sendable (Data) -> Void)? = nil) throws {
+    func startRecording(device: AVCaptureDevice?, onPCMChunk: (@Sendable (Data) -> Void)? = nil) async throws {
         guard !recording else { return }
 
         cleanupRecordingState()
@@ -86,10 +86,11 @@ final class AudioRecorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegat
             captureSession = session
             audioOutput = output
 
-            var didStart = false
-            captureQueue.sync {
-                session.startRunning()
-                didStart = session.isRunning
+            let didStart = await withCheckedContinuation { continuation in
+                captureQueue.async {
+                    session.startRunning()
+                    continuation.resume(returning: session.isRunning)
+                }
             }
 
             guard didStart else {

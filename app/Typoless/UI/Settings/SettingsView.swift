@@ -62,9 +62,16 @@ struct SettingsView: View {
         SettingsPaneContainer {
             switch appCoordinator.selectedSettingsTab {
             case .general:
-                GeneralSettingsView(configStore: appCoordinator.configStore, updateService: appCoordinator.updateService, onHotkeyChanged: {
-                    appCoordinator.setupHotkey()
-                })
+                GeneralSettingsView(
+                    configStore: appCoordinator.configStore,
+                    updateService: appCoordinator.updateService,
+                    onHotkeyChanged: {
+                        appCoordinator.setupHotkey()
+                    },
+                    onInteractionSoundChanged: { enabled in
+                        appCoordinator.setInteractionSoundKeepAliveEnabled(enabled)
+                    }
+                )
             case .asr:
                 ASRSettingsView(configStore: appCoordinator.configStore)
             case .dictionary:

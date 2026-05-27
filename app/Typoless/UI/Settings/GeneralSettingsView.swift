@@ -4,6 +4,7 @@ struct GeneralSettingsView: View {
     let configStore: ConfigStore
     let updateService: AppUpdateService
     var onHotkeyChanged: (() -> Void)?
+    var onInteractionSoundChanged: ((Bool) -> Void)?
 
     @State private var hotkey: HotkeyCombo = .default
     @State private var interactionSoundEnabled = true
@@ -81,7 +82,7 @@ struct GeneralSettingsView: View {
             isLoaded = true
         }
         .onChange(of: hotkey) { immediateSaveWithHotkey() }
-        .onChange(of: interactionSoundEnabled) { immediateSaveGeneralConfig() }
+        .onChange(of: interactionSoundEnabled) { immediateSaveInteractionSound() }
         .onChange(of: translationTargetLanguage) { immediateSaveGeneralConfig() }
         .onChange(of: launchAtLogin) { immediateSaveGeneralConfig() }
     }
@@ -97,6 +98,12 @@ struct GeneralSettingsView: View {
         guard isLoaded else { return }
         immediateSaveGeneralConfig()
         onHotkeyChanged?()
+    }
+
+    private func immediateSaveInteractionSound() {
+        guard isLoaded else { return }
+        immediateSaveGeneralConfig()
+        onInteractionSoundChanged?(interactionSoundEnabled)
     }
 
     private func immediateSaveGeneralConfig() {
