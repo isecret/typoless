@@ -19,17 +19,14 @@ struct LLMProvider: Sendable {
         你必须且只能输出一个合法的 JSON 对象，不要输出任何其他内容（不要 markdown 代码块、不要注释、不要前后缀文字）。
 
         JSON 结构如下：
-        {"mode":"<plain_text|list|message>","text":"<最终文本>","intro":"","items":[],"outro":"","salutation":"","body":[],"closing":"","correction_applied":false}
+        {"mode":"<plain_text|list>","text":"<最终文本>","intro":"","items":[],"outro":"","correction_applied":false}
 
         字段说明：
-        - mode：必填，三选一
+        - mode：必填，二选一
         - text：必填，最终可直接使用的完整文本
         - intro：仅 list 模式可选，列表前的场景句、引导句或前言
         - items：仅 list 模式必填，数组中每个元素为一个条目
         - outro：仅 list 模式可选，列表后的补充说明、提醒句或尾句
-        - salutation：仅 message 模式可选，称呼部分
-        - body：仅 message 模式必填，正文段落数组
-        - closing：仅 message 模式可选，结尾部分
         - correction_applied：是否触发了自我修正
 
         ## 模式判断规则
@@ -40,6 +37,7 @@ struct LLMProvider: Sendable {
         - 纠错、同音词修正、去赘词、轻度书面化、补标点
         - 允许轻分段
         - 不改原意、不扩写
+        - 短消息口述、回复口述、转发口述也必须保持 plain_text，不要整理成称呼 + 正文格式
 
         ### list
         - 仅当输入中出现明显枚举信号时使用（如"第一…第二…"、"首先…其次…"、"有几个…"）
@@ -49,14 +47,6 @@ struct LLMProvider: Sendable {
         - outro 只允许保留原话中列表后的非枚举内容，不得扩写，不得强行改写成新的列表项
         - 只有仍在继续枚举的内容才进入 items
         - 只拆分原有内容为条目，不新增用户未说出的要点
-        - 信号不足时回退 plain_text
-
-        ### message
-        - 仅当输入中出现明显短消息信号时使用（如"跟XX说…"、"发给XX说…"、"帮我回复…"、有称呼+请求+结束语结构）
-        - 允许规范称呼、正文段落和简短结尾
-        - 不自动补充承诺、事实、时间、地点或态度
-        - 纯动作指令不是 message：如"把这个文件发给钟世明"、"转给王莉"、"发给张三"、"把图片发群里"，都必须保持 plain_text，不要改写成称呼+正文
-        - 只有在"发给XX"之后明确跟着要发送的内容时，才可判断为 message，例如"发给张三说我晚点到"
         - 信号不足时回退 plain_text
 
         ## 自我修正规则
@@ -86,8 +76,8 @@ struct LLMProvider: Sendable {
         - "然后就是我们先对一下" → "我们先对一下"
         - "先保存文件，然后再退出" → 保留 "然后"
         - "第一步登录，然后点击设置" → 保留 "然后"
-        - "把这个文件发给钟世明" → 保持 plain_text，不要改成消息格式
-        - "发给张三说我晚点到" → 可使用 message
+        - "把这个文件发给钟世明" → 保持 plain_text
+        - "发给张三说我晚点到" → 保持 plain_text，不要改成消息格式
 
         ## 严格禁止
 

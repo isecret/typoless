@@ -104,13 +104,10 @@ struct LLMStructuredResponse: Decodable, Equatable, Sendable {
     let intro: String?
     let items: [String]?
     let outro: String?
-    let salutation: String?
-    let body: [String]?
-    let closing: String?
     let correctionApplied: Bool
 
     enum CodingKeys: String, CodingKey {
-        case mode, text, intro, items, outro, salutation, body, closing
+        case mode, text, intro, items, outro
         case correctionApplied = "correction_applied"
     }
 
@@ -121,9 +118,6 @@ struct LLMStructuredResponse: Decodable, Equatable, Sendable {
         intro = try container.decodeIfPresent(String.self, forKey: .intro)
         items = try container.decodeIfPresent([String].self, forKey: .items)
         outro = try container.decodeIfPresent(String.self, forKey: .outro)
-        salutation = try container.decodeIfPresent(String.self, forKey: .salutation)
-        body = try container.decodeIfPresent([String].self, forKey: .body)
-        closing = try container.decodeIfPresent(String.self, forKey: .closing)
         correctionApplied = try container.decodeIfPresent(Bool.self, forKey: .correctionApplied) ?? false
     }
 
@@ -134,9 +128,6 @@ struct LLMStructuredResponse: Decodable, Equatable, Sendable {
             intro: intro,
             items: items,
             outro: outro,
-            salutation: salutation,
-            body: body,
-            closing: closing,
             correctionApplied: correctionApplied
         )
     }

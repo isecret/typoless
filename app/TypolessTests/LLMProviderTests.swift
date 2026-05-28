@@ -49,11 +49,16 @@ final class LLMProviderTests: XCTestCase {
         XCTAssertFalse(prompt.contains("当前窗口上下文"))
     }
 
-    func testSystemPromptKeepsShareActionAsPlainText() {
+    func testSystemPromptOnlyUsesPlainTextAndListModes() {
         let prompt = LLMProvider.systemPrompt(terms: [])
 
+        XCTAssertTrue(prompt.contains("\"mode\":\"<plain_text|list>\""))
+        XCTAssertFalse(prompt.contains("### message"))
+        XCTAssertFalse(prompt.contains("salutation"))
+        XCTAssertFalse(prompt.contains("closing"))
+        XCTAssertTrue(prompt.contains("短消息口述、回复口述、转发口述也必须保持 plain_text"))
         XCTAssertTrue(prompt.contains("把这个文件发给钟世明"))
-        XCTAssertTrue(prompt.contains("都必须保持 plain_text"))
         XCTAssertTrue(prompt.contains("发给张三说我晚点到"))
+        XCTAssertTrue(prompt.contains("不要改成消息格式"))
     }
 }

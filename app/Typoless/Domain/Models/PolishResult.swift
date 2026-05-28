@@ -6,7 +6,6 @@ import Foundation
 enum PolishMode: String, Decodable, Equatable, Sendable {
     case plainText = "plain_text"
     case list
-    case message
 }
 
 // MARK: - Structured Polish Result
@@ -20,12 +19,6 @@ struct StructuredPolishResult: Decodable, Equatable, Sendable {
     let items: [String]?
     /// list 模式的尾句/补充说明
     let outro: String?
-    /// message 模式的称呼
-    let salutation: String?
-    /// message 模式的正文段落
-    let body: [String]?
-    /// message 模式的结尾
-    let closing: String?
     /// 是否触发了显式自我修正
     let correctionApplied: Bool
 
@@ -34,9 +27,6 @@ struct StructuredPolishResult: Decodable, Equatable, Sendable {
         case intro
         case items
         case outro
-        case salutation
-        case body
-        case closing
         case correctionApplied = "correction_applied"
     }
 
@@ -47,9 +37,6 @@ struct StructuredPolishResult: Decodable, Equatable, Sendable {
             return true
         case .list:
             guard let items, !items.isEmpty else { return false }
-            return true
-        case .message:
-            guard let body, !body.isEmpty else { return false }
             return true
         }
     }

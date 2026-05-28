@@ -876,12 +876,12 @@
 
 验收标准：
 
-- 新增内部枚举 `PolishMode`，至少包含 `plainText`、`list`、`message`
-- 新增 `StructuredPolishResult`，可承载 `mode`、`intro`、`items`、`outro`、`salutation`、`body`、`closing`、`correctionApplied`，并提供 `isValid` 语义校验
+- 新增内部枚举 `PolishMode`，至少包含 `plainText`、`list`
+- 新增 `StructuredPolishResult`，可承载 `mode`、`intro`、`items`、`outro`、`correctionApplied`，并提供 `isValid` 语义校验
 - `PolishResult` 保留现有 `text`，并新增可选 `structured`
 - `LLMProvider -> SessionCoordinator` 的兼容消费路径明确，既有只消费 `text` 的调用方不被破坏
 
-#### S18.2 升级固定 Prompt 支持 plain_text / list / message
+#### S18.2 升级固定 Prompt 支持 plain_text / list
 
 作为用户，我希望 AI 在不扩写的前提下，能自动把明显的列表和短消息整理得更自然。
 
@@ -890,7 +890,7 @@
 - Prompt 保持固定内置，不开放用户自定义
 - `plain_text` 继续覆盖纠错、同音词、赘词、标点和轻度书面化
 - `list` 可识别明显枚举信号并输出条目结构；若原话包含列表前言或列表后补充说明，应一并保留；信号不足时回退 `plain_text`
-- `message` 可识别短消息信号并整理称呼、正文、简短结尾，不补充未说出的事实、承诺、时间或地点
+- 短消息口述、回复口述、转发口述统一保持 `plain_text`
 - Prompt 明确支持“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正
 - 个人词典继续作为术语参考进入 Prompt，且不被视为可执行指令
 
@@ -901,7 +901,7 @@
 验收标准：
 
 - 客户端优先解析 LLM 返回的结构化 JSON
-- 本地支持 `plain_text`、`list`、`message` 三类渲染
+- 本地支持 `plain_text`、`list` 两类渲染
 - 当结构字段与自由文本冲突时，以客户端本地渲染结果为准
 - 非法 JSON、缺字段或文本提取失败时，可安全回退到兼容文本提取
 - LLM 失败、超时、空响应时，仍直接报错且不注入任何文本
@@ -924,7 +924,7 @@
 
 验收标准：
 
-- 增加 `plain_text`、`list`、`message` 三类行为测试
+- 增加 `plain_text`、`list` 两类行为测试
 - 增加“不是 A，是 B”“改成”“最后一句不要了”等自我修正测试
 - 增加非法 JSON、缺字段、兼容回退测试
 - 继续验证 LLM 失败时不注入文本

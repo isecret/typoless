@@ -252,7 +252,7 @@
 - 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config.json`
 - 返回保守型结构化处理后的最终文本
 - 优先解析结构化 JSON 结果，并保留兼容的纯文本提取回退路径
-- `message` 模式只用于用户明确口述“要发出去的话”；像“把这个文件发给张三”“转给李四”这类动作指令必须保持 `plain_text`，不得改写成称呼 + 正文
+- 不支持独立 `message` 模式；短消息口述、回复口述、转发口述统一保持 `plain_text`
 - 当 `WindowContextService` 成功返回快照时，将其作为弱参考附加到 Prompt：
   - 只允许用于消歧、模式判断和编辑意图识别
   - 不得直接复制未说出的窗口内容
@@ -625,7 +625,7 @@ Segment 级诊断字段（每段独立记录）：
 - 自动补自然中文标点
 - 保留个人词典中的专有名词
 - 中英混合术语恢复：ASR 把英文术语识别成中文音近词时，恢复为正确英文写法
-- 在结构信号明确时，将内容保守整理为 `plain_text`、`list`、`message`
+- 在结构信号明确时，将内容保守整理为 `plain_text`、`list`
 - 在“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正场景下，优先保留最终明确表达
 - 当输入来自多段分段转写时，Prompt 明确说明：输入来自同一次语音输入的连续分段转写，请按原始顺序理解为一段连续表达；可以合并因分段造成的断句，但不得扩写、改写原意或补充事实
 
@@ -645,10 +645,6 @@ Segment 级诊断字段（每段独立记录）：
 - `list`
   - 仅在存在稳定枚举信号时启用
   - 仅拆分原有内容，不新增要点
-- `message`
-  - 仅处理短消息/短邮件级别输出
-  - 允许称呼、正文和简短结尾的最小重排
-  - 不补充未说出的事实、承诺、时间或地点
 
 ### 10.3 输入输出
 
@@ -670,16 +666,12 @@ Segment 级诊断字段（每段独立记录）：
   - `intro: String?`
   - `items: [String]?`
   - `outro: String?`
-  - `salutation: String?`
-  - `body: [String]?`
-  - `closing: String?`
   - `correctionApplied: Bool`
-  - `isValid: Bool`（语义校验：list 要求 items 非空，message 要求 body 非空）
+  - `isValid: Bool`（语义校验：list 要求 items 非空）
 
 - `PolishMode`
   - `plainText`
   - `list`
-  - `message`
 
 解析与渲染约束：
 
@@ -687,7 +679,6 @@ Segment 级诊断字段（每段独立记录）：
 - 解析成功后按 mode 在客户端本地渲染最终文本
   - `plain_text`：直接使用 `text` 字段
   - `list`：若有 `intro`，先输出 `intro`；按 `items` 编号换行渲染；若有 `outro`，再输出 `outro`
-  - `message`：按 `salutation` + `body` + `closing` 拼接，缺失部分不强补
 - 语义校验失败时（如 list 但 items 为空），退回使用 JSON 中的 `text` 字段
 - 非法 JSON 时多级回退：尝试宽容提取 `text` 字段 → 使用原始内容（仅当内容不是 JSON 结构时）
 - 最终注入文本始终取自安全渲染后的 `PolishResult.text`
@@ -806,9 +797,9 @@ Segment 级诊断字段（每段独立记录）：
 - 正常主链路
 - LLM 配置不完整
 - LLM 失败直接报错
-- `plain_text` 不被误判为 `list` 或 `message`
+- `plain_text` 不被误判为 `list`
 - `list` 可稳定识别枚举内容且顺序不乱
-- `message` 可完成最小格式化且不补事实
+- 短消息口述、回复口述、转发口述保持 `plain_text`
 - “不是 A，是 B”“改成”“最后一句不要了”等显式自我修正
 - 非法 JSON、缺字段和纯文本兼容回退
 - 用户取消

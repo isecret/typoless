@@ -8,7 +8,6 @@ final class PolishResultModelTests: XCTestCase {
     func testPolishModeRawValues() {
         XCTAssertEqual(PolishMode.plainText.rawValue, "plain_text")
         XCTAssertEqual(PolishMode.list.rawValue, "list")
-        XCTAssertEqual(PolishMode.message.rawValue, "message")
     }
 
     func testPolishModeDecodable() throws {
@@ -23,7 +22,7 @@ final class PolishResultModelTests: XCTestCase {
         let result = StructuredPolishResult(
             mode: .plainText,
             intro: nil,
-            items: nil, outro: nil, salutation: nil, body: nil, closing: nil,
+            items: nil, outro: nil,
             correctionApplied: false
         )
         XCTAssertTrue(result.isValid)
@@ -33,7 +32,7 @@ final class PolishResultModelTests: XCTestCase {
         let result = StructuredPolishResult(
             mode: .list,
             intro: "出差要带的东西",
-            items: ["a", "b"], outro: "另外明天九点出门。", salutation: nil, body: nil, closing: nil,
+            items: ["a", "b"], outro: "另外明天九点出门。",
             correctionApplied: false
         )
         XCTAssertTrue(result.isValid)
@@ -43,7 +42,7 @@ final class PolishResultModelTests: XCTestCase {
         let result = StructuredPolishResult(
             mode: .list,
             intro: "出差要带的东西",
-            items: [], outro: "另外明天九点出门。", salutation: nil, body: nil, closing: nil,
+            items: [], outro: "另外明天九点出门。",
             correctionApplied: false
         )
         XCTAssertFalse(result.isValid)
@@ -53,37 +52,7 @@ final class PolishResultModelTests: XCTestCase {
         let result = StructuredPolishResult(
             mode: .list,
             intro: nil,
-            items: nil, outro: nil, salutation: nil, body: nil, closing: nil,
-            correctionApplied: false
-        )
-        XCTAssertFalse(result.isValid)
-    }
-
-    func testMessageValidWithBody() {
-        let result = StructuredPolishResult(
-            mode: .message,
-            intro: nil,
-            items: nil, outro: nil, salutation: "你好", body: ["正文"], closing: nil,
-            correctionApplied: false
-        )
-        XCTAssertTrue(result.isValid)
-    }
-
-    func testMessageInvalidWithEmptyBody() {
-        let result = StructuredPolishResult(
-            mode: .message,
-            intro: nil,
-            items: nil, outro: nil, salutation: "你好", body: [], closing: nil,
-            correctionApplied: false
-        )
-        XCTAssertFalse(result.isValid)
-    }
-
-    func testMessageInvalidWithNilBody() {
-        let result = StructuredPolishResult(
-            mode: .message,
-            intro: nil,
-            items: nil, outro: nil, salutation: nil, body: nil, closing: nil,
+            items: nil, outro: nil,
             correctionApplied: false
         )
         XCTAssertFalse(result.isValid)
@@ -101,7 +70,7 @@ final class PolishResultModelTests: XCTestCase {
         let structured = StructuredPolishResult(
             mode: .plainText,
             intro: nil,
-            items: nil, outro: nil, salutation: nil, body: nil, closing: nil,
+            items: nil, outro: nil,
             correctionApplied: false
         )
         let result = PolishResult(text: "hello", source: .llm, structured: structured)
