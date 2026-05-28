@@ -13,8 +13,7 @@ final class HUDFeedbackController {
 
     private(set) var hudState: HUDState = .hidden
     private(set) var modeCueLabel: String?
-    private(set) var barHeights: [CGFloat] = Array(repeating: 1, count: 7)
-    private(set) var barOpacities: [Double] = Array(repeating: 0.28, count: 7)
+    private(set) var barHeights: [CGFloat] = Array(repeating: HUDLayout.resetBarHeight, count: 7)
     private(set) var isHUDPresented = false
 
     // MARK: - Callbacks (由 AppCoordinator 注入)
@@ -276,8 +275,8 @@ final class HUDFeedbackController {
     private func updateWaveform(level: Float) {
         let rawTarget = CGFloat(level)
         let count = Self.barsCount
-        let maxH: CGFloat = 12.6
-        let minH: CGFloat = 1.2
+        let maxH = HUDLayout.waveformMaxHeight
+        let minH = HUDLayout.waveformMinHeight
         let center = CGFloat(count - 1) / 2
 
         // 使用包络平滑替代逐帧随机跳变，让整体起伏更连续自然。
@@ -295,15 +294,13 @@ final class HUDFeedbackController {
             let floor = 0.22 + centerWeight * 0.06
             let eased = floor + waveformEnvelope * (0.5 + centerWeight * 0.66) * modulation
             barHeights[i] = minH + eased * (maxH - minH)
-            barOpacities[i] = 0.28 + min(0.72, Double(eased))
         }
     }
 
     private func resetBars() {
         waveformEnvelope = 0
         waveformPhase = 0
-        barHeights = Array(repeating: 1, count: Self.barsCount)
-        barOpacities = Array(repeating: 0.28, count: Self.barsCount)
+        barHeights = Array(repeating: HUDLayout.resetBarHeight, count: Self.barsCount)
     }
 
     private func clearModeCue() {

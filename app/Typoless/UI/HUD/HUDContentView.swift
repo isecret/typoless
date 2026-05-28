@@ -11,7 +11,7 @@ struct HUDContentView: View {
     var onConfirm: () -> Void = {}
 
     @State private var phase: VisualPhase = .hidden
-    @State private var capsuleWidth: CGFloat = 96
+    @State private var capsuleWidth: CGFloat = HUDLayout.hiddenWidth
     @State private var capsuleScale: CGFloat = 1
     @State private var capsuleYOffset: CGFloat = 0
     @State private var recordingOpacity: Double = 0
@@ -19,11 +19,11 @@ struct HUDContentView: View {
     @State private var resultOpacity: Double = 0
     @State private var recordingControlsOpacity: Double = 0
     @State private var recordingWaveOpacity: Double = 0
-    @State private var resultOffsetY: CGFloat = 2
+    @State private var resultOffsetY: CGFloat = HUDLayout.resultOffset
     @State private var resultState: HUDState?
     @State private var transitionTask: Task<Void, Never>?
 
-    private let capsuleHeight: CGFloat = 26
+    private let capsuleHeight: CGFloat = HUDLayout.capsuleHeight
 
     var body: some View {
         Group {
@@ -66,71 +66,70 @@ struct HUDContentView: View {
     // MARK: - Recording Capsule
 
     private var recordingCapsule: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: HUDLayout.recordingSpacing) {
             hudButton(icon: .xMark) { onCancel() }
                 .opacity(recordingControlsOpacity)
-                .offset(x: recordingControlsOpacity == 0 ? 1 : -2)
+                .offset(x: recordingControlsOpacity == 0 ? HUDLayout.hiddenControlOffset : -HUDLayout.visibleControlOffset)
             waveformView
             hudButton(icon: .checkMark, isConfirm: true) { onConfirm() }
                 .opacity(recordingControlsOpacity)
-                .offset(x: recordingControlsOpacity == 0 ? -1 : 2)
+                .offset(x: recordingControlsOpacity == 0 ? -HUDLayout.hiddenControlOffset : HUDLayout.visibleControlOffset)
         }
-        .padding(.vertical, 3)
-        .padding(.horizontal, 5)
+        .padding(.vertical, HUDLayout.compactVerticalPadding)
+        .padding(.horizontal, HUDLayout.compactHorizontalPadding)
     }
 
     // MARK: - Thinking Capsule
 
     private var thinkingCapsule: some View {
         ThinkingShimmerView()
-            .padding(.vertical, 3)
-            .padding(.horizontal, 10)
+            .padding(.vertical, HUDLayout.compactVerticalPadding)
+            .padding(.horizontal, HUDLayout.regularHorizontalPadding)
     }
 
     // MARK: - Mode Cue Capsule
 
     private func modeCueCapsule(label: String) -> some View {
         Text(label)
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.35)
+            .font(.system(size: HUDLayout.textSize, weight: .semibold))
+            .tracking(HUDLayout.modeTracking)
             .textCase(.uppercase)
-            .foregroundStyle(Color.white.opacity(0.88))
-            .padding(.vertical, 3)
-            .padding(.horizontal, 10)
+            .foregroundStyle(Color(nsColor: HUDLayout.secondaryForegroundColor))
+            .padding(.vertical, HUDLayout.compactVerticalPadding)
+            .padding(.horizontal, HUDLayout.regularHorizontalPadding)
     }
 
     // MARK: - Result Capsule
 
     private func resultCapsule(for state: HUDState) -> some View {
         let payload = resultPayload(for: state)
-        return HStack(spacing: 5) {
+        return HStack(spacing: HUDLayout.compactHorizontalPadding) {
             if !payload.icon.isEmpty {
                 HUDIcon(type: payload.icon)
-                    .frame(width: 14, height: 14)
-                    .foregroundStyle(Color.white.opacity(0.92))
+                    .frame(width: HUDLayout.iconSize, height: HUDLayout.iconSize)
+                    .foregroundStyle(Color(nsColor: HUDLayout.primaryForegroundColor))
             }
             Text(payload.text)
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.6)
+                .font(.system(size: HUDLayout.textSize, weight: .semibold))
+                .tracking(HUDLayout.resultTracking)
                 .textCase(.uppercase)
-                .foregroundStyle(Color.white.opacity(0.88))
+                .foregroundStyle(Color(nsColor: HUDLayout.secondaryForegroundColor))
         }
-        .padding(.vertical, 3)
-        .padding(.horizontal, 10)
+        .padding(.vertical, HUDLayout.compactVerticalPadding)
+        .padding(.horizontal, HUDLayout.regularHorizontalPadding)
     }
 
     // MARK: - Waveform
 
     private var waveformView: some View {
-        return HStack(spacing: 2) {
+        return HStack(spacing: HUDLayout.waveformSpacing) {
             ForEach(0..<controller.barHeights.count, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 999)
-                    .fill(Color.white)
-                    .frame(width: 3, height: controller.barHeights[i])
-                    .opacity(controller.barOpacities[i])
+                    .fill(Color(nsColor: HUDLayout.waveformColor))
+                    .frame(width: HUDLayout.waveformBarWidth, height: controller.barHeights[i])
             }
         }
-        .frame(width: 34, height: capsuleHeight - 6)
+        .frame(width: HUDLayout.waveformWidth, height: capsuleHeight - HUDLayout.scaled(6))
         .clipped()
         .opacity(recordingWaveOpacity)
         .scaleEffect(x: 1, y: 0.88 + 0.12 * recordingWaveOpacity, anchor: .center)
@@ -150,10 +149,10 @@ struct HUDContentView: View {
                     HUDIcon(type: "check")
                 }
             }
-            .frame(width: 14, height: 14)
+            .frame(width: HUDLayout.iconSize, height: HUDLayout.iconSize)
         }
         .buttonStyle(HUDButtonStyle(isConfirm: isConfirm))
-        .frame(width: 18, height: 18)
+        .frame(width: HUDLayout.buttonSize, height: HUDLayout.buttonSize)
     }
 
     // MARK: - Common Background
@@ -161,21 +160,13 @@ struct HUDContentView: View {
     private var capsuleBackground: some View {
         ZStack {
             Capsule()
-                .fill(Color(white: 0.043).opacity(0.93))
+                .fill(Color(nsColor: HUDLayout.capsuleBackgroundColor))
                 .overlay {
                     Capsule()
-                        .strokeBorder(Color.white.opacity(0.06), lineWidth: 0.5)
+                        .strokeBorder(Color(nsColor: HUDLayout.capsuleInnerStrokeColor), lineWidth: HUDLayout.backgroundInnerStroke)
                 }
             Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-            Capsule()
-                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                .strokeBorder(Color(nsColor: HUDLayout.capsuleOuterStrokeColor), lineWidth: HUDLayout.backgroundOuterStroke)
         }
         .environment(\.colorScheme, .dark)
     }
@@ -189,7 +180,7 @@ struct HUDContentView: View {
         switch state {
         case .hidden:
             phase = .hidden
-            capsuleWidth = 96
+            capsuleWidth = HUDLayout.hiddenWidth
             capsuleScale = 1
             capsuleYOffset = 0
             recordingOpacity = 0
@@ -197,11 +188,11 @@ struct HUDContentView: View {
             resultOpacity = 0
             recordingControlsOpacity = 0
             recordingWaveOpacity = 0
-            resultOffsetY = 2
+            resultOffsetY = HUDLayout.resultOffset
 
         case .recording:
             phase = .recording
-            capsuleWidth = 88
+            capsuleWidth = HUDLayout.activeWidth
             capsuleScale = 1
             capsuleYOffset = 0
             recordingOpacity = 1
@@ -209,11 +200,11 @@ struct HUDContentView: View {
             resultOpacity = 0
             recordingControlsOpacity = 1
             recordingWaveOpacity = 1
-            resultOffsetY = 2
+            resultOffsetY = HUDLayout.resultOffset
 
         case .processing:
             phase = .processing
-            capsuleWidth = 88
+            capsuleWidth = HUDLayout.activeWidth
             capsuleScale = 1
             capsuleYOffset = 0
             recordingOpacity = 0
@@ -221,7 +212,7 @@ struct HUDContentView: View {
             resultOpacity = 0
             recordingControlsOpacity = 0
             recordingWaveOpacity = 0
-            resultOffsetY = 2
+            resultOffsetY = HUDLayout.resultOffset
 
         case .success, .failure, .cancelled, .notice:
             phase = .result
@@ -256,9 +247,9 @@ struct HUDContentView: View {
             withAnimation(.easeOut(duration: 0.12)) {
                 recordingControlsOpacity = 0
                 recordingWaveOpacity = 0.18
-                capsuleWidth = 88
+                capsuleWidth = HUDLayout.activeWidth
                 capsuleScale = 0.985
-                capsuleYOffset = 0.5
+                capsuleYOffset = HUDLayout.transitionYOffset
             }
             try? await Task.sleep(for: .milliseconds(90))
             guard !Task.isCancelled else { return }
@@ -279,13 +270,13 @@ struct HUDContentView: View {
             phase = .processing
             withAnimation(.easeOut(duration: 0.12)) {
                 processingOpacity = 0.14
-                capsuleWidth = 72
+                capsuleWidth = HUDLayout.resultWidth
                 capsuleScale = 0.992
             }
             try? await Task.sleep(for: .milliseconds(80))
             guard !Task.isCancelled else { return }
             phase = .result
-            resultOffsetY = 1.5
+            resultOffsetY = HUDLayout.processingResultOffset
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                 processingOpacity = 0
                 resultOpacity = 1
@@ -320,9 +311,9 @@ struct HUDContentView: View {
     private func resultCapsuleWidth(for state: HUDState) -> CGFloat {
         switch state {
         case .notice:
-            104
+            HUDLayout.noticeWidth
         default:
-            72
+            HUDLayout.resultWidth
         }
     }
 }
@@ -352,15 +343,34 @@ private struct HUDButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(width: 18, height: 18)
+            .frame(width: HUDLayout.buttonSize, height: HUDLayout.buttonSize)
             .background(
-                Circle().fill(isConfirm ? Color.white.opacity(0.96) : Color.white.opacity(0.08))
+                Circle().fill(
+                    Color(
+                        nsColor: isConfirm
+                            ? HUDLayout.confirmButtonBackgroundColor
+                            : HUDLayout.cancelButtonBackgroundColor
+                    )
+                )
             )
             .overlay(
                 Circle()
-                    .strokeBorder(Color.white.opacity(isConfirm ? 0 : 0.06), lineWidth: 1)
+                    .strokeBorder(
+                        Color(
+                            nsColor: isConfirm
+                                ? HUDLayout.confirmButtonBackgroundColor
+                                : HUDLayout.cancelButtonStrokeColor
+                        ),
+                        lineWidth: HUDLayout.backgroundOuterStroke
+                    )
             )
-            .foregroundStyle(isConfirm ? Color(white: 0.043) : Color.white.opacity(0.92))
+            .foregroundStyle(
+                Color(
+                    nsColor: isConfirm
+                        ? HUDLayout.confirmButtonForegroundColor
+                        : HUDLayout.primaryForegroundColor
+                )
+            )
             .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
@@ -381,20 +391,20 @@ private struct HUDIcon: View {
                 path.addLine(to: CGPoint(x: s * 0.825, y: s * 0.825))
                 path.move(to: CGPoint(x: s * 0.825, y: s * 0.175))
                 path.addLine(to: CGPoint(x: s * 0.175, y: s * 0.825))
-                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: HUDLayout.iconStroke, lineCap: .round))
             case "check":
                 var path = Path()
                 path.move(to: CGPoint(x: s * 0.14, y: s * 0.53))
                 path.addLine(to: CGPoint(x: s * 0.38, y: s * 0.77))
                 path.addLine(to: CGPoint(x: s * 0.87, y: s * 0.26))
-                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
+                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: HUDLayout.iconStroke, lineCap: .round, lineJoin: .round))
             case "warn":
                 // 光学对齐：上方竖线略短，底部点不超过竖线视觉宽度
                 var path = Path()
                 path.move(to: CGPoint(x: s * 0.5, y: s * 0.25))
                 path.addLine(to: CGPoint(x: s * 0.5, y: s * 0.56))
-                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
-                let dotRadius: CGFloat = 0.6
+                context.stroke(path, with: .foreground, style: StrokeStyle(lineWidth: HUDLayout.iconStroke, lineCap: .round))
+                let dotRadius = HUDLayout.warningDotRadius
                 let dotCenter = CGPoint(x: s * 0.5, y: s * 0.765)
                 context.fill(Circle().path(in: CGRect(x: dotCenter.x - dotRadius, y: dotCenter.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)), with: .foreground)
             default:
@@ -417,10 +427,10 @@ private struct ThinkingShimmerView: View {
 
             ZStack {
                 thinkingText
-                    .foregroundStyle(Color.white.opacity(0.18))
+                    .foregroundStyle(Color(nsColor: HUDLayout.thinkingBaseTextColor))
 
                 thinkingText
-                    .foregroundStyle(Color.white.opacity(0.98))
+                    .foregroundStyle(Color(nsColor: HUDLayout.thinkingHighlightTextColor))
                     .mask {
                         GeometryReader { geo in
                             let w = geo.size.width
@@ -447,7 +457,7 @@ private struct ThinkingShimmerView: View {
 
     private var thinkingText: some View {
         Text("THINKING")
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(1)
+            .font(.system(size: HUDLayout.textSize, weight: .semibold))
+            .tracking(HUDLayout.thinkingTracking)
     }
 }

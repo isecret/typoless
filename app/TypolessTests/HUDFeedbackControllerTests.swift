@@ -81,8 +81,7 @@ final class HUDFeedbackControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.hudState, .failure(.permissionDenied))
         XCTAssertTrue(controller.isHUDPresented)
-        XCTAssertEqual(controller.barHeights, Array(repeating: 1, count: 7))
-        XCTAssertEqual(controller.barOpacities, Array(repeating: 0.28, count: 7))
+        XCTAssertEqual(controller.barHeights, Array(repeating: HUDLayout.resetBarHeight, count: 7))
     }
 
     func testInteractionSoundDisabledSkipsStartAndStopPlayback() {

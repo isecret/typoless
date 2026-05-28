@@ -4,7 +4,7 @@ import SwiftUI
 /// 悬浮 HUD 窗口 — 透明面板，承载胶囊条 SwiftUI 内容
 final class HUDWindow: NSPanel {
     /// 窗口尺寸需大于任何状态的胶囊条内容，由 SwiftUI 内容自适应
-    private static let windowSize = NSSize(width: 200, height: 44)
+    private static let windowSize = HUDLayout.windowSize
     private static let bottomOffset: CGFloat = 48
 
     init(contentView: NSView) {
