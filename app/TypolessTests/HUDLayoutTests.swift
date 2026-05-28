@@ -10,11 +10,18 @@ final class HUDLayoutTests: XCTestCase {
         XCTAssertEqual(HUDLayout.hiddenWidth, 115.2, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.activeWidth, 105.6, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.resultWidth, 86.4, accuracy: 0.001)
-        XCTAssertEqual(HUDLayout.noticeWidth, 124.8, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.capsuleHeight, 31.2, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.iconSize, 16.8, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.buttonSize, 21.6, accuracy: 0.001)
         XCTAssertEqual(HUDLayout.waveformWidth, 40.8, accuracy: 0.001)
+    }
+
+    func testNoticeWidthShrinksForShortTermsAndExpandsForLongerTerms() {
+        let shortWidth = HUDLayout.noticeWidth(for: "朴邻")
+        let longWidth = HUDLayout.noticeWidth(for: "客户成功…")
+
+        XCTAssertEqual(shortWidth, 86.4, accuracy: 0.001)
+        XCTAssertGreaterThan(longWidth, shortWidth)
     }
 
     func testHUDWindowSizeTracksScaledLayout() {

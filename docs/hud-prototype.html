@@ -7,6 +7,18 @@
   <style>
     :root {
       color-scheme: dark;
+      --hud-scale: 1.2;
+      --hud-hidden-width: 115.2px;
+      --hud-active-width: 105.6px;
+      --hud-result-width: 86.4px;
+      --hud-height: 31.2px;
+      --hud-text-size: 12px;
+      --hud-icon-size: 16.8px;
+      --hud-button-size: 21.6px;
+      --hud-compact-v: 3.6px;
+      --hud-compact-h: 6px;
+      --hud-regular-h: 12px;
+      --hud-wave-width: 40.8px;
       --bg: #0b0b0d;
       --panel: rgba(255, 255, 255, 0.05);
       --panel-border: rgba(255, 255, 255, 0.12);
@@ -168,9 +180,9 @@
 
     .hud {
       pointer-events: auto;
-      min-width: 96px;
-      height: 24px;
-      padding: 3px 6px;
+      min-width: var(--hud-hidden-width);
+      height: var(--hud-height);
+      padding: var(--hud-compact-v) var(--hud-compact-h);
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.14);
       background:
@@ -183,7 +195,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
+      gap: 4.8px;
       transform-origin: center bottom;
       transition:
         width 220ms ease,
@@ -192,40 +204,43 @@
     }
 
     .hud.compact {
-      min-width: 88px;
+      min-width: var(--hud-active-width);
     }
 
     .hud.result {
-      min-width: 72px;
+      min-width: var(--hud-result-width);
       justify-content: center;
-      gap: 5px;
+      gap: 6px;
     }
 
     .hud.notice {
-      min-width: 104px;
+      width: auto;
+      min-width: 0;
+      padding-left: 9px;
+      padding-right: 11px;
       justify-content: center;
-      gap: 5px;
+      gap: 6px;
     }
 
     .hud.recording {
-      width: 88px;
-      min-width: 88px;
-      padding-left: 5px;
-      padding-right: 5px;
+      width: var(--hud-active-width);
+      min-width: var(--hud-active-width);
+      padding-left: var(--hud-compact-h);
+      padding-right: var(--hud-compact-h);
     }
 
     .hud.recording.mode-cue {
-      width: 88px;
-      min-width: 88px;
-      padding-left: 6px;
-      padding-right: 6px;
+      width: var(--hud-active-width);
+      min-width: var(--hud-active-width);
+      padding-left: var(--hud-regular-h);
+      padding-right: var(--hud-regular-h);
     }
 
     .hud-btn {
-      width: 17px;
-      height: 17px;
-      flex: 0 0 17px;
-      border-radius: 8.5px;
+      width: var(--hud-button-size);
+      height: var(--hud-button-size);
+      flex: 0 0 var(--hud-button-size);
+      border-radius: 999px;
       border: 0;
       background: rgba(255, 255, 255, 0.08);
       color: var(--text);
@@ -247,8 +262,8 @@
     }
 
     .hud-btn svg {
-      width: 14px;
-      height: 14px;
+      width: var(--hud-icon-size);
+      height: var(--hud-icon-size);
       stroke-width: 1.2;
       transform-origin: center;
       overflow: visible;
@@ -265,15 +280,15 @@
     }
 
     .hud.recording .hud-btn:first-child {
-      transform: translateX(-2px);
+      transform: translateX(-2.4px);
     }
 
     .hud.recording .hud-btn.confirm {
-      transform: translateX(2px);
+      transform: translateX(2.4px);
     }
 
     .recording-middle {
-      flex: 0 0 34px;
+      flex: 0 0 var(--hud-wave-width);
       position: relative;
       height: 100%;
       display: flex;
@@ -283,7 +298,7 @@
     }
 
     .hud.recording .recording-middle {
-      flex-basis: 30px;
+      flex-basis: calc(var(--hud-wave-width) - 4.8px);
     }
 
     .wave {
@@ -292,8 +307,8 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 1px;
-      padding: 0 1px;
+      gap: 1.2px;
+      padding: 0 1.2px;
       opacity: 1;
       transform: scaleY(1);
       transition: opacity 120ms ease, transform 160ms ease;
@@ -306,9 +321,9 @@
       align-items: center;
       justify-content: center;
       color: rgba(255, 255, 255, 0.9);
-      font-size: 9px;
+      font-size: var(--hud-text-size);
       font-weight: 700;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.035em;
       line-height: 1;
       text-transform: uppercase;
       white-space: nowrap;
@@ -316,9 +331,9 @@
     }
 
     .bar {
-      width: 2px;
-      min-height: 1px;
-      height: 1px;
+      width: 3.6px;
+      min-height: 1.2px;
+      height: 1.2px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 1);
       transition: height 90ms linear, opacity 90ms linear;
@@ -332,16 +347,16 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 0 6px;
+      padding: 0 var(--hud-regular-h);
       user-select: none;
       white-space: nowrap;
     }
 
     .thinking-base,
     .thinking-shine {
-      font-size: 10px;
+      font-size: var(--hud-text-size);
       font-weight: 600;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       line-height: 1;
     }
@@ -380,20 +395,44 @@
       color: rgba(255, 255, 255, 0.92);
     }
 
+    .hud.notice .result-icon {
+      width: var(--hud-icon-size);
+      height: var(--hud-icon-size);
+      flex: 0 0 var(--hud-icon-size);
+      color: rgba(255, 255, 255, 0.96);
+    }
+
     .result-icon svg {
-      width: 14px;
-      height: 14px;
+      display: block;
+      width: var(--hud-icon-size);
+      height: var(--hud-icon-size);
       stroke: currentColor;
       stroke-width: 1.2;
       overflow: visible;
     }
 
+    .hud.notice .result-icon svg {
+      stroke-width: 1.32;
+    }
+
+    .hud.notice .result-icon svg.fill-icon {
+      stroke: none;
+      transform: scale(0.88);
+      transform-origin: center;
+    }
+
     .result-text {
-      font-size: 10px;
+      font-size: var(--hud-text-size);
       font-weight: 600;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
       color: rgba(255, 255, 255, 0.88);
+    }
+
+    .hud.notice .result-text {
+      letter-spacing: 0.01em;
+      text-transform: none;
+      line-height: 1;
     }
 
     @keyframes shimmer {
@@ -502,7 +541,7 @@
           <button id="playNoticeBtn">播放提示</button>
           <button id="fillLongNoticeBtn">长词示例</button>
         </div>
-        <div class="hint">文案格式为“新词：词条”，HUD 内最多显示 4 个汉字，超出以省略号展示；这里仅预览显示效果，不影响实际存储。</div>
+        <div class="hint">文案格式为“图标 + 词条”，HUD 内最多显示 4 个汉字，超出以省略号展示；这里仅预览显示效果，不影响实际存储。</div>
       </div>
     </section>
 
@@ -563,6 +602,15 @@
           </svg>
         `;
       }
+      if (type === "dictionary") {
+        return `
+          <svg class="fill-icon" viewBox="0 0 1024 1024" fill="none" aria-hidden="true">
+            <path fill="currentColor" stroke="none" d="M110.933333 829.44c-13.653333 0-25.6-11.946667-25.6-25.6V220.16c0-88.746667 71.68-160.426667 160.426667-160.426667h493.226667c13.653333 0 25.6 11.946667 25.6 25.6v583.68c0 13.653333-11.946667 25.6-25.6 25.6H245.76c-59.733333 0-109.226667 49.493333-109.226667 109.226667 0 13.653333-10.24 25.6-25.6 25.6z m134.826667-718.506667C186.026667 110.933333 136.533333 160.426667 136.533333 220.16v465.92c29.013333-27.306667 66.56-42.666667 109.226667-42.666667h467.626667V110.933333H245.76z" />
+            <path fill="currentColor" stroke="none" d="M875.52 964.266667H245.76c-88.746667 0-160.426667-71.68-160.426667-160.426667s71.68-160.426667 160.426667-160.426667h493.226667c13.653333 0 25.6 11.946667 25.6 25.6s-11.946667 25.6-25.6 25.6H245.76c-59.733333 0-109.226667 49.493333-109.226667 109.226667s49.493333 109.226667 109.226667 109.226667h602.453333V129.706667c0-13.653333 11.946667-25.6 25.6-25.6s25.6 11.946667 25.6 25.6V938.666667c1.706667 13.653333-10.24 25.6-23.893333 25.6z" />
+            <path fill="currentColor" stroke="none" d="M718.506667 829.44H269.653333c-13.653333 0-25.6-11.946667-25.6-25.6s11.946667-25.6 25.6-25.6h448.853334c13.653333 0 25.6 11.946667 25.6 25.6s-11.946667 25.6-25.6 25.6z" />
+          </svg>
+        `;
+      }
       return `
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M2.8 10.6L7.6 15.4L17.4 5.2" />
@@ -608,8 +656,8 @@
       } else if (state === "notice") {
         hudRoot.classList.add("notice");
         hudRoot.innerHTML = `
-          <div class="result-icon">${icon("check")}</div>
-          <div class="result-text">新词：${formatNoticeTerm(noticeTerm)}</div>
+          <div class="result-icon">${icon("dictionary")}</div>
+          <div class="result-text">${formatNoticeTerm(noticeTerm)}</div>
         `;
         stopWaveAnimation();
       } else {

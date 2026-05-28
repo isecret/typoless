@@ -103,20 +103,23 @@ struct HUDContentView: View {
 
     private func resultCapsule(for state: HUDState) -> some View {
         let payload = resultPayload(for: state)
-        return HStack(spacing: HUDLayout.compactHorizontalPadding) {
+        let isNotice = state.isNotice
+        return HStack(spacing: isNotice ? HUDLayout.noticeSpacing : HUDLayout.compactHorizontalPadding) {
             if !payload.icon.isEmpty {
                 HUDIcon(type: payload.icon)
                     .frame(width: HUDLayout.iconSize, height: HUDLayout.iconSize)
                     .foregroundStyle(Color(nsColor: HUDLayout.primaryForegroundColor))
+                    .offset(y: isNotice ? HUDLayout.noticeIconYOffset : 0)
             }
             Text(payload.text)
                 .font(.system(size: HUDLayout.textSize, weight: .semibold))
-                .tracking(HUDLayout.resultTracking)
-                .textCase(.uppercase)
+                .tracking(isNotice ? HUDLayout.noticeTracking : HUDLayout.resultTracking)
+                .textCase(isNotice ? nil : .uppercase)
                 .foregroundStyle(Color(nsColor: HUDLayout.secondaryForegroundColor))
         }
         .padding(.vertical, HUDLayout.compactVerticalPadding)
-        .padding(.horizontal, HUDLayout.regularHorizontalPadding)
+        .padding(.leading, isNotice ? HUDLayout.noticeLeadingPadding : HUDLayout.regularHorizontalPadding)
+        .padding(.trailing, isNotice ? HUDLayout.noticeTrailingPadding : HUDLayout.regularHorizontalPadding)
     }
 
     // MARK: - Waveform
@@ -298,7 +301,7 @@ struct HUDContentView: View {
         case .success:
             return ("check", "完成")
         case .notice(let text):
-            return ("check", text)
+            return ("dictionary", text)
         case .failure(let reason):
             return ("warn", reason.shortLabel)
         case .cancelled:
@@ -310,8 +313,8 @@ struct HUDContentView: View {
 
     private func resultCapsuleWidth(for state: HUDState) -> CGFloat {
         switch state {
-        case .notice:
-            HUDLayout.noticeWidth
+        case .notice(let text):
+            HUDLayout.noticeWidth(for: text)
         default:
             HUDLayout.resultWidth
         }
@@ -331,6 +334,14 @@ private extension HUDState {
         case .success, .failure, .cancelled, .notice:
             true
         default:
+            false
+        }
+    }
+
+    var isNotice: Bool {
+        if case .notice = self {
+            true
+        } else {
             false
         }
     }
@@ -407,6 +418,155 @@ private struct HUDIcon: View {
                 let dotRadius = HUDLayout.warningDotRadius
                 let dotCenter = CGPoint(x: s * 0.5, y: s * 0.765)
                 context.fill(Circle().path(in: CGRect(x: dotCenter.x - dotRadius, y: dotCenter.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)), with: .foreground)
+            case "dictionary":
+                let drawSize = s * HUDLayout.noticeFilledIconScale
+                let inset = (s - drawSize) / 2
+
+                func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                    CGPoint(
+                        x: inset + drawSize * (x / 1024),
+                        y: inset + drawSize * (y / 1024)
+                    )
+                }
+
+                var frontCover = Path()
+                frontCover.move(to: point(110.933333, 829.44))
+                frontCover.addCurve(
+                    to: point(85.333333, 803.84),
+                    control1: point(97.28, 829.44),
+                    control2: point(85.333333, 817.493333)
+                )
+                frontCover.addLine(to: point(85.333333, 220.16))
+                frontCover.addCurve(
+                    to: point(245.76, 59.733333),
+                    control1: point(85.333333, 131.413333),
+                    control2: point(157.013333, 59.733333)
+                )
+                frontCover.addLine(to: point(738.986667, 59.733333))
+                frontCover.addCurve(
+                    to: point(764.586667, 85.333333),
+                    control1: point(752.64, 59.733333),
+                    control2: point(764.586667, 71.68)
+                )
+                frontCover.addLine(to: point(764.586667, 669.013333))
+                frontCover.addCurve(
+                    to: point(738.986667, 694.613333),
+                    control1: point(764.586667, 682.666667),
+                    control2: point(752.64, 694.613333)
+                )
+                frontCover.addLine(to: point(245.76, 694.613333))
+                frontCover.addCurve(
+                    to: point(136.533333, 803.84),
+                    control1: point(186.026667, 694.613333),
+                    control2: point(136.533333, 744.106667)
+                )
+                frontCover.addCurve(
+                    to: point(110.933333, 829.44),
+                    control1: point(136.533333, 817.493333),
+                    control2: point(126.293333, 829.44)
+                )
+                frontCover.closeSubpath()
+
+                frontCover.move(to: point(245.76, 110.933333))
+                frontCover.addCurve(
+                    to: point(136.533333, 220.16),
+                    control1: point(186.026667, 110.933333),
+                    control2: point(136.533333, 160.426667)
+                )
+                frontCover.addLine(to: point(136.533333, 686.08))
+                frontCover.addCurve(
+                    to: point(245.76, 643.413333),
+                    control1: point(165.546667, 658.773333),
+                    control2: point(203.093333, 643.413333)
+                )
+                frontCover.addLine(to: point(713.386667, 643.413333))
+                frontCover.addLine(to: point(713.386667, 110.933333))
+                frontCover.addLine(to: point(245.76, 110.933333))
+                frontCover.closeSubpath()
+                context.fill(frontCover, with: .foreground, style: FillStyle(eoFill: true))
+
+                var pageBlock = Path()
+                pageBlock.move(to: point(875.52, 964.266667))
+                pageBlock.addLine(to: point(245.76, 964.266667))
+                pageBlock.addCurve(
+                    to: point(85.333333, 803.84),
+                    control1: point(157.013333, 964.266667),
+                    control2: point(85.333333, 892.586667)
+                )
+                pageBlock.addCurve(
+                    to: point(245.76, 643.413333),
+                    control1: point(85.333333, 715.093333),
+                    control2: point(157.013333, 643.413333)
+                )
+                pageBlock.addLine(to: point(738.986667, 643.413333))
+                pageBlock.addCurve(
+                    to: point(764.586667, 669.013333),
+                    control1: point(752.64, 643.413333),
+                    control2: point(764.586667, 655.36)
+                )
+                pageBlock.addCurve(
+                    to: point(738.986667, 694.613333),
+                    control1: point(764.586667, 682.666667),
+                    control2: point(752.64, 694.613333)
+                )
+                pageBlock.addLine(to: point(245.76, 694.613333))
+                pageBlock.addCurve(
+                    to: point(136.533333, 803.84),
+                    control1: point(186.026667, 694.613333),
+                    control2: point(136.533333, 744.106667)
+                )
+                pageBlock.addCurve(
+                    to: point(245.76, 913.066667),
+                    control1: point(136.533333, 863.573333),
+                    control2: point(186.026667, 913.066667)
+                )
+                pageBlock.addLine(to: point(848.213333, 913.066667))
+                pageBlock.addLine(to: point(848.213333, 129.706667))
+                pageBlock.addCurve(
+                    to: point(873.813333, 104.106667),
+                    control1: point(848.213333, 116.053333),
+                    control2: point(860.16, 104.106667)
+                )
+                pageBlock.addCurve(
+                    to: point(899.413333, 129.706667),
+                    control1: point(887.466667, 104.106667),
+                    control2: point(899.413333, 116.053333)
+                )
+                pageBlock.addLine(to: point(899.413333, 938.666667))
+                pageBlock.addCurve(
+                    to: point(875.52, 964.266667),
+                    control1: point(901.12, 952.32),
+                    control2: point(889.173333, 964.266667)
+                )
+                pageBlock.closeSubpath()
+                context.fill(pageBlock, with: .foreground)
+
+                var bottomRule = Path()
+                bottomRule.move(to: point(718.506667, 829.44))
+                bottomRule.addLine(to: point(269.653333, 829.44))
+                bottomRule.addCurve(
+                    to: point(244.053333, 803.84),
+                    control1: point(256, 829.44),
+                    control2: point(244.053333, 817.493333)
+                )
+                bottomRule.addCurve(
+                    to: point(269.653333, 778.24),
+                    control1: point(244.053333, 790.186667),
+                    control2: point(256, 778.24)
+                )
+                bottomRule.addLine(to: point(718.506667, 778.24))
+                bottomRule.addCurve(
+                    to: point(744.106667, 803.84),
+                    control1: point(732.16, 778.24),
+                    control2: point(744.106667, 790.186667)
+                )
+                bottomRule.addCurve(
+                    to: point(718.506667, 829.44),
+                    control1: point(744.106667, 817.493333),
+                    control2: point(732.16, 829.44)
+                )
+                bottomRule.closeSubpath()
+                context.fill(bottomRule, with: .foreground)
             default:
                 break
             }

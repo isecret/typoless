@@ -7,7 +7,6 @@ enum HUDLayout {
     static let hiddenWidth = scaled(96)
     static let activeWidth = scaled(88)
     static let resultWidth = scaled(72)
-    static let noticeWidth = scaled(104)
     static let capsuleHeight = scaled(26)
 
     static let recordingSpacing = scaled(4)
@@ -21,22 +20,28 @@ enum HUDLayout {
     static let compactVerticalPadding = scaled(3)
     static let compactHorizontalPadding = scaled(5)
     static let regularHorizontalPadding = scaled(10)
+    static let noticeLeadingPadding = scaled(7.5)
+    static let noticeTrailingPadding = scaled(9.2)
+    static let noticeSpacing = scaled(5)
 
     static let textSize = scaled(10)
     static let modeTracking = scaled(0.35)
     static let resultTracking = scaled(0.6)
+    static let noticeTracking = scaled(0.1)
     static let thinkingTracking = scaled(1)
 
     static let backgroundInnerStroke = scaled(0.5)
     static let backgroundOuterStroke = scaled(1)
     static let iconStroke = scaled(1.2)
     static let warningDotRadius = scaled(0.6)
+    static let noticeFilledIconScale: CGFloat = 0.88
 
     static let hiddenControlOffset = scaled(1)
     static let visibleControlOffset = scaled(2)
     static let resultOffset = scaled(2)
     static let processingResultOffset = scaled(1.5)
     static let transitionYOffset = scaled(0.5)
+    static let noticeIconYOffset: CGFloat = 0
 
     static let resetBarHeight = scaled(1)
     static let waveformMinHeight = scaled(1.2)
@@ -59,5 +64,15 @@ enum HUDLayout {
 
     static func scaled(_ value: CGFloat) -> CGFloat {
         value * scale
+    }
+
+    static func noticeWidth(for text: String) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: textSize, weight: .semibold),
+            .kern: noticeTracking
+        ]
+        let textWidth = ceil((text as NSString).size(withAttributes: attributes).width)
+        let contentWidth = noticeLeadingPadding + iconSize + noticeSpacing + textWidth + noticeTrailingPadding
+        return max(resultWidth, contentWidth)
     }
 }

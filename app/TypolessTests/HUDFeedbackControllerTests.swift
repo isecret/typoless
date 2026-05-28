@@ -179,7 +179,7 @@ final class HUDFeedbackControllerTests: XCTestCase {
 
         controller.handleEvent(.dictionaryTermLearned("朴邻"))
 
-        XCTAssertEqual(controller.hudState, .notice("新词：朴邻"))
+        XCTAssertEqual(controller.hudState, .notice("朴邻"))
         XCTAssertTrue(controller.isHUDPresented)
     }
 
@@ -188,7 +188,11 @@ final class HUDFeedbackControllerTests: XCTestCase {
 
         controller.handleEvent(.dictionaryTermLearned("客户成功部"))
 
-        XCTAssertEqual(controller.hudState, .notice("新词：客户成功…"))
+        XCTAssertEqual(controller.hudState, .notice("客户成功…"))
+    }
+
+    func testDictionaryTermLearnedUsesExtendedDefaultDismissDuration() {
+        XCTAssertEqual(HUDFeedbackController.defaultLearnedTermNoticeDismissSeconds, 1.8, accuracy: 0.001)
     }
 
     private func waitForModeCueToClear(_ controller: HUDFeedbackController) async {

@@ -8,6 +8,7 @@ import SwiftUI
 final class HUDFeedbackController {
     private static let logger = Logger(subsystem: "com.isecret.typoless", category: "HUDFeedback")
     private static let learnedTermDisplayLimit = 4
+    static let defaultLearnedTermNoticeDismissSeconds = 1.8
 
     // MARK: - Observable State (HUDContentView 读取)
 
@@ -30,6 +31,7 @@ final class HUDFeedbackController {
 
     private let soundPlayer: FeedbackSoundPlaying
     private let modeCueDuration: Duration
+    private let learnedTermNoticeDismissSeconds: Double
     private var hudWindow: HUDWindow?
     private var hostingView: NSHostingView<HUDContentView>?
     private var dismissTask: Task<Void, Never>?
@@ -46,10 +48,12 @@ final class HUDFeedbackController {
 
     init(
         soundPlayer: FeedbackSoundPlaying = FeedbackSoundPlayer(),
-        modeCueDuration: Duration = .milliseconds(650)
+        modeCueDuration: Duration = .milliseconds(650),
+        learnedTermNoticeDismissSeconds: Double = HUDFeedbackController.defaultLearnedTermNoticeDismissSeconds
     ) {
         self.soundPlayer = soundPlayer
         self.modeCueDuration = modeCueDuration
+        self.learnedTermNoticeDismissSeconds = learnedTermNoticeDismissSeconds
     }
 
     // MARK: - Public Event Handler
@@ -119,7 +123,7 @@ final class HUDFeedbackController {
             } else {
                 showHUD()
             }
-            scheduleDismiss(after: 1.2)
+            scheduleDismiss(after: learnedTermNoticeDismissSeconds)
 
         case .processingFailed(let reason):
             cancelPendingStartSound()
@@ -373,7 +377,7 @@ final class HUDFeedbackController {
 
     private static func learnedTermNoticeText(_ term: String) -> String {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "新词：-" }
+        guard !trimmed.isEmpty else { return "-" }
 
         let glyphs = Array(trimmed)
         let displayTerm: String
@@ -382,6 +386,6 @@ final class HUDFeedbackController {
         } else {
             displayTerm = String(glyphs.prefix(learnedTermDisplayLimit)) + "…"
         }
-        return "新词：\(displayTerm)"
+        return displayTerm
     }
 }
