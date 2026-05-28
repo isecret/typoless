@@ -50,7 +50,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .ai:
             NSSize(width: SettingsFormLayout.windowContentWidth, height: 250)
         case .permissions:
-            NSSize(width: SettingsFormLayout.windowContentWidth, height: 170)
+            NSSize(width: SettingsFormLayout.windowContentWidth, height: 200)
         }
     }
 }
