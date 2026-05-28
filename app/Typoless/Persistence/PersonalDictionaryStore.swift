@@ -35,6 +35,19 @@ final class PersonalDictionaryStore {
         try save()
     }
 
+    @discardableResult
+    func addLearnedTermIfNeeded(_ term: String) throws -> Bool {
+        let normalized = normalizedTerm(term)
+        guard !normalized.isEmpty else { return false }
+
+        let alreadyExists = entries.contains { normalizedTerm($0.term) == normalized }
+        guard !alreadyExists else { return false }
+
+        entries.append(DictionaryEntry(term: normalized, source: .autoLearned))
+        try save()
+        return true
+    }
+
     func removeEntry(id: String) throws {
         entries.removeAll { $0.id == id }
         try save()
@@ -115,30 +128,42 @@ final class PersonalDictionaryStore {
         try data.write(to: fileURL, options: .atomic)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
+
+    private func normalizedTerm(_ term: String) -> String {
+        term.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 // MARK: - Dictionary Entry Model
+
+enum DictionaryEntrySource: String, Codable, Equatable, Sendable {
+    case manual
+    case autoLearned = "auto_learned"
+}
 
 struct DictionaryEntry: Codable, Identifiable, Equatable, Sendable {
     var id: String = UUID().uuidString
     var term: String
     var pronunciationHint: String?
     var category: String?
+    var source: DictionaryEntrySource
 
     enum CodingKeys: String, CodingKey {
-        case id, term, pronunciationHint, category
+        case id, term, pronunciationHint, category, source
     }
 
     init(
         id: String = UUID().uuidString,
         term: String,
         pronunciationHint: String? = nil,
-        category: String? = nil
+        category: String? = nil,
+        source: DictionaryEntrySource = .manual
     ) {
         self.id = id
         self.term = term
         self.pronunciationHint = pronunciationHint
         self.category = category
+        self.source = source
     }
 }
 
@@ -148,13 +173,15 @@ private struct StoredDictionaryEntry: Decodable {
     let pronunciationHint: String?
     let category: String?
     let enabled: Bool?
+    let source: DictionaryEntrySource?
 
     var dictionaryEntry: DictionaryEntry {
         DictionaryEntry(
             id: id,
             term: term,
             pronunciationHint: pronunciationHint,
-            category: category
+            category: category,
+            source: source ?? .manual
         )
     }
 
@@ -165,10 +192,11 @@ private struct StoredDictionaryEntry: Decodable {
         pronunciationHint = try container.decodeIfPresent(String.self, forKey: .pronunciationHint)
         category = try container.decodeIfPresent(String.self, forKey: .category)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled)
+        source = try container.decodeIfPresent(DictionaryEntrySource.self, forKey: .source)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, term, pronunciationHint, category, enabled
+        case id, term, pronunciationHint, category, enabled, source
     }
 }
 

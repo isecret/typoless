@@ -223,9 +223,9 @@ struct HUDContentView: View {
             recordingWaveOpacity = 0
             resultOffsetY = 2
 
-        case .success, .failure, .cancelled:
+        case .success, .failure, .cancelled, .notice:
             phase = .result
-            capsuleWidth = 72
+            capsuleWidth = resultCapsuleWidth(for: state)
             capsuleScale = 1
             capsuleYOffset = 0
             recordingOpacity = 0
@@ -306,12 +306,23 @@ struct HUDContentView: View {
         switch state {
         case .success:
             return ("check", "完成")
+        case .notice(let text):
+            return ("check", text)
         case .failure(let reason):
             return ("warn", reason.shortLabel)
         case .cancelled:
             return ("x", "已取消")
         default:
             return ("check", "")
+        }
+    }
+
+    private func resultCapsuleWidth(for state: HUDState) -> CGFloat {
+        switch state {
+        case .notice:
+            104
+        default:
+            72
         }
     }
 }
@@ -326,7 +337,7 @@ private enum VisualPhase {
 private extension HUDState {
     var isResult: Bool {
         switch self {
-        case .success, .failure, .cancelled:
+        case .success, .failure, .cancelled, .notice:
             true
         default:
             false

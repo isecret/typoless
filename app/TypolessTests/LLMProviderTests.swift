@@ -9,7 +9,7 @@ final class LLMProviderTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix("你好世界"))
     }
 
-    func testContextPromptIncludesWeakGuidanceAndSelectedText() {
+    func testTranslateSystemPromptOmitsBodyTextButKeepsMetadata() {
         let snapshot = WindowContextSnapshot(
             appName: "WeChat",
             bundleID: "com.tencent.xinWeChat",
@@ -24,13 +24,19 @@ final class LLMProviderTests: XCTestCase {
             nearbyLabels: ["回复", "发送"]
         )
 
-        let prompt = LLMProvider.contextPrompt(snapshot)
+        let prompt = LLMProvider.translateSystemPrompt(
+            targetLanguage: .english,
+            context: snapshot
+        )
 
-        XCTAssertNotNil(prompt)
-        XCTAssertTrue(prompt?.contains("只用于帮助消歧") == true)
-        XCTAssertTrue(prompt?.contains("selectedText: 旧文案") == true)
-        XCTAssertTrue(prompt?.contains("surfaceKind: chatComposer") == true)
-        XCTAssertTrue(prompt?.contains("不要直接复制或拼接任何未说出的窗口文本") == true)
+        XCTAssertTrue(prompt.contains("只用于帮助消歧"))
+        XCTAssertTrue(prompt.contains("surfaceKind: chatComposer"))
+        XCTAssertTrue(prompt.contains("不要直接复制或拼接任何未说出的窗口文本"))
+        XCTAssertFalse(prompt.contains("selectedText: 旧文案"))
+        XCTAssertFalse(prompt.contains("surroundingTextBefore: 大家好，"))
+        XCTAssertFalse(prompt.contains("surroundingTextAfter: 谢谢"))
+        XCTAssertFalse(prompt.contains("nearbyLabels: 回复 | 发送"))
+        XCTAssertTrue(prompt.contains("placeholder: 说点什么"))
     }
 
     func testTranslateSystemPromptOmitsContextWhenUnavailable() {
@@ -41,5 +47,13 @@ final class LLMProviderTests: XCTestCase {
 
         XCTAssertTrue(prompt.contains("请严格翻译成 English"))
         XCTAssertFalse(prompt.contains("当前窗口上下文"))
+    }
+
+    func testSystemPromptKeepsShareActionAsPlainText() {
+        let prompt = LLMProvider.systemPrompt(terms: [])
+
+        XCTAssertTrue(prompt.contains("把这个文件发给钟世明"))
+        XCTAssertTrue(prompt.contains("都必须保持 plain_text"))
+        XCTAssertTrue(prompt.contains("发给张三说我晚点到"))
     }
 }

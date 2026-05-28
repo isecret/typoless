@@ -7,6 +7,7 @@ import SwiftUI
 @Observable
 final class HUDFeedbackController {
     private static let logger = Logger(subsystem: "com.isecret.typoless", category: "HUDFeedback")
+    private static let learnedTermDisplayLimit = 4
 
     // MARK: - Observable State (HUDContentView 读取)
 
@@ -107,6 +108,19 @@ final class HUDFeedbackController {
             clearModeCue()
             hudState = .success
             scheduleDismiss(after: 0.8)
+
+        case .dictionaryTermLearned(let term):
+            clearModeCue()
+            stopLevelPolling()
+            stopEscMonitor()
+            resetBars()
+            hudState = .notice(Self.learnedTermNoticeText(term))
+            if isHUDPresented {
+                updateMouseInteraction()
+            } else {
+                showHUD()
+            }
+            scheduleDismiss(after: 1.2)
 
         case .processingFailed(let reason):
             cancelPendingStartSound()
@@ -358,5 +372,19 @@ final class HUDFeedbackController {
 
         hostingView = hosting
         hudWindow = HUDWindow(contentView: hosting)
+    }
+
+    private static func learnedTermNoticeText(_ term: String) -> String {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "新词：-" }
+
+        let glyphs = Array(trimmed)
+        let displayTerm: String
+        if glyphs.count <= learnedTermDisplayLimit {
+            displayTerm = String(glyphs)
+        } else {
+            displayTerm = String(glyphs.prefix(learnedTermDisplayLimit)) + "…"
+        }
+        return "新词：\(displayTerm)"
     }
 }

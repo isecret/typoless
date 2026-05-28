@@ -37,6 +37,7 @@ final class SessionCoordinator {
 
     private var processingTask: Task<Void, Never>?
     private var windowContextTask: Task<Void, Never>?
+    private var postInjectionLearningTask: Task<Void, Never>?
     private var resetToIdleTask: Task<Void, Never>?
     private var recordingStartTask: Task<Void, Never>?
     private var soundCueTask: Task<Void, Never>?
@@ -56,15 +57,33 @@ final class SessionCoordinator {
         permissionsManager: PermissionsManager,
         configStore: ConfigStore,
         audioDeviceManager: AudioDeviceManager,
-        dictionaryStore: PersonalDictionaryStore? = nil
+        dictionaryStore: PersonalDictionaryStore? = nil,
+        postInjectionLearner: (any PostInjectionDictionaryLearning)? = nil
     ) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
         self.audioDeviceManager = audioDeviceManager
         self.dictionaryStore = dictionaryStore
+        self.postInjectionLearner = postInjectionLearner ?? PostInjectionDictionaryLearner(
+            termEvaluator: LLMProperNounTermEvaluator(
+                providerFactory: {
+                    guard configStore.isLLMConfigured else { return nil }
+                    return LLMProvider(
+                        baseURL: configStore.llmConfig.baseURL,
+                        apiKey: configStore.openAIAPIKey,
+                        model: configStore.llmConfig.model,
+                        thinkingDisabled: configStore.llmConfig.thinkingDisabled,
+                        onThinkingUnsupported: {
+                            try? configStore.markThinkingDisabledForCurrentLLM()
+                        }
+                    )
+                }
+            )
+        )
     }
 
     private let dictionaryStore: PersonalDictionaryStore?
+    private let postInjectionLearner: any PostInjectionDictionaryLearning
 
     /// 开始录音
     func startRecording() {
@@ -76,6 +95,7 @@ final class SessionCoordinator {
             resetToIdleTask?.cancel()
             resetToIdleTask = nil
             clearWindowContextCapture()
+            cancelPostInjectionLearning()
             state = .idle
             targetApplicationPID = nil
             targetApplicationBundleID = nil
@@ -84,6 +104,7 @@ final class SessionCoordinator {
         currentError = nil
         lastResult = nil
         clearWindowContextCapture()
+        cancelPostInjectionLearning()
         targetApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         targetApplicationBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         sessionGeneration &+= 1
@@ -237,6 +258,7 @@ final class SessionCoordinator {
             processingTask = nil
             lastRecordedAudio = nil
             clearWindowContextCapture()
+            cancelPostInjectionLearning()
             targetApplicationPID = nil
             targetApplicationBundleID = nil
             cleanupSegmenterState()
@@ -249,6 +271,7 @@ final class SessionCoordinator {
             processingTask?.cancel()
             processingTask = nil
             clearWindowContextCapture()
+            cancelPostInjectionLearning()
             cleanupSegmenterState()
             handleError(.asrEmptyAudio)
             return
@@ -278,6 +301,7 @@ final class SessionCoordinator {
             processingTask = nil
             _ = audioRecorder.stopRecording()
             clearWindowContextCapture()
+            cancelPostInjectionLearning()
             cleanupSegmenterState()
             lastRecordedAudio = nil
             targetApplicationPID = nil
@@ -291,6 +315,7 @@ final class SessionCoordinator {
             processingTask?.cancel()
             processingTask = nil
             clearWindowContextCapture()
+            cancelPostInjectionLearning()
             cleanupSegmenterState()
             // 取消期间 runtime 可能仍在推理，排队销毁旧 recognizer，防止旧状态污染后续 session
             if state == .transcribing {
@@ -676,6 +701,13 @@ final class SessionCoordinator {
             state = .done
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
             onFeedbackEvent?(.processingFinished)
+            beginPostInjectionLearningIfNeeded(
+                generation: generation,
+                mode: currentProcessingMode,
+                sessionID: sessionID,
+                targetPID: targetApplicationPID,
+                targetBundleID: targetApplicationBundleID
+            )
             scheduleResetToIdle()
         }
     }
@@ -698,6 +730,7 @@ final class SessionCoordinator {
         soundCueTask?.cancel()
         soundCueTask = nil
         clearWindowContextCapture()
+        cancelPostInjectionLearning()
         currentError = error
         state = .error
         onFeedbackEvent?(.processingFailed(error.hudFailureReason))
@@ -793,6 +826,65 @@ final class SessionCoordinator {
         windowContextTask?.cancel()
         windowContextTask = nil
         capturedWindowContext = nil
+    }
+
+    func beginPostInjectionLearningIfNeeded(
+        generation: UInt64,
+        mode: TextProcessingMode,
+        sessionID: String,
+        targetPID: pid_t?,
+        targetBundleID: String?
+    ) {
+        cancelPostInjectionLearning()
+        guard mode == .polish else { return }
+        guard let dictionaryStore else { return }
+
+        postInjectionLearningTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await postInjectionLearner.observe(
+                targetPID: targetPID,
+                targetBundleID: targetBundleID,
+                windowContext: self.capturedWindowContext,
+                store: dictionaryStore,
+                shouldContinue: { [weak self] in
+                    guard let self else { return false }
+                    return self.sessionGeneration == generation
+                },
+                onDecision: { [weak self] decision in
+                    guard let self, self.sessionGeneration == generation else { return }
+                    switch decision {
+                    case .learned(let term):
+                        self.diagnostics.log(
+                            sessionID: sessionID,
+                            event: "dictionary_term_learned",
+                            detail: "chars=\(term.count)"
+                        )
+                        self.onFeedbackEvent?(.dictionaryTermLearned(term))
+                    case .rejected(let term):
+                        self.diagnostics.log(
+                            sessionID: sessionID,
+                            event: "dictionary_term_rejected",
+                            detail: "chars=\(term.count)"
+                        )
+                    case .failed(let term, let reason):
+                        self.diagnostics.log(
+                            sessionID: sessionID,
+                            event: "dictionary_term_learning_failed",
+                            detail: "chars=\(term.count) reason=\(reason)"
+                        )
+                    }
+                }
+            )
+
+            if self.sessionGeneration == generation {
+                self.postInjectionLearningTask = nil
+            }
+        }
+    }
+
+    private func cancelPostInjectionLearning() {
+        postInjectionLearningTask?.cancel()
+        postInjectionLearningTask = nil
     }
 }
 

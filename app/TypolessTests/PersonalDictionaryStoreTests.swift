@@ -28,11 +28,13 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         XCTAssertEqual(store.entries.map(\.term), ["Typoless", "SenseVoice"])
         XCTAssertNil(store.entries[0].pronunciationHint)
         XCTAssertNil(store.entries[0].category)
+        XCTAssertEqual(store.entries[0].source, .manual)
 
         let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
         XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless", "SenseVoice"])
         XCTAssertNil(reloaded.entries[0].pronunciationHint)
         XCTAssertNil(reloaded.entries[0].category)
+        XCTAssertEqual(reloaded.entries[0].source, .manual)
     }
 
     @MainActor
@@ -108,5 +110,40 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         let persistedJSON = try XCTUnwrap(String(data: persistedData, encoding: .utf8))
         XCTAssertFalse(persistedJSON.contains("\"enabled\""))
         XCTAssertFalse(persistedJSON.contains("Obsolete"))
+    }
+
+    @MainActor
+    func testAutoLearnedTermPersistsWithSourceAndDeduplicates() throws {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+
+        XCTAssertTrue(try store.addLearnedTermIfNeeded("朴邻"))
+        XCTAssertFalse(try store.addLearnedTermIfNeeded("  朴邻  "))
+
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertEqual(store.entries.first?.term, "朴邻")
+        XCTAssertEqual(store.entries.first?.source, .autoLearned)
+
+        let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
+        XCTAssertEqual(reloaded.entries.first?.source, .autoLearned)
+    }
+
+    @MainActor
+    func testLegacyEntriesWithoutSourceDefaultToManual() throws {
+        let legacyJSON = """
+        [
+          {
+            "id": "legacy-entry",
+            "term": "Typoless"
+          }
+        ]
+        """
+
+        try legacyJSON.write(to: dictionaryFileURL, atomically: true, encoding: .utf8)
+
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        XCTAssertEqual(
+            store.entries,
+            [DictionaryEntry(id: "legacy-entry", term: "Typoless", source: .manual)]
+        )
     }
 }

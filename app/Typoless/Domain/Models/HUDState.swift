@@ -28,6 +28,7 @@ enum HUDState: Equatable, Sendable {
     case recording
     case processing
     case success
+    case notice(String)
     case failure(HUDFailureReason)
     case cancelled
 }

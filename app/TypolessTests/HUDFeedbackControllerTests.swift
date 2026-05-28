@@ -175,6 +175,23 @@ final class HUDFeedbackControllerTests: XCTestCase {
         XCTAssertNil(controller.modeCueLabel)
     }
 
+    func testDictionaryTermLearnedShowsNoticeHUD() {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.dictionaryTermLearned("朴邻"))
+
+        XCTAssertEqual(controller.hudState, .notice("新词：朴邻"))
+        XCTAssertTrue(controller.isHUDPresented)
+    }
+
+    func testDictionaryTermLearnedTruncatesLongDisplayText() {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.dictionaryTermLearned("客户成功部"))
+
+        XCTAssertEqual(controller.hudState, .notice("新词：客户成功…"))
+    }
+
     private func waitForModeCueToClear(_ controller: HUDFeedbackController) async {
         for _ in 0..<20 {
             if controller.modeCueLabel == nil { return }

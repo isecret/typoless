@@ -252,11 +252,13 @@
 - 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config.json`
 - 返回保守型结构化处理后的最终文本
 - 优先解析结构化 JSON 结果，并保留兼容的纯文本提取回退路径
+- `message` 模式只用于用户明确口述“要发出去的话”；像“把这个文件发给张三”“转给李四”这类动作指令必须保持 `plain_text`，不得改写成称呼 + 正文
 - 当 `WindowContextService` 成功返回快照时，将其作为弱参考附加到 Prompt：
   - 只允许用于消歧、模式判断和编辑意图识别
   - 不得直接复制未说出的窗口内容
   - 若窗口上下文与 ASR 冲突，以 ASR 为准
-  - `selectedText` 仅表示可能存在编辑/替换意图
+  - 首版主链路 `polish / translate` 只向 LLM 发送元信息级上下文：应用名、bundle id、窗口标题、输入面类型、角色元数据与 placeholder
+  - 不向主链路 LLM 发送 `selectedText`、`surroundingTextBefore`、`surroundingTextAfter` 或 `nearbyLabels`，避免把输入框已有正文误拼回结果
 - 不处理 UI 和回退逻辑
 - Prompt 可接收个人词典术语参考，但不开放用户自定义 Prompt
 
@@ -265,6 +267,7 @@
 - 基于与 `TextInjector` 共享的聚焦元素解析路径，读取当前 focused element、window title、placeholder、selected text 与光标附近有限文本。
 - 默认上下文载荷为：应用名、bundle id、窗口标题、输入面类型、角色元数据、placeholder、selected text、光标前后各最多 80 字、附近标签最多 5 项。
 - `selectedText` 最多 200 字；所有文本在发送前都会裁剪和去空。
+- 其中 `selectedText`、`surroundingTextBefore`、`surroundingTextAfter` 与 `nearbyLabels` 仅保留在内存快照中供本地判定链路使用，不直接发送给主链路 `polish / translate` LLM。
 - 敏感场景严格脱敏：密码框、系统认证/安全输入、密码管理器、终端类应用只保留元数据，不发送 placeholder、selected text、surrounding text 或 nearby labels。
 - 窗口上下文仅保存在内存中的 active session 内，不写入配置、日志、HUD、菜单栏或失败恢复入口。
 - 诊断日志只记录事件码，如 `window_context_captured`、`window_context_redacted`、`window_context_unavailable`、`window_context_capture_failed`、`window_context_capture_timeout`，不记录原始内容。
@@ -309,11 +312,22 @@
 
 ### 5.10 PersonalDictionaryStore
 
-- 使用 `~/.typoless/dictionary.json` 存储用户维护的个人词典。
-- 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`。
+- 使用 `~/.typoless/dictionary.json` 存储用户维护和自动学习到的个人词典。
+- 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`、`source`。
+- `source` 取值为 `manual` 或 `auto_learned`，用于区分手动维护和自动学习来源。
 - 为 LLM Prompt 提供术语参考。
+- 自动学习入口只保存最终词条，不保存注入前后全文或 diff 原文。
 
-### 5.11 DiagnosticsLogger
+### 5.11 PostInjectionDictionaryLearner
+
+- 在文本注入成功后、且当前处理模式为 `polish` 时启动。
+- 最长观察 30 秒，每 500ms 轮询一次当前聚焦输入框文本；不切回目标应用，不打断用户当前操作。
+- 仅当文本变化可归约为单一连续替换时，才提取替换后的 `newSpan` 作为候选词条。
+- 候选词条需满足：长度 2 到 24、无换行、非纯数字、非纯符号、非明显句末整句片段。
+- 学习成功后立即写入个人词典，并触发 HUD 轻提示；翻译模式不参与自动学习。
+- 任一阶段若焦点切换、读取失败、新 session 开始、会话取消或错误发生，立即停止观察。
+
+### 5.12 DiagnosticsLogger
 
 - 使用 `os.Logger(subsystem: "com.isecret.typoless", category: "Session")` 输出应用日志。
 - 记录 `session_id`、各阶段耗时、文本长度、结果来源、错误分类和目标 app bundle id。

@@ -8,6 +8,7 @@ enum SessionFeedbackEvent: Sendable {
     case recordingStopped
     case modeSwitched(TextProcessingMode)
     case processingFinished
+    case dictionaryTermLearned(String)
     case processingCancelled
     case processingFailed(HUDFailureReason)
 }

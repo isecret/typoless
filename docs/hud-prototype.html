@@ -85,7 +85,7 @@
 
     .segmented {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 8px;
     }
 
@@ -129,6 +129,24 @@
     input[type="range"] {
       width: 100%;
       accent-color: #fff;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      appearance: none;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 10px 12px;
+      font: inherit;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+      outline: none;
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+
+    input[type="text"]:focus {
+      border-color: rgba(255, 255, 255, 0.26);
+      background: rgba(255, 255, 255, 0.08);
     }
 
     .hint {
@@ -179,6 +197,12 @@
 
     .hud.result {
       min-width: 72px;
+      justify-content: center;
+      gap: 5px;
+    }
+
+    .hud.notice {
+      min-width: 104px;
       justify-content: center;
       gap: 5px;
     }
@@ -432,6 +456,7 @@
           <button data-state="success">完成</button>
           <button data-state="failure">失败</button>
           <button data-state="cancelled">取消</button>
+          <button data-state="notice">新词</button>
         </div>
       </div>
 
@@ -466,6 +491,19 @@
         </div>
         <div class="hint">录音态按 Shift+Tab 可切换。切换时短暂收起左右按钮，只显示 TRANSLATE 或 DICTATE，随后恢复声波。</div>
       </div>
+
+      <div class="control-group">
+        <div class="control-label">
+          <span>新词提示</span>
+          <span id="noticePreviewLabel">朴邻</span>
+        </div>
+        <input id="noticeTermInput" type="text" value="朴邻" maxlength="24" placeholder="输入新词预览">
+        <div class="secondary-row" style="margin-top: 8px;">
+          <button id="playNoticeBtn">播放提示</button>
+          <button id="fillLongNoticeBtn">长词示例</button>
+        </div>
+        <div class="hint">文案格式为“新词：词条”，HUD 内最多显示 4 个汉字，超出以省略号展示；这里仅预览显示效果，不影响实际存储。</div>
+      </div>
     </section>
 
     <section class="stage">
@@ -483,9 +521,14 @@
     const processingModeLabel = document.getElementById("processingModeLabel");
     const toggleProcessingModeBtn = document.getElementById("toggleProcessingModeBtn");
     const replayCueBtn = document.getElementById("replayCueBtn");
+    const noticeTermInput = document.getElementById("noticeTermInput");
+    const noticePreviewLabel = document.getElementById("noticePreviewLabel");
+    const playNoticeBtn = document.getElementById("playNoticeBtn");
+    const fillLongNoticeBtn = document.getElementById("fillLongNoticeBtn");
 
     const barsCount = 11;
     let state = "recording";
+    let previousState = "recording";
     let processingMode = "dictate";
     let mode = "manual";
     let level = Number(levelRange.value) / 100;
@@ -493,7 +536,9 @@
     let tickId = null;
     let thinkingTimeoutId = null;
     let cueTimeoutId = null;
+    let noticeTimeoutId = null;
     let activeCueLabel = "";
+    let noticeTerm = noticeTermInput.value.trim() || "朴邻";
 
     function icon(type) {
       if (type === "x") {
@@ -560,6 +605,13 @@
           </div>
         `;
         stopWaveAnimation();
+      } else if (state === "notice") {
+        hudRoot.classList.add("notice");
+        hudRoot.innerHTML = `
+          <div class="result-icon">${icon("check")}</div>
+          <div class="result-text">新词：${formatNoticeTerm(noticeTerm)}</div>
+        `;
+        stopWaveAnimation();
       } else {
         hudRoot.classList.add("result");
         const meta = {
@@ -579,7 +631,8 @@
         thinking: "Thinking",
         success: "Success",
         failure: "Failure",
-        cancelled: "Cancelled"
+        cancelled: "Cancelled",
+        notice: "Notice"
       }[state];
       updateRecordingLabels();
 
@@ -595,6 +648,7 @@
     function setState(nextState) {
       clearThinkingTimeout();
       clearCueTimeout();
+      clearNoticeTimeout();
       if (nextState === "recording" && state !== "recording") {
         processingMode = "dictate";
       }
@@ -615,6 +669,46 @@
         cueTimeoutId = null;
       }
       activeCueLabel = "";
+    }
+
+    function clearNoticeTimeout() {
+      if (noticeTimeoutId) {
+        window.clearTimeout(noticeTimeoutId);
+        noticeTimeoutId = null;
+      }
+    }
+
+    function formatNoticeTerm(term) {
+      const trimmed = term.trim();
+      if (!trimmed) return "朴邻";
+      const glyphs = Array.from(trimmed);
+      if (glyphs.length <= 4) return glyphs.join("");
+      return `${glyphs.slice(0, 4).join("")}…`;
+    }
+
+    function updateNoticePreview() {
+      noticeTerm = noticeTermInput.value.trim() || "朴邻";
+      noticePreviewLabel.textContent = formatNoticeTerm(noticeTerm);
+      if (state === "notice") {
+        render();
+      }
+    }
+
+    function showNotice(term = noticeTerm) {
+      clearThinkingTimeout();
+      clearCueTimeout();
+      clearNoticeTimeout();
+      noticeTerm = term.trim() || "朴邻";
+      noticeTermInput.value = noticeTerm;
+      updateNoticePreview();
+      previousState = state === "notice" ? previousState : state;
+      state = "notice";
+      render();
+      noticeTimeoutId = window.setTimeout(() => {
+        noticeTimeoutId = null;
+        state = previousState;
+        render();
+      }, 1200);
     }
 
     function showModeCue(label) {
@@ -700,6 +794,14 @@
     stateSwitch.addEventListener("click", (event) => {
       const target = event.target.closest("button[data-state]");
       if (!target) return;
+      if (target.dataset.state === "notice") {
+        clearThinkingTimeout();
+        clearCueTimeout();
+        clearNoticeTimeout();
+        state = "notice";
+        render();
+        return;
+      }
       setState(target.dataset.state);
     });
 
@@ -717,6 +819,18 @@
     replayCueBtn.addEventListener("click", () => {
       if (state !== "recording") return;
       showModeCue(processingMode === "translate" ? "TRANSLATE" : "DICTATE");
+    });
+
+    noticeTermInput.addEventListener("input", updateNoticePreview);
+
+    playNoticeBtn.addEventListener("click", () => {
+      showNotice(noticeTermInput.value);
+    });
+
+    fillLongNoticeBtn.addEventListener("click", () => {
+      noticeTermInput.value = "客户成功部";
+      updateNoticePreview();
+      showNotice(noticeTermInput.value);
     });
 
     levelRange.addEventListener("input", () => {
@@ -739,6 +853,7 @@
       }
     });
 
+    updateNoticePreview();
     render();
   </script>
 </body>

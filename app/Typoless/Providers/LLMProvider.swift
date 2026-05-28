@@ -1,9 +1,14 @@
 import Foundation
+import os
 
 /// OpenAI Chat Completions 兼容 LLM Provider，用于文本润色
 struct LLMProvider: Sendable {
 
     private static let timeout: TimeInterval = 15
+    private static let logger = Logger(
+        subsystem: "com.isecret.typoless",
+        category: "ProperNounLLM"
+    )
 
     /// 固定系统 Prompt：纠错、结构化处理、自我修正
     private static let baseSystemPrompt = """
@@ -47,9 +52,11 @@ struct LLMProvider: Sendable {
         - 信号不足时回退 plain_text
 
         ### message
-        - 仅当输入中出现明显短消息信号时使用（如"跟XX说…"、"发给XX…"、"帮我回复…"、有称呼+请求+结束语结构）
+        - 仅当输入中出现明显短消息信号时使用（如"跟XX说…"、"发给XX说…"、"帮我回复…"、有称呼+请求+结束语结构）
         - 允许规范称呼、正文段落和简短结尾
         - 不自动补充承诺、事实、时间、地点或态度
+        - 纯动作指令不是 message：如"把这个文件发给钟世明"、"转给王莉"、"发给张三"、"把图片发群里"，都必须保持 plain_text，不要改写成称呼+正文
+        - 只有在"发给XX"之后明确跟着要发送的内容时，才可判断为 message，例如"发给张三说我晚点到"
         - 信号不足时回退 plain_text
 
         ## 自我修正规则
@@ -79,6 +86,8 @@ struct LLMProvider: Sendable {
         - "然后就是我们先对一下" → "我们先对一下"
         - "先保存文件，然后再退出" → 保留 "然后"
         - "第一步登录，然后点击设置" → 保留 "然后"
+        - "把这个文件发给钟世明" → 保持 plain_text，不要改成消息格式
+        - "发给张三说我晚点到" → 可使用 message
 
         ## 严格禁止
 
@@ -193,6 +202,21 @@ struct LLMProvider: Sendable {
         }
     }
 
+    func classifyProperNounLearningCandidate(
+        _ candidate: ProperNounLearningCandidate
+    ) async throws -> ProperNounLearningDecision {
+        let userContent = try Self.properNounLearningUserContent(candidate)
+        Self.logProperNounRequest(userContent)
+        let content = try await performRawContentRequest(
+            systemPrompt: Self.properNounLearningSystemPrompt,
+            userContent: userContent
+        )
+        Self.logProperNounResponse(content)
+        let decision = try Self.parseProperNounLearningDecision(from: content)
+        Self.logProperNounDecision(decision)
+        return decision
+    }
+
     // MARK: - Request
 
     private func buildURL() throws -> URL {
@@ -208,9 +232,10 @@ struct LLMProvider: Sendable {
         context: WindowContextSnapshot?,
         requestMode: RequestMode
     ) throws -> Data {
+        let promptContext = Self.promptSafeContext(context)
         let systemPrompt = Self.contextAugmentedSystemPrompt(
             basePrompt: Self.systemPrompt(terms: dictionaryTerms),
-            context: context
+            context: promptContext
         )
         var body: [String: Any] = [
             "model": model,
@@ -267,6 +292,43 @@ struct LLMProvider: Sendable {
         }
     }
 
+    private func performRawContentRequest(
+        systemPrompt: String,
+        userContent: String
+    ) async throws -> String {
+        let url = try buildURL()
+
+        if thinkingDisabled {
+            return try await sendRawChatCompletionRequest(
+                url: url,
+                systemPrompt: systemPrompt,
+                userContent: userContent,
+                requestMode: .plain
+            )
+        }
+
+        do {
+            return try await sendRawChatCompletionRequest(
+                url: url,
+                systemPrompt: systemPrompt,
+                userContent: userContent,
+                requestMode: .thinkingDisabled
+            )
+        } catch let error as TypolessError {
+            if case let .llmNetworkFailure(message) = error,
+               shouldRetryWithoutThinking(message: message) {
+                await onThinkingUnsupported?()
+                return try await sendRawChatCompletionRequest(
+                    url: url,
+                    systemPrompt: systemPrompt,
+                    userContent: userContent,
+                    requestMode: .plain
+                )
+            }
+            throw error
+        }
+    }
+
     static func polishInputText(text: String, segmentCount: Int) -> String {
         if segmentCount > 1 {
             return "[以下文本来自同一次语音输入的 \(segmentCount) 个连续分段转写，请按原始顺序理解为一段连续表达；可以合并因分段造成的断句，但不得扩写、改写原意或补充事实]\n\n\(text)"
@@ -297,7 +359,7 @@ struct LLMProvider: Sendable {
     ) -> String {
         contextAugmentedSystemPrompt(
             basePrompt: "你是一个专业的翻译助手。请严格翻译成 \(targetLanguage.displayName)，不扩写、不改原意，只返回翻译后的文本。",
-            context: context
+            context: promptSafeContext(context)
         )
     }
 
@@ -359,6 +421,62 @@ struct LLMProvider: Sendable {
         return lines.joined(separator: "\n")
     }
 
+    private static func promptSafeContext(_ context: WindowContextSnapshot?) -> WindowContextSnapshot? {
+        guard let context else { return nil }
+
+        let hasBodyText = context.selectedText != nil
+            || context.surroundingTextBefore != nil
+            || context.surroundingTextAfter != nil
+            || !context.nearbyLabels.isEmpty
+
+        if hasBodyText {
+            #if DEBUG
+            logger.debug(
+                """
+                context_sanitized \
+                | selected=\(context.selectedText != nil) \
+                | before=\(context.surroundingTextBefore != nil) \
+                | after=\(context.surroundingTextAfter != nil) \
+                | labels=\(!context.nearbyLabels.isEmpty)
+                """
+            )
+            #endif
+        }
+
+        return WindowContextSnapshot(
+            appName: context.appName,
+            bundleID: context.bundleID,
+            windowTitle: context.windowTitle,
+            surfaceKind: context.surfaceKind,
+            elementRole: context.elementRole,
+            elementSubrole: context.elementSubrole,
+            placeholder: context.placeholder,
+            selectedText: nil,
+            surroundingTextBefore: nil,
+            surroundingTextAfter: nil,
+            nearbyLabels: []
+        )
+    }
+
+    private func buildRawRequestBody(
+        systemPrompt: String,
+        userContent: String,
+        requestMode: RequestMode
+    ) throws -> Data {
+        var body: [String: Any] = [
+            "model": model,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": userContent],
+            ],
+        ]
+
+        if case .thinkingDisabled = requestMode {
+            body["thinking"] = ["type": "disabled"]
+        }
+        return try JSONSerialization.data(withJSONObject: body)
+    }
+
     private func sendChatCompletionRequest(
         url: URL,
         text: String,
@@ -370,6 +488,26 @@ struct LLMProvider: Sendable {
             context: context,
             requestMode: requestMode
         )
+
+        return try await sendCompletionRequest(url: url, bodyData: bodyData)
+    }
+
+    private func sendRawChatCompletionRequest(
+        url: URL,
+        systemPrompt: String,
+        userContent: String,
+        requestMode: RequestMode
+    ) async throws -> String {
+        let bodyData = try buildRawRequestBody(
+            systemPrompt: systemPrompt,
+            userContent: userContent,
+            requestMode: requestMode
+        )
+        let responseData = try await sendCompletionRequest(url: url, bodyData: bodyData)
+        return try extractMessageContent(from: responseData)
+    }
+
+    private func sendCompletionRequest(url: URL, bodyData: Data) async throws -> Data {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -420,26 +558,7 @@ struct LLMProvider: Sendable {
     // MARK: - Response
 
     private func parseResponse(_ data: Data) throws -> PolishResult {
-        let response: LLMResponse
-        do {
-            response = try JSONDecoder().decode(LLMResponse.self, from: data)
-        } catch {
-            throw TypolessError.llmEmptyResponse
-        }
-
-        // Check for API error
-        if let apiError = response.error {
-            if apiError.type == "invalid_request_error" {
-                throw TypolessError.invalidLLMConfiguration(detail: apiError.message)
-            }
-            throw TypolessError.llmNetworkFailure(message: apiError.message)
-        }
-
-        guard let content = response.choices?.first?.message.content,
-              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            throw TypolessError.llmEmptyResponse
-        }
+        let content = try extractMessageContent(from: data)
 
         // 尝试结构化解析
         let parseResult = StructuredPolishParser.parse(content: content)
@@ -459,6 +578,119 @@ struct LLMProvider: Sendable {
         case .plainText(let text):
             return PolishResult(text: FillerWordSanitizer.sanitize(text), source: .llm)
         }
+    }
+
+    private func extractMessageContent(from data: Data) throws -> String {
+        let response: LLMResponse
+        do {
+            response = try JSONDecoder().decode(LLMResponse.self, from: data)
+        } catch {
+            throw TypolessError.llmEmptyResponse
+        }
+
+        if let apiError = response.error {
+            if apiError.type == "invalid_request_error" {
+                throw TypolessError.invalidLLMConfiguration(detail: apiError.message)
+            }
+            throw TypolessError.llmNetworkFailure(message: apiError.message)
+        }
+
+        guard let content = response.choices?.first?.message.content
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !content.isEmpty else {
+            throw TypolessError.llmEmptyResponse
+        }
+
+        return content
+    }
+
+    private static let properNounLearningSystemPrompt = """
+        你是中文输入法的新词学习判定器。
+
+        任务：判断用户刚刚修订出来的 replacedSpan 是否应加入个人词典。
+
+        只允许依据以下字段判断：
+        - originalSpan
+        - replacedSpan
+        - selectedText
+        - surroundingTextBefore
+        - surroundingTextAfter
+
+        判定原则：
+        - 只有在 replacedSpan 明显是专有名词、品牌名、产品名、项目名、业务术语、部门名、地名、人名、组织名、应用名、稳定缩写术语时，才返回 accept。
+        - 普通动词、形容词、功能词、日常短语、通用词、界面常见操作词，一律返回 reject。
+        - 拿不准时返回 reject。
+        - 不要因为 corrected 后更通顺就 accept；只有“值得进入个人词典”才 accept。
+
+        输出要求：
+        - 只能输出一个 JSON 对象。
+        - 只能是 {"decision":"accept"} 或 {"decision":"reject"}。
+        - 不要输出任何额外文字、解释、markdown 或代码块。
+        """
+
+    private static func properNounLearningUserContent(_ candidate: ProperNounLearningCandidate) throws -> String {
+        let payload = ProperNounLearningPayload(
+            originalSpan: candidate.originalSpan,
+            replacedSpan: candidate.replacedSpan,
+            selectedText: candidate.selectedText,
+            surroundingTextBefore: candidate.surroundingTextBefore,
+            surroundingTextAfter: candidate.surroundingTextAfter
+        )
+        let data = try JSONEncoder().encode(payload)
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw ProperNounLearningEvaluationError.invalidResponse
+        }
+        return json
+    }
+
+    private static func parseProperNounLearningDecision(
+        from content: String
+    ) throws -> ProperNounLearningDecision {
+        guard let jsonString = extractJSONObject(from: content),
+              let data = jsonString.data(using: .utf8) else {
+            throw ProperNounLearningEvaluationError.invalidResponse
+        }
+
+        let response: ProperNounLearningResponse
+        do {
+            response = try JSONDecoder().decode(ProperNounLearningResponse.self, from: data)
+        } catch {
+            throw ProperNounLearningEvaluationError.invalidResponse
+        }
+
+        return response.decision
+    }
+
+    private static func extractJSONObject(from content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"), trimmed.hasSuffix("}") {
+            return trimmed
+        }
+        guard let startIndex = trimmed.firstIndex(of: "{"),
+              let endIndex = trimmed.lastIndex(of: "}") else {
+            return nil
+        }
+        return String(trimmed[startIndex...endIndex])
+    }
+
+    private static func logProperNounRequest(_ payload: String) {
+        #if DEBUG
+        logger.debug("request | payload=\(payload, privacy: .public)")
+        #else
+        _ = payload
+        #endif
+    }
+
+    private static func logProperNounResponse(_ content: String) {
+        #if DEBUG
+        logger.debug("response | content=\(content, privacy: .public)")
+        #else
+        _ = content
+        #endif
+    }
+
+    private static func logProperNounDecision(_ decision: ProperNounLearningDecision) {
+        logger.info("decision | result=\(decision.rawValue, privacy: .public)")
     }
 }
 
@@ -486,6 +718,18 @@ private struct LLMError: Decodable {
     let message: String
     let type: String?
     let code: String?
+}
+
+private struct ProperNounLearningPayload: Encodable {
+    let originalSpan: String
+    let replacedSpan: String
+    let selectedText: String?
+    let surroundingTextBefore: String?
+    let surroundingTextAfter: String?
+}
+
+private struct ProperNounLearningResponse: Decodable {
+    let decision: ProperNounLearningDecision
 }
 
 // MARK: - Filler Word Sanitizer
