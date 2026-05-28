@@ -29,12 +29,14 @@ final class SessionCoordinator {
     private let configStore: ConfigStore
     private let audioDeviceManager: AudioDeviceManager
     private let textInjector = TextInjector()
+    private let windowContextService = WindowContextService()
     private let diagnostics = DiagnosticsLogger.shared
 
     /// SenseVoice 运行时管理器，跨 session 复用
     private let asrRuntimeManager = SenseVoiceRuntimeManager()
 
     private var processingTask: Task<Void, Never>?
+    private var windowContextTask: Task<Void, Never>?
     private var resetToIdleTask: Task<Void, Never>?
     private var recordingStartTask: Task<Void, Never>?
     private var soundCueTask: Task<Void, Never>?
@@ -48,6 +50,7 @@ final class SessionCoordinator {
     private var segmentContinuation: AsyncStream<SealedSegment>.Continuation?
     /// 录音时长（毫秒），finishRecording 写入，processSegmentedAudio 读取
     private var recordingDurationMs: Int = 0
+    private var capturedWindowContext: WindowContextSnapshot?
 
     init(
         permissionsManager: PermissionsManager,
@@ -72,6 +75,7 @@ final class SessionCoordinator {
             recordingStartTask = nil
             resetToIdleTask?.cancel()
             resetToIdleTask = nil
+            clearWindowContextCapture()
             state = .idle
             targetApplicationPID = nil
             targetApplicationBundleID = nil
@@ -79,6 +83,7 @@ final class SessionCoordinator {
 
         currentError = nil
         lastResult = nil
+        clearWindowContextCapture()
         targetApplicationPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         targetApplicationBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         sessionGeneration &+= 1
@@ -104,6 +109,12 @@ final class SessionCoordinator {
             onFeedbackEvent?(.recordingStarted)
 
             let generation = sessionGeneration
+            beginWindowContextCapture(
+                generation: generation,
+                sessionID: sessionID,
+                targetPID: targetApplicationPID,
+                targetBundleID: targetBundleID
+            )
             recordingStartTask?.cancel()
             recordingStartTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .milliseconds(16))
@@ -225,6 +236,7 @@ final class SessionCoordinator {
             processingTask?.cancel()
             processingTask = nil
             lastRecordedAudio = nil
+            clearWindowContextCapture()
             targetApplicationPID = nil
             targetApplicationBundleID = nil
             cleanupSegmenterState()
@@ -236,6 +248,7 @@ final class SessionCoordinator {
             sessionGeneration &+= 1
             processingTask?.cancel()
             processingTask = nil
+            clearWindowContextCapture()
             cleanupSegmenterState()
             handleError(.asrEmptyAudio)
             return
@@ -264,6 +277,7 @@ final class SessionCoordinator {
             processingTask?.cancel()
             processingTask = nil
             _ = audioRecorder.stopRecording()
+            clearWindowContextCapture()
             cleanupSegmenterState()
             lastRecordedAudio = nil
             targetApplicationPID = nil
@@ -276,6 +290,7 @@ final class SessionCoordinator {
             sessionGeneration &+= 1
             processingTask?.cancel()
             processingTask = nil
+            clearWindowContextCapture()
             cleanupSegmenterState()
             // 取消期间 runtime 可能仍在推理，排队销毁旧 recognizer，防止旧状态污染后续 session
             if state == .transcribing {
@@ -468,7 +483,16 @@ final class SessionCoordinator {
               !Task.isCancelled else { return }
 
         // 读取录音结束后才确定的配置
-        let (recordingMs, currentProcessingMode, llmConfig, openAIAPIKey, isLLMConfigured, terms, translationTarget) = await MainActor.run {
+        let (
+            recordingMs,
+            currentProcessingMode,
+            llmConfig,
+            openAIAPIKey,
+            isLLMConfigured,
+            terms,
+            translationTarget,
+            windowContext
+        ) = await MainActor.run {
             (
                 recordingDurationMs,
                 processingMode,
@@ -476,7 +500,8 @@ final class SessionCoordinator {
                 configStore.openAIAPIKey,
                 configStore.isLLMConfigured,
                 dictionaryStore?.termsForPrompt() ?? [],
-                configStore.generalConfig.translationTargetLanguage
+                configStore.generalConfig.translationTargetLanguage,
+                capturedWindowContext
             )
         }
 
@@ -534,7 +559,11 @@ final class SessionCoordinator {
         let llmStart = Date()
         let polishResult: PolishResult
         do {
-            polishResult = try await llmProvider.polish(text: combinedTranscript, segmentCount: transcripts.count)
+            polishResult = try await llmProvider.polish(
+                text: combinedTranscript,
+                segmentCount: transcripts.count,
+                context: windowContext
+            )
         } catch {
             guard await MainActor.run(body: { sessionGeneration }) == generation,
                   !Task.isCancelled else { return }
@@ -544,7 +573,10 @@ final class SessionCoordinator {
             diag.errorClassification = mapped.diagnosticClassification
             diagnostics.sessionError(sessionID: sessionID, error: mapped)
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-            await MainActor.run { handleError(mapped) }
+            await MainActor.run {
+                clearWindowContextCapture()
+                handleError(mapped)
+            }
             return
         }
 
@@ -575,7 +607,11 @@ final class SessionCoordinator {
         if currentProcessingMode == .translate {
             let translateStart = Date()
             do {
-                let translated = try await llmProvider.translate(text: polishResult.text, targetLanguage: translationTarget)
+                let translated = try await llmProvider.translate(
+                    text: polishResult.text,
+                    targetLanguage: translationTarget,
+                    context: windowContext
+                )
                 finalText = translated
                 let translateMs = Int(Date().timeIntervalSince(translateStart) * 1000)
                 diag.llmMs = (diag.llmMs ?? 0) + translateMs
@@ -590,7 +626,10 @@ final class SessionCoordinator {
                 diag.errorClassification = mapped.diagnosticClassification
                 diagnostics.sessionError(sessionID: sessionID, error: mapped)
                 diagnostics.sessionEnded(sessionID: sessionID, result: diag)
-                await MainActor.run { handleError(mapped) }
+                await MainActor.run {
+                    clearWindowContextCapture()
+                    handleError(mapped)
+                }
                 return
             }
         }
@@ -621,6 +660,7 @@ final class SessionCoordinator {
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
             await MainActor.run {
                 lastInjectionFailureText = finalText
+                clearWindowContextCapture()
                 handleError(mapped)
             }
             return
@@ -632,6 +672,7 @@ final class SessionCoordinator {
 
         await MainActor.run {
             lastInjectionFailureText = nil
+            clearWindowContextCapture()
             state = .done
             diagnostics.sessionEnded(sessionID: sessionID, result: diag)
             onFeedbackEvent?(.processingFinished)
@@ -656,6 +697,7 @@ final class SessionCoordinator {
         recordingStartTask = nil
         soundCueTask?.cancel()
         soundCueTask = nil
+        clearWindowContextCapture()
         currentError = error
         state = .error
         onFeedbackEvent?(.processingFailed(error.hudFailureReason))
@@ -695,6 +737,62 @@ final class SessionCoordinator {
         let timestamp = Int(Date().timeIntervalSince1970 * 1000) % 100_000_000
         let random = Int.random(in: 0..<0xFFFF)
         return String(format: "%08x-%04x", timestamp, random)
+    }
+
+    private func beginWindowContextCapture(
+        generation: UInt64,
+        sessionID: String,
+        targetPID: pid_t?,
+        targetBundleID: String?
+    ) {
+        windowContextTask?.cancel()
+        capturedWindowContext = nil
+
+        windowContextTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.windowContextService.captureContextResult(
+                targetPID: targetPID,
+                targetBundleID: targetBundleID
+            )
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard self.sessionGeneration == generation else { return }
+                self.capturedWindowContext = result.snapshot
+                self.windowContextTask = nil
+
+                switch result.event {
+                case .captured, .redacted:
+                    if let rawCandidate = result.rawCandidate {
+                        self.diagnostics.windowContextCaptured(
+                            sessionID: sessionID,
+                            event: result.event,
+                            rawCandidate: rawCandidate
+                        )
+                    }
+                    if let snapshot = result.snapshot {
+                        let hasBodyText = snapshot.selectedText != nil
+                            || snapshot.surroundingTextBefore != nil
+                            || snapshot.surroundingTextAfter != nil
+                        self.diagnostics.log(
+                            sessionID: sessionID,
+                            event: result.event.rawValue,
+                            detail: "surface=\(snapshot.surfaceKind.rawValue) body=\(hasBodyText) labels=\(snapshot.nearbyLabels.count)"
+                        )
+                    } else {
+                        self.diagnostics.log(sessionID: sessionID, event: result.event.rawValue)
+                    }
+                case .unavailable, .captureFailed, .timeout:
+                    self.diagnostics.log(sessionID: sessionID, event: result.event.rawValue)
+                }
+            }
+        }
+    }
+
+    private func clearWindowContextCapture() {
+        windowContextTask?.cancel()
+        windowContextTask = nil
+        capturedWindowContext = nil
     }
 }
 

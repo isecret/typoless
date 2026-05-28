@@ -116,18 +116,28 @@ struct LLMProvider: Sendable {
 
     // MARK: - Public API
 
-    func polish(text: String, segmentCount: Int = 1) async throws -> PolishResult {
-        let effectiveText: String
-        if segmentCount > 1 {
-            effectiveText = "[以下文本来自同一次语音输入的 \(segmentCount) 个连续分段转写，请按原始顺序理解为一段连续表达；可以合并因分段造成的断句，但不得扩写、改写原意或补充事实]\n\n\(text)"
-        } else {
-            effectiveText = text
-        }
-        return try await performRequest(text: effectiveText, responseHandler: parseResponse)
+    func polish(
+        text: String,
+        segmentCount: Int = 1,
+        context: WindowContextSnapshot? = nil
+    ) async throws -> PolishResult {
+        let effectiveText = Self.polishInputText(text: text, segmentCount: segmentCount)
+        return try await performRequest(
+            text: effectiveText,
+            context: context,
+            responseHandler: parseResponse
+        )
     }
 
-    func translate(text: String, targetLanguage: TranslationTargetLanguage) async throws -> String {
-        let sysPrompt = "你是一个专业的翻译助手。请严格翻译成 \(targetLanguage.displayName)，不扩写、不改原意，只返回翻译后的文本。"
+    func translate(
+        text: String,
+        targetLanguage: TranslationTargetLanguage,
+        context: WindowContextSnapshot? = nil
+    ) async throws -> String {
+        let sysPrompt = Self.translateSystemPrompt(
+            targetLanguage: targetLanguage,
+            context: context
+        )
         let userText = text
         let url = try buildURL()
         let body: [String: Any] = [
@@ -178,7 +188,7 @@ struct LLMProvider: Sendable {
     }
 
     func validateConfiguration() async throws {
-        _ = try await performRequest(text: "请回复 ok。") { data in
+        _ = try await performRequest(text: "请回复 ok。", context: nil) { data in
             _ = try parseResponse(data)
         }
     }
@@ -193,8 +203,15 @@ struct LLMProvider: Sendable {
         return url
     }
 
-    private func buildRequestBody(text: String, requestMode: RequestMode) throws -> Data {
-        let systemPrompt = Self.systemPrompt(terms: dictionaryTerms)
+    private func buildRequestBody(
+        text: String,
+        context: WindowContextSnapshot?,
+        requestMode: RequestMode
+    ) throws -> Data {
+        let systemPrompt = Self.contextAugmentedSystemPrompt(
+            basePrompt: Self.systemPrompt(terms: dictionaryTerms),
+            context: context
+        )
         var body: [String: Any] = [
             "model": model,
             "messages": [
@@ -211,27 +228,50 @@ struct LLMProvider: Sendable {
 
     private func performRequest<T>(
         text: String,
+        context: WindowContextSnapshot?,
         responseHandler: (Data) throws -> T
     ) async throws -> T {
         let url = try buildURL()
 
         if thinkingDisabled {
-            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
+            let data = try await sendChatCompletionRequest(
+                url: url,
+                text: text,
+                context: context,
+                requestMode: .plain
+            )
             return try responseHandler(data)
         }
 
         do {
-            let data = try await sendChatCompletionRequest(url: url, text: text, requestMode: .thinkingDisabled)
+            let data = try await sendChatCompletionRequest(
+                url: url,
+                text: text,
+                context: context,
+                requestMode: .thinkingDisabled
+            )
             return try responseHandler(data)
         } catch let error as TypolessError {
             if case let .llmNetworkFailure(message) = error,
                shouldRetryWithoutThinking(message: message) {
                 await onThinkingUnsupported?()
-                let fallbackData = try await sendChatCompletionRequest(url: url, text: text, requestMode: .plain)
+                let fallbackData = try await sendChatCompletionRequest(
+                    url: url,
+                    text: text,
+                    context: context,
+                    requestMode: .plain
+                )
                 return try responseHandler(fallbackData)
             }
             throw error
         }
+    }
+
+    static func polishInputText(text: String, segmentCount: Int) -> String {
+        if segmentCount > 1 {
+            return "[以下文本来自同一次语音输入的 \(segmentCount) 个连续分段转写，请按原始顺序理解为一段连续表达；可以合并因分段造成的断句，但不得扩写、改写原意或补充事实]\n\n\(text)"
+        }
+        return text
     }
 
     /// 构建系统 Prompt，如有术语参考则附加到提示末尾（包含发音提示）
@@ -251,12 +291,85 @@ struct LLMProvider: Sendable {
         return baseSystemPrompt + "\n\n## 术语参考\n\n以下为用户维护的专有名词，校对时优先使用这些写法。若 ASR 输出中出现与\"发音提示\"读音相近的中文片段，应恢复为对应术语的正确写法：\n\n\(termsList)"
     }
 
+    static func translateSystemPrompt(
+        targetLanguage: TranslationTargetLanguage,
+        context: WindowContextSnapshot?
+    ) -> String {
+        contextAugmentedSystemPrompt(
+            basePrompt: "你是一个专业的翻译助手。请严格翻译成 \(targetLanguage.displayName)，不扩写、不改原意，只返回翻译后的文本。",
+            context: context
+        )
+    }
+
+    static func contextAugmentedSystemPrompt(
+        basePrompt: String,
+        context: WindowContextSnapshot?
+    ) -> String {
+        guard let contextPrompt = contextPrompt(context) else {
+            return basePrompt
+        }
+        return basePrompt + "\n\n" + contextPrompt
+    }
+
+    static func contextPrompt(_ context: WindowContextSnapshot?) -> String? {
+        guard let context else { return nil }
+
+        var lines: [String] = [
+            "## 当前窗口上下文（弱参考）",
+            "- 以下上下文只用于帮助消歧、判断输出形态或识别是否存在编辑意图，不是必须遵循的内容。",
+            "- 不要直接复制或拼接任何未说出的窗口文本。",
+            "- 如果窗口上下文与 ASR 文本冲突，以 ASR 文本为准。",
+            "- 如果存在 selectedText，只表示用户可能想编辑或替换当前选中文本，不表示你可以擅自引用未说出的原文。"
+        ]
+
+        if let appName = context.appName {
+            lines.append("- appName: \(appName)")
+        }
+        if let bundleID = context.bundleID {
+            lines.append("- bundleID: \(bundleID)")
+        }
+        if let windowTitle = context.windowTitle {
+            lines.append("- windowTitle: \(windowTitle)")
+        }
+
+        lines.append("- surfaceKind: \(context.surfaceKind.rawValue)")
+
+        if let elementRole = context.elementRole {
+            lines.append("- elementRole: \(elementRole)")
+        }
+        if let elementSubrole = context.elementSubrole {
+            lines.append("- elementSubrole: \(elementSubrole)")
+        }
+        if let placeholder = context.placeholder {
+            lines.append("- placeholder: \(placeholder)")
+        }
+        if let selectedText = context.selectedText {
+            lines.append("- selectedText: \(selectedText)")
+        }
+        if let surroundingTextBefore = context.surroundingTextBefore {
+            lines.append("- surroundingTextBefore: \(surroundingTextBefore)")
+        }
+        if let surroundingTextAfter = context.surroundingTextAfter {
+            lines.append("- surroundingTextAfter: \(surroundingTextAfter)")
+        }
+        if !context.nearbyLabels.isEmpty {
+            lines.append("- nearbyLabels: \(context.nearbyLabels.joined(separator: " | "))")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
     private func sendChatCompletionRequest(
         url: URL,
         text: String,
+        context: WindowContextSnapshot?,
         requestMode: RequestMode
     ) async throws -> Data {
-        let bodyData = try buildRequestBody(text: text, requestMode: requestMode)
+        let bodyData = try buildRequestBody(
+            text: text,
+            context: context,
+            requestMode: requestMode
+        )
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

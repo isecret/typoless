@@ -93,6 +93,8 @@
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
   负责 AX 注入和键盘事件回退
+- `WindowContextService`
+  负责基于 Accessibility API 捕获当前聚焦输入环境的有限上下文，并执行敏感场景脱敏
 - `PermissionsManager`
   负责麦克风与辅助功能权限检查
 - `HotkeyManager`
@@ -130,6 +132,8 @@
 - 负责回退逻辑
 - 在内存中维护最近一次注入失败文本，成功注入后清空
 - 取消 session 时，需要取消录音和未完成 ASR 任务
+- 在录音开始后异步捕获一次窗口上下文；捕获失败、超时或无权限时静默降级，不阻塞主链路
+- 在成功、失败或取消后清空窗口上下文快照
 - 负责输出会话耗时诊断日志，包含分段级诊断
 
 ### 5.3 AudioRecorder
@@ -248,8 +252,22 @@
 - 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config.json`
 - 返回保守型结构化处理后的最终文本
 - 优先解析结构化 JSON 结果，并保留兼容的纯文本提取回退路径
+- 当 `WindowContextService` 成功返回快照时，将其作为弱参考附加到 Prompt：
+  - 只允许用于消歧、模式判断和编辑意图识别
+  - 不得直接复制未说出的窗口内容
+  - 若窗口上下文与 ASR 冲突，以 ASR 为准
+  - `selectedText` 仅表示可能存在编辑/替换意图
 - 不处理 UI 和回退逻辑
 - Prompt 可接收个人词典术语参考，但不开放用户自定义 Prompt
+
+### 5.6.2 WindowContextService
+
+- 基于与 `TextInjector` 共享的聚焦元素解析路径，读取当前 focused element、window title、placeholder、selected text 与光标附近有限文本。
+- 默认上下文载荷为：应用名、bundle id、窗口标题、输入面类型、角色元数据、placeholder、selected text、光标前后各最多 80 字、附近标签最多 5 项。
+- `selectedText` 最多 200 字；所有文本在发送前都会裁剪和去空。
+- 敏感场景严格脱敏：密码框、系统认证/安全输入、密码管理器、终端类应用只保留元数据，不发送 placeholder、selected text、surrounding text 或 nearby labels。
+- 窗口上下文仅保存在内存中的 active session 内，不写入配置、日志、HUD、菜单栏或失败恢复入口。
+- 诊断日志只记录事件码，如 `window_context_captured`、`window_context_redacted`、`window_context_unavailable`、`window_context_capture_failed`、`window_context_capture_timeout`，不记录原始内容。
 
 ### 5.6.1 LLMModelProvider
 
