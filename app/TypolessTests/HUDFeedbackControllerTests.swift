@@ -221,6 +221,70 @@ final class HUDFeedbackControllerTests: XCTestCase {
         XCTAssertEqual(HUDFeedbackController.defaultLearnedTermNoticeDismissSeconds, 1.8, accuracy: 0.001)
     }
 
+    func testRecordingWaveformStaysLowBelowDisplayThreshold() async {
+        let controller = HUDFeedbackController()
+        controller.audioLevelProvider = { 0.05 }
+
+        controller.handleEvent(.recordingStarted)
+        await waitForWaveformUpdate(controller)
+
+        let maxHeight = controller.barHeights.max() ?? 0
+        XCTAssertLessThan(maxHeight, HUDLayout.waveformMaxHeight * 0.45)
+
+        controller.handleEvent(.processingCancelled)
+    }
+
+    func testRecordingWaveformExpandsToCenterHighWhenLevelExceedsThreshold() async {
+        let controller = HUDFeedbackController()
+        controller.audioLevelProvider = { 0.2 }
+
+        controller.handleEvent(.recordingStarted)
+        await waitForWaveform(
+            controller,
+            matching: { heights in
+                heights[3] > HUDLayout.waveformMaxHeight * 0.9
+            }
+        )
+
+        XCTAssertGreaterThan(controller.barHeights[3], controller.barHeights[2])
+        XCTAssertGreaterThan(controller.barHeights[2], controller.barHeights[1])
+        XCTAssertGreaterThan(controller.barHeights[1], controller.barHeights[0])
+        XCTAssertLessThan(abs(controller.barHeights[0] - controller.barHeights[6]), 1.0)
+        XCTAssertLessThan(abs(controller.barHeights[1] - controller.barHeights[5]), 1.0)
+        XCTAssertLessThan(abs(controller.barHeights[2] - controller.barHeights[4]), 1.0)
+
+        controller.handleEvent(.processingCancelled)
+    }
+
+    func testRecordingWaveformFallsBackSmoothlyAfterVoiceDrops() async {
+        let controller = HUDFeedbackController()
+        var level: Float = 0.2
+        controller.audioLevelProvider = { level }
+
+        controller.handleEvent(.recordingStarted)
+        await waitForWaveform(
+            controller,
+            matching: { heights in
+                heights[3] > HUDLayout.waveformMaxHeight * 0.9
+            }
+        )
+
+        level = 0
+        try? await Task.sleep(for: .milliseconds(20))
+        let shortlyAfterDrop = controller.barHeights[3]
+        XCTAssertGreaterThan(shortlyAfterDrop, HUDLayout.resetBarHeight)
+
+        await waitForWaveform(
+            controller,
+            matching: { heights in
+                heights[3] < shortlyAfterDrop
+            }
+        )
+        XCTAssertLessThan(controller.barHeights[3], HUDLayout.waveformMaxHeight * 0.7)
+
+        controller.handleEvent(.processingCancelled)
+    }
+
     private func waitForModeCueToClear(_ controller: HUDFeedbackController) async {
         for _ in 0..<20 {
             if controller.modeCueLabel == nil { return }
@@ -246,6 +310,25 @@ final class HUDFeedbackControllerTests: XCTestCase {
         for _ in 0..<20 {
             if controller.hudState == .hidden, controller.isHUDPresented == false { return }
             try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    private func waitForWaveformUpdate(_ controller: HUDFeedbackController) async {
+        await waitForWaveform(
+            controller,
+            matching: { heights in
+                heights != Array(repeating: HUDLayout.resetBarHeight, count: 7)
+            }
+        )
+    }
+
+    private func waitForWaveform(
+        _ controller: HUDFeedbackController,
+        matching predicate: ([CGFloat]) -> Bool
+    ) async {
+        for _ in 0..<30 {
+            if predicate(controller.barHeights) { return }
+            try? await Task.sleep(for: .milliseconds(20))
         }
     }
 }
