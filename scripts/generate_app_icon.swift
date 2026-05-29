@@ -78,17 +78,26 @@ func renderAppIcon(svgImage: NSImage, pixels: Int) throws -> Data {
     NSColor.clear.setFill()
     canvasRect.fill()
 
-    // 2. 圆角底板 —— 保持白底风格，但避免和 Finder 背景完全贴合
-    let cornerRadius = s * 0.2237 // macOS 标准圆角比例
-    let iconPath = macOSIconPath(in: canvasRect, cornerRadius: cornerRadius)
+    // 2. 将底板缩进到透明画布内，避免在桌面/启动台里显得比周边图标更大
+    let plateInset = s * 0.075
+    let iconRect = canvasRect.insetBy(dx: plateInset, dy: plateInset)
+    let cornerRadius = iconRect.width * 0.2237 // macOS 标准圆角比例
+    let iconPath = macOSIconPath(in: iconRect, cornerRadius: cornerRadius)
+
+    let shadow = NSShadow()
+    shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.14)
+    shadow.shadowBlurRadius = s * 0.022
+    shadow.shadowOffset = NSSize(width: 0, height: -s * 0.008)
+    shadow.set()
 
     // 轻微偏冷灰白，避免暖黄感，同时保留与 Finder 背景的分离度
     NSColor(calibratedRed: 0.972, green: 0.976, blue: 0.982, alpha: 1.0).setFill()
     iconPath.fill()
+    NSShadow().set()
 
-    // 3. 放大主体，减少四周纯白留白
-    let padding = s * 0.12
-    let iconAreaSize = s - padding * 2
+    // 3. 给主体更保守的安全区，兼容 macOS 15 上更敏感的视觉缩放
+    let contentPadding = iconRect.width * 0.18
+    let iconAreaSize = iconRect.width - contentPadding * 2
 
     // SVG 原始尺寸为 756x756，等比例缩放
     let svgOrigSize = svgImage.size
@@ -97,12 +106,9 @@ func renderAppIcon(svgImage: NSImage, pixels: Int) throws -> Data {
     let scale = min(scaleX, scaleY)
     let drawW = svgOrigSize.width * scale
     let drawH = svgOrigSize.height * scale
-    let drawX = (s - drawW) / 2
-    let drawY = (s - drawH) / 2
-
-    // 进一步上移，让眼镜更贴近边缘，减弱“白卡片”感
-    let visualOffset = s * 0.02
-    let drawRect = NSRect(x: drawX, y: drawY + visualOffset, width: drawW, height: drawH)
+    let drawX = iconRect.minX + (iconRect.width - drawW) / 2
+    let drawY = iconRect.minY + (iconRect.height - drawH) / 2
+    let drawRect = NSRect(x: drawX, y: drawY, width: drawW, height: drawH)
 
     NSGraphicsContext.saveGraphicsState()
     iconPath.addClip()
