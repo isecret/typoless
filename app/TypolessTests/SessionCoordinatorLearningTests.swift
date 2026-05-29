@@ -66,9 +66,41 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         XCTAssertEqual(term, "朴邻")
     }
 
+    func testStartRecordingFailsBeforeHUDWhenAccessibilityPermissionMissing() {
+        let learner = MockPostInjectionLearner()
+        let coordinator = makeCoordinator(
+            dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
+            learner: learner,
+            ensureMicrophoneAuthorized: {},
+            ensureAccessibilityAuthorized: {
+                throw PermissionError.accessibilityPermissionDenied
+            }
+        )
+
+        var receivedEvents: [SessionFeedbackEvent] = []
+        coordinator.onFeedbackEvent = { event in
+            receivedEvents.append(event)
+        }
+
+        coordinator.startRecording()
+
+        XCTAssertEqual(coordinator.state, .error)
+        XCTAssertEqual(coordinator.currentError, .accessibilityPermissionDenied)
+        XCTAssertEqual(receivedEvents.count, 1)
+        guard case .processingFailed(.permissionDenied) = receivedEvents.first else {
+            return XCTFail("expected permission failure event")
+        }
+    }
+
     private func makeCoordinator(
         dictionaryStore: PersonalDictionaryStore?,
-        learner: any PostInjectionDictionaryLearning
+        learner: any PostInjectionDictionaryLearning,
+        ensureMicrophoneAuthorized: @escaping @MainActor @Sendable () throws -> Void = {
+            try PermissionsManager().ensureMicrophoneAuthorized()
+        },
+        ensureAccessibilityAuthorized: @escaping @MainActor @Sendable () throws -> Void = {
+            try PermissionsManager().ensureAccessibilityAuthorized()
+        }
     ) -> SessionCoordinator {
         let configStore = ConfigStore(configDirectory: tempDirectory)
         let audioDeviceManager = AudioDeviceManager(configStore: configStore)
@@ -77,7 +109,9 @@ final class SessionCoordinatorLearningTests: XCTestCase {
             configStore: configStore,
             audioDeviceManager: audioDeviceManager,
             dictionaryStore: dictionaryStore,
-            postInjectionLearner: learner
+            postInjectionLearner: learner,
+            ensureMicrophoneAuthorized: ensureMicrophoneAuthorized,
+            ensureAccessibilityAuthorized: ensureAccessibilityAuthorized
         )
     }
 

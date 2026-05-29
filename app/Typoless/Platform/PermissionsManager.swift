@@ -28,7 +28,7 @@ enum PermissionError: LocalizedError, Equatable, Sendable {
         case .microphonePermissionDenied:
             "麦克风权限未开启，无法录音"
         case .accessibilityPermissionDenied:
-            "辅助功能权限未开启，无法注入文本"
+            "辅助功能权限未开启，无法开始录音"
         }
     }
 }

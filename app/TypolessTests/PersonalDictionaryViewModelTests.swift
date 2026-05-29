@@ -119,6 +119,19 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testExternalLearnedTermAppearsWithoutManualRefresh() throws {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        let viewModel = PersonalDictionaryViewModel(store: store)
+
+        XCTAssertTrue(viewModel.entries.isEmpty)
+
+        XCTAssertTrue(try store.addLearnedTermIfNeeded("朴邻"))
+
+        XCTAssertEqual(viewModel.entries.map(\.term), ["朴邻"])
+        XCTAssertEqual(viewModel.entries.first?.source, .autoLearned)
+    }
+
+    @MainActor
     private func makeViewModel() -> PersonalDictionaryViewModel {
         PersonalDictionaryViewModel(
             store: PersonalDictionaryStore(directoryURL: tempDirectory)

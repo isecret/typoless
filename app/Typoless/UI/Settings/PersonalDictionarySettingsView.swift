@@ -46,6 +46,9 @@ struct PersonalDictionarySettingsView: View {
                 .offset(x: Layout.footerOffset)
         }
         .onAppear { syncDraftTerms() }
+        .onChange(of: viewModel.entries) {
+            syncDraftTerms(preservingExistingDrafts: true)
+        }
     }
 
     private var dictionaryContent: some View {

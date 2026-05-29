@@ -10,13 +10,14 @@ final class PersonalDictionaryViewModel {
     }
 
     var errorMessage: String?
-    private(set) var entries: [DictionaryEntry]
-
     private let store: PersonalDictionaryStore
 
     init(store: PersonalDictionaryStore) {
         self.store = store
-        self.entries = store.entries
+    }
+
+    var entries: [DictionaryEntry] {
+        store.entries
     }
 
     var totalCount: Int {
@@ -26,7 +27,6 @@ final class PersonalDictionaryViewModel {
     func addPlaceholderTerm(_ term: String) {
         do {
             try store.addEntry(DictionaryEntry(term: term))
-            refreshEntries()
             clearError()
         } catch {
             showError(.saveFailed)
@@ -36,7 +36,6 @@ final class PersonalDictionaryViewModel {
     func deleteEntry(_ entry: DictionaryEntry) {
         do {
             try store.removeEntry(id: entry.id)
-            refreshEntries()
             clearError()
         } catch {
             showError(.saveFailed)
@@ -64,7 +63,6 @@ final class PersonalDictionaryViewModel {
 
         do {
             try store.updateEntry(updated)
-            refreshEntries()
             clearError()
             return true
         } catch {
@@ -96,10 +94,6 @@ final class PersonalDictionaryViewModel {
 
     private func normalizedTerm(_ term: String) -> String {
         term.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func refreshEntries() {
-        entries = store.entries
     }
 
     private func showError(_ error: ValidationError) {

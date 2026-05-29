@@ -52,18 +52,26 @@ final class SessionCoordinator {
     /// 录音时长（毫秒），finishRecording 写入，processSegmentedAudio 读取
     private var recordingDurationMs: Int = 0
     private var capturedWindowContext: WindowContextSnapshot?
+    private let ensureMicrophoneAuthorized: @MainActor @Sendable () throws -> Void
+    private let ensureAccessibilityAuthorized: @MainActor @Sendable () throws -> Void
 
     init(
         permissionsManager: PermissionsManager,
         configStore: ConfigStore,
         audioDeviceManager: AudioDeviceManager,
         dictionaryStore: PersonalDictionaryStore? = nil,
-        postInjectionLearner: (any PostInjectionDictionaryLearning)? = nil
+        postInjectionLearner: (any PostInjectionDictionaryLearning)? = nil,
+        ensureMicrophoneAuthorized: (@MainActor @Sendable () throws -> Void)? = nil,
+        ensureAccessibilityAuthorized: (@MainActor @Sendable () throws -> Void)? = nil
     ) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
         self.audioDeviceManager = audioDeviceManager
         self.dictionaryStore = dictionaryStore
+        self.ensureMicrophoneAuthorized = ensureMicrophoneAuthorized
+            ?? { try permissionsManager.ensureMicrophoneAuthorized() }
+        self.ensureAccessibilityAuthorized = ensureAccessibilityAuthorized
+            ?? { try permissionsManager.ensureAccessibilityAuthorized() }
         self.postInjectionLearner = postInjectionLearner ?? PostInjectionDictionaryLearner(
             termEvaluator: LLMProperNounTermEvaluator(
                 providerFactory: {
@@ -115,7 +123,8 @@ final class SessionCoordinator {
 
         do {
             configStore.refreshLocalModelStatusFromDisk()
-            try permissionsManager.ensureMicrophoneAuthorized()
+            try ensureMicrophoneAuthorized()
+            try ensureAccessibilityAuthorized()
             try ResourceValidator.validateDenoiseResources()
             // 录音前检查 ASR 平台可用性
             guard configStore.isASRReady else {
