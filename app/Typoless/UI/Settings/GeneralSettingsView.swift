@@ -30,7 +30,7 @@ struct GeneralSettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                 }
             } footer: {
-                Text("点按后开始录制。支持纯修饰键和左右修饰键；录制纯修饰键时按下组合后松开即可完成。")
+                Text("支持纯修饰键；按下后松开即可完成录制。")
             }
 
             SettingsPaneSection {
