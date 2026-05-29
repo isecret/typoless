@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// 录音态：`X + 声波 + ✓`
 /// 处理态：Thinking 黑白灰渐变动画
-/// 结果态：图标 + 文字
+/// 结果态：失败短文案或新词提示
 struct HUDContentView: View {
     let controller: HUDFeedbackController
     var onCancel: () -> Void = {}
@@ -217,7 +217,7 @@ struct HUDContentView: View {
             recordingWaveOpacity = 0
             resultOffsetY = HUDLayout.resultOffset
 
-        case .success, .failure, .cancelled, .notice:
+        case .failure, .notice:
             phase = .result
             capsuleWidth = resultCapsuleWidth(for: state)
             capsuleScale = 1
@@ -298,14 +298,10 @@ struct HUDContentView: View {
 
     private func resultPayload(for state: HUDState) -> (icon: String, text: String) {
         switch state {
-        case .success:
-            return ("check", "完成")
         case .notice(let text):
             return ("dictionary", text)
         case .failure(let reason):
             return ("warn", reason.shortLabel)
-        case .cancelled:
-            return ("x", "已取消")
         default:
             return ("check", "")
         }
@@ -331,7 +327,7 @@ private enum VisualPhase {
 private extension HUDState {
     var isResult: Bool {
         switch self {
-        case .success, .failure, .cancelled, .notice:
+        case .failure, .notice:
             true
         default:
             false

@@ -482,7 +482,7 @@
   <main class="playground">
     <section class="controls">
       <h1>HUD Prototype</h1>
-      <p>用于验证 Typoless 录音 HUD 的视觉和交互节奏。录音态是 `X + 声波 + ✓`，处理态只保留黑白灰 `Thinking` 动画。</p>
+      <p>用于验证 Typoless 录音 HUD 的视觉和交互节奏。录音态是 `X + 声波 + ✓`，处理态只保留黑白灰 `Thinking` 动画；成功或取消后 HUD 直接消失。</p>
 
       <div class="control-group">
         <div class="control-label">
@@ -492,10 +492,9 @@
         <div class="segmented" id="stateSwitch">
           <button data-state="recording" class="active">录音</button>
           <button data-state="thinking">Thinking</button>
-          <button data-state="success">完成</button>
           <button data-state="failure">失败</button>
-          <button data-state="cancelled">取消</button>
           <button data-state="notice">新词</button>
+          <button data-state="hidden">隐藏</button>
         </div>
       </div>
 
@@ -621,7 +620,10 @@
     function render() {
       hudRoot.className = "hud";
 
-      if (state === "recording") {
+      if (state === "hidden") {
+        hudRoot.innerHTML = "";
+        stopWaveAnimation();
+      } else if (state === "recording") {
         hudRoot.classList.add("recording");
         if (activeCueLabel) {
           hudRoot.classList.add("mode-cue");
@@ -663,9 +665,7 @@
       } else {
         hudRoot.classList.add("result");
         const meta = {
-          success: ["完成", "check"],
-          failure: ["失败", "warn"],
-          cancelled: ["已取消", "x"]
+          failure: ["失败", "warn"]
         }[state];
         hudRoot.innerHTML = `
           <div class="result-icon">${icon(meta[1])}</div>
@@ -675,11 +675,10 @@
       }
 
       stateLabel.textContent = {
+        hidden: "Hidden",
         recording: "Recording",
         thinking: "Thinking",
-        success: "Success",
         failure: "Failure",
-        cancelled: "Cancelled",
         notice: "Notice"
       }[state];
       updateRecordingLabels();
@@ -789,14 +788,14 @@
       thinkingTimeoutId = window.setTimeout(() => {
         thinkingTimeoutId = null;
         if (state === "thinking") {
-          setState("success");
+          setState("hidden");
         }
       }, 1400);
     }
 
     function cancelRecording() {
       if (state !== "recording") return;
-      setState("cancelled");
+      setState("hidden");
     }
 
     function startWaveAnimation() {

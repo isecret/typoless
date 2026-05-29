@@ -108,9 +108,12 @@ final class HUDFeedbackController {
             }
 
         case .processingFinished:
+            cancelPendingStartSound()
             clearModeCue()
-            hudState = .success
-            scheduleDismiss(after: 0.8)
+            stopLevelPolling()
+            stopEscMonitor()
+            resetBars()
+            dismissHUD()
 
         case .dictionaryTermLearned(let term):
             clearModeCue()
@@ -145,9 +148,7 @@ final class HUDFeedbackController {
             stopLevelPolling()
             stopEscMonitor()
             resetBars()
-            hudState = .cancelled
-            updateMouseInteraction()
-            scheduleDismiss(after: 0.8)
+            dismissHUD()
         }
     }
 
@@ -332,6 +333,11 @@ final class HUDFeedbackController {
     private func dismissHUD() {
         clearModeCue()
         stopLevelPolling()
+        stopEscMonitor()
+        guard isHUDPresented else {
+            hudState = .hidden
+            return
+        }
         let gen = presentationGeneration
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25

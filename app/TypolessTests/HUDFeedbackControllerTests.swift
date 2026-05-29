@@ -174,6 +174,32 @@ final class HUDFeedbackControllerTests: XCTestCase {
         XCTAssertNil(controller.modeCueLabel)
     }
 
+    func testProcessingFinishedDismissesHUDWithoutSuccessState() async {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.recordingStarted)
+        controller.handleEvent(.recordingStopped)
+        controller.handleEvent(.processingFinished)
+
+        await waitForHUDToHide(controller)
+
+        XCTAssertEqual(controller.hudState, .hidden)
+        XCTAssertFalse(controller.isHUDPresented)
+    }
+
+    func testProcessingCancelledDismissesHUDWithoutCancelledState() async {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.recordingStarted)
+        controller.handleEvent(.recordingStopped)
+        controller.handleEvent(.processingCancelled)
+
+        await waitForHUDToHide(controller)
+
+        XCTAssertEqual(controller.hudState, .hidden)
+        XCTAssertFalse(controller.isHUDPresented)
+    }
+
     func testDictionaryTermLearnedShowsNoticeHUD() {
         let controller = HUDFeedbackController()
 
@@ -212,6 +238,13 @@ final class HUDFeedbackControllerTests: XCTestCase {
     private func waitForDelayedStartToBegin(_ soundPlayer: DelayedFeedbackSoundPlayer) async {
         for _ in 0..<20 {
             if soundPlayer.didEnterDelayedStart { return }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    private func waitForHUDToHide(_ controller: HUDFeedbackController) async {
+        for _ in 0..<20 {
+            if controller.hudState == .hidden, controller.isHUDPresented == false { return }
             try? await Task.sleep(for: .milliseconds(25))
         }
     }
