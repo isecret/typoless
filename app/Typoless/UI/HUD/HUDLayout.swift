@@ -8,6 +8,7 @@ enum HUDLayout {
     static let activeWidth = scaled(88)
     static let resultWidth = scaled(72)
     static let capsuleHeight = scaled(26)
+    static let baseBottomMargin = scaled(12)
 
     static let recordingSpacing = scaled(4)
     static let waveformSpacing = scaled(2)

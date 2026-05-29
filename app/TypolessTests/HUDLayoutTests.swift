@@ -29,6 +29,57 @@ final class HUDLayoutTests: XCTestCase {
         XCTAssertEqual(HUDLayout.windowSize.height, 52.8, accuracy: 0.001)
     }
 
+    func testHUDBottomReservedHeightUsesOnlyBottomOccupiedSpace() {
+        let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        let bottomDockVisibleFrame = NSRect(x: 0, y: 64, width: 1440, height: 836)
+        XCTAssertEqual(
+            HUDWindow.bottomReservedHeight(
+                screenFrame: screenFrame,
+                visibleFrame: bottomDockVisibleFrame
+            ),
+            64,
+            accuracy: 0.001
+        )
+
+        let sideDockVisibleFrame = NSRect(x: 96, y: 0, width: 1344, height: 900)
+        XCTAssertEqual(
+            HUDWindow.bottomReservedHeight(
+                screenFrame: screenFrame,
+                visibleFrame: sideDockVisibleFrame
+            ),
+            0,
+            accuracy: 0.001
+        )
+    }
+
+    func testHUDFrameOriginKeepsSmallBaseMarginWhenBottomIsUnoccupied() {
+        let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let visibleFrame = NSRect(x: 0, y: 0, width: 1440, height: 860)
+
+        let origin = HUDWindow.frameOrigin(
+            windowSize: HUDLayout.windowSize,
+            screenFrame: screenFrame,
+            visibleFrame: visibleFrame
+        )
+
+        XCTAssertEqual(origin.x, 600, accuracy: 0.001)
+        XCTAssertEqual(origin.y, HUDLayout.baseBottomMargin, accuracy: 0.001)
+    }
+
+    func testHUDFrameOriginAddsBottomDockHeightToBaseMargin() {
+        let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let visibleFrame = NSRect(x: 0, y: 72, width: 1440, height: 788)
+
+        let origin = HUDWindow.frameOrigin(
+            windowSize: HUDLayout.windowSize,
+            screenFrame: screenFrame,
+            visibleFrame: visibleFrame
+        )
+
+        XCTAssertEqual(origin.y, HUDLayout.baseBottomMargin + 72, accuracy: 0.001)
+    }
+
     func testHUDColorsAreOpaqueAndCentralized() {
         let colors = [
             HUDLayout.capsuleBackgroundColor,
