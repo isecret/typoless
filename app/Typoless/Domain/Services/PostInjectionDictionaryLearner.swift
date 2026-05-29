@@ -203,6 +203,7 @@ struct PostInjectionDictionaryLearner: PostInjectionDictionaryLearning, Sendable
         guard !normalized.contains(where: \.isNewline) else { return nil }
         guard !normalized.allSatisfy({ $0.isNumber }) else { return nil }
         guard !normalized.allSatisfy(Self.isPunctuationLike) else { return nil }
+        guard normalized.allSatisfy(Self.isChineseCharacter) else { return nil }
 
         let sentenceEndingCharacters = CharacterSet(charactersIn: "。！？!?；;")
         if let scalar = normalized.unicodeScalars.last,
@@ -242,6 +243,25 @@ struct PostInjectionDictionaryLearner: PostInjectionDictionaryLearning, Sendable
             CharacterSet.punctuationCharacters.contains(scalar)
                 || CharacterSet.symbols.contains(scalar)
                 || CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }
+    }
+
+    private static func isChineseCharacter(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 0x3400...0x4DBF,   // CJK Unified Ideographs Extension A
+                 0x4E00...0x9FFF,   // CJK Unified Ideographs
+                 0xF900...0xFAFF,   // CJK Compatibility Ideographs
+                 0x20000...0x2A6DF, // CJK Unified Ideographs Extension B
+                 0x2A700...0x2B73F, // CJK Unified Ideographs Extension C
+                 0x2B740...0x2B81F, // CJK Unified Ideographs Extension D
+                 0x2B820...0x2CEAF, // CJK Unified Ideographs Extension E/F
+                 0x2CEB0...0x2EBEF, // CJK Unified Ideographs Extension F/I
+                 0x30000...0x3134F: // CJK Unified Ideographs Extension G/H
+                return true
+            default:
+                return false
+            }
         }
     }
 

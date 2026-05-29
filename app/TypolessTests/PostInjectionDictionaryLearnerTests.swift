@@ -57,6 +57,8 @@ final class PostInjectionDictionaryLearnerTests: XCTestCase {
         XCTAssertNil(PostInjectionDictionaryLearner.learnableTerm(from: "！！！"))
         XCTAssertNil(PostInjectionDictionaryLearner.learnableTerm(from: "完整句子。"))
         XCTAssertNil(PostInjectionDictionaryLearner.learnableTerm(from: "两\n行"))
+        XCTAssertNil(PostInjectionDictionaryLearner.learnableTerm(from: "shurufa"))
+        XCTAssertNil(PostInjectionDictionaryLearner.learnableTerm(from: "朴邻abc"))
     }
 
     @MainActor
@@ -161,6 +163,38 @@ final class PostInjectionDictionaryLearnerTests: XCTestCase {
         )
 
         XCTAssertEqual(decisions, [.failed("朴邻", reason: "invalid_response")])
+        XCTAssertTrue(store.entries.isEmpty)
+    }
+
+    @MainActor
+    func testObserveIgnoresNonChineseReplacementWithoutCallingEvaluator() async {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        let evaluator = MockProperNounEvaluator { _ in
+            XCTFail("non-Chinese candidate should be filtered before evaluation")
+            return .reject
+        }
+        let sequence = SnapshotSequence([
+            .init(pid: 42, bundleID: "com.example.app", value: "请联系输入"),
+            .init(pid: 42, bundleID: "com.example.app", value: "请联系shuru"),
+            nil
+        ])
+        let learner = PostInjectionDictionaryLearner(
+            snapshotProvider: { _, _ in sequence.current },
+            termEvaluator: evaluator,
+            sleep: { _ in sequence.advance() }
+        )
+
+        var decisions: [PostInjectionLearningDecision] = []
+        await learner.observe(
+            targetPID: 42,
+            targetBundleID: "com.example.app",
+            windowContext: nil,
+            store: store,
+            shouldContinue: { true },
+            onDecision: { decisions.append($0) }
+        )
+
+        XCTAssertTrue(decisions.isEmpty)
         XCTAssertTrue(store.entries.isEmpty)
     }
 
