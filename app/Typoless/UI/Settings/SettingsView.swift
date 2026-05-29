@@ -68,6 +68,9 @@ struct SettingsView: View {
                     onHotkeyChanged: {
                         appCoordinator.setupHotkey()
                     },
+                    onHotkeyRecordingChanged: { isRecording in
+                        appCoordinator.setHotkeyCaptureSuspended(isRecording)
+                    },
                     onInteractionSoundChanged: { enabled in
                         appCoordinator.setInteractionSoundKeepAliveEnabled(enabled)
                     }

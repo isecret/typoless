@@ -1,9 +1,14 @@
 import SwiftUI
 
 struct GeneralSettingsView: View {
+    private enum Layout {
+        static let translationPickerWidth: CGFloat = 160
+    }
+
     let configStore: ConfigStore
     let updateService: AppUpdateService
     var onHotkeyChanged: (() -> Void)?
+    var onHotkeyRecordingChanged: ((Bool) -> Void)?
     var onInteractionSoundChanged: ((Bool) -> Void)?
 
     @State private var hotkey: HotkeyCombo = .default
@@ -16,10 +21,16 @@ struct GeneralSettingsView: View {
         Group {
             SettingsPaneSection {
                 SettingsFormRow(title: "全局快捷键") {
-                    HotkeyRecorderView(hotkey: $hotkey)
+                    HotkeyRecorderView(
+                        hotkey: $hotkey,
+                        onRecordingStateChanged: { isRecording in
+                            onHotkeyRecordingChanged?(isRecording)
+                        }
+                    )
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             } footer: {
-                Text("按下语音输入的全局快捷键")
+                Text("点按后开始录制。支持纯修饰键和左右修饰键；录制纯修饰键时按下组合后松开即可完成。")
             }
 
             SettingsPaneSection {
@@ -33,13 +44,18 @@ struct GeneralSettingsView: View {
 
             SettingsPaneSection {
                 SettingsFormRow(title: "翻译目标语言") {
-                    Picker("", selection: $translationTargetLanguage) {
-                        ForEach(TranslationTargetLanguage.allCases, id: \.self) { lang in
-                            Text(lang.displayName).tag(lang)
+                    HStack(spacing: 0) {
+                        Picker("", selection: $translationTargetLanguage) {
+                            ForEach(TranslationTargetLanguage.allCases, id: \.self) { lang in
+                                Text(lang.displayName).tag(lang)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: Layout.translationPickerWidth, alignment: .leading)
+
+                        Spacer(minLength: 0)
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
                 }
             } footer: {
                 Text("按下 Shift+Tab 切换至翻译模式将文本翻译为目标语言")

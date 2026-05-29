@@ -98,7 +98,7 @@
 - `PermissionsManager`
   负责麦克风与辅助功能权限检查
 - `HotkeyManager`
-  负责全局快捷键注册与更新
+  负责全局快捷键注册、特殊修饰键监听与更新
 - `ConfigStore`
   负责普通配置和密钥读写
 - `AppUpdateService`
@@ -116,6 +116,21 @@
 - 决定首次启动是否自动打开设置页
 - 订阅 `SessionCoordinator` 状态用于刷新菜单栏 UI
 - 在应用启动后启动 Sparkle 更新器，并按用户偏好执行自动检查
+- 在普通热键和特殊修饰键热键之间统一分发录音触发动作
+
+### 5.1.1 HotkeyManager
+
+- 标准快捷键继续使用 Carbon `RegisterEventHotKey` 注册，覆盖包含普通键的组合
+- 纯修饰键和左右侧修饰键组合通过 `flagsChanged` 事件监听实现，不依赖普通 hotkey 库
+- 设置页录制控件直接采集按键事件，支持：
+  - `Right Command` 单键
+  - `Left Command + Option`
+  - `Control + Option`
+  - 其他左右侧修饰键组合
+- 快捷键配置模型同时兼容：
+  - 旧版 `keyCode + modifiers + displayString` 普通组合键结构
+  - 新版纯修饰键 `specialModifiers` 结构
+- 特殊修饰键匹配要求物理按键组合精确一致；存在额外修饰键时不触发
 
 ### 5.2 SessionCoordinator
 

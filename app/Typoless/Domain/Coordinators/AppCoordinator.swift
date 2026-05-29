@@ -93,6 +93,10 @@ final class AppCoordinator {
         hudFeedbackController.setInteractionSoundKeepAliveEnabled(enabled)
     }
 
+    func setHotkeyCaptureSuspended(_ suspended: Bool) {
+        hotkeyManager.setSuspended(suspended)
+    }
+
     private func updateInteractionSoundKeepAlive() {
         setInteractionSoundKeepAliveEnabled(configStore.generalConfig.interactionSoundEnabled)
     }

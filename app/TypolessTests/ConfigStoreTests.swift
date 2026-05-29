@@ -55,6 +55,7 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.asrConfig.volcengine.apiKey, "")
         XCTAssertEqual(store.asrConfig.xunfei.appID, "")
         XCTAssertTrue(store.generalConfig.interactionSoundEnabled)
+        XCTAssertEqual(store.generalConfig.hotkey.displayString, "⌥ + Space")
     }
 
     @MainActor
@@ -107,6 +108,27 @@ final class ConfigStoreTests: XCTestCase {
 
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertFalse(secondStore.generalConfig.interactionSoundEnabled)
+    }
+
+    @MainActor
+    func testSaveAndReloadSpecialHotkeyConfig() throws {
+        let firstStore = ConfigStore(configDirectory: tempDirectory)
+        let specialHotkey = HotkeyCombo.special(
+            modifiers: [
+                HotkeyModifierSpec(key: .command, side: .right),
+                HotkeyModifierSpec(key: .option, side: .left),
+            ]
+        )
+
+        try firstStore.saveGeneralConfig(
+            GeneralConfig(
+                hotkey: specialHotkey,
+                interactionSoundEnabled: true
+            )
+        )
+
+        let secondStore = ConfigStore(configDirectory: tempDirectory)
+        XCTAssertEqual(secondStore.generalConfig.hotkey, specialHotkey)
     }
 
     @MainActor
