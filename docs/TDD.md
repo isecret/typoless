@@ -459,10 +459,11 @@ Segment 级诊断字段（每段独立记录）：
 - `asr.xunfei.appID`
 - `asr.xunfei.apiKey`
 - `asr.xunfei.apiSecret`
+- `asr.xiaomiMiMo.apiKey`
 
 ### 8.3 ASR 配置
 
-- `asr.selectedPlatform`：当前选中的 ASR 平台（`localSenseVoice` / `tencentCloudSentence` / `aliyunSentence` / `volcengineSentence` / `xunfeiSentence`）
+- `asr.selectedPlatform`：当前选中的 ASR 平台（`localSenseVoice` / `tencentCloudSentence` / `aliyunSentence` / `volcengineSentence` / `xunfeiSentence` / `xiaomiMiMoASR`）
 - `asr.local.modelStatus`：本地模型状态（notDownloaded / downloading / ready / failed）
 - `asr.local.lastError`：最近一次下载失败的错误信息
 - `asr.local.mirrorSource`：自定义镜像源 URL
@@ -483,6 +484,10 @@ Segment 级诊断字段（每段独立记录）：
 - `asr.xunfei.apiSecret`：科大讯飞 API Secret
 - `asr.xunfei.validationStatus`：科大讯飞配置验证状态（unvalidated / validating / verified / failed）
 - `asr.xunfei.lastValidationError`：科大讯飞最近一次验证失败摘要
+- `asr.xiaomiMiMo.apiKey`：小米 MiMo API Key
+- `asr.xiaomiMiMo.language`：小米 MiMo ASR 识别语言（auto / zh / en，默认 auto）
+- `asr.xiaomiMiMo.validationStatus`：小米 MiMo 配置验证状态（unvalidated / validating / verified / failed）
+- `asr.xiaomiMiMo.lastValidationError`：小米 MiMo 最近一次验证失败摘要
 
 ### 8.4 个人词典配置
 
@@ -512,9 +517,9 @@ Segment 级诊断字段（每段独立记录）：
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议需支持 final 结果。
-- 用户在设置中手动选择 ASR 平台：`本地 SenseVoice`、`腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`。
+- 用户在设置中手动选择 ASR 平台：`本地 SenseVoice`、`腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`、`小米 MiMo`。
 - 默认实现为 `SenseVoiceASRProvider`，通过 `SenseVoiceRuntimeManager` 管理本地 recognizer。
-- 云端 Provider 固定为 `TencentSentenceASRProvider`、`AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`。
+- 云端 Provider 固定为 `TencentSentenceASRProvider`、`AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`、`XiaomiMiMoASRProvider`。
 - 不做平台间自动回退；所选平台不可用时直接报错阻止录音。
 
 ### 9.2 RNNoise 降噪
@@ -552,8 +557,11 @@ Segment 级诊断字段（每段独立记录）：
 - 配置：API Key，存于 `asr.volcengine`。
 - `XunfeiSentenceASRProvider` 使用语音听写 WebSocket 接口，并从 `wav` 中提取 PCM 数据按帧发送。
 - 配置：AppID、API Key、API Secret，存于 `asr.xunfei`。
+- `XiaomiMiMoASRProvider` 调用 OpenAI Chat Completions 兼容接口 `https://api.xiaomimimo.com/v1/chat/completions`。
+- 模型固定为 `mimo-v2.5-asr`，请求体通过 `messages[].content[].input_audio.data` 传入 `data:audio/wav;base64,<audio>`，`asr_options.language` 支持 `auto`、`zh`、`en`。
+- 鉴权使用 `Authorization: Bearer <apiKey>`，配置：API Key、Language，存于 `asr.xiaomiMiMo`。
 - 所有云 Provider 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`。
-- 四个云 Provider 均需提供 `validateCredentials()` 能力，供设置页真实验证调用。
+- 五个云 Provider 均需提供 `validateCredentials()` 能力，供设置页真实验证调用。
 - 验证请求以最小真实请求验证鉴权与接口可达性；若鉴权成功但测试音频返回空结果，仍视为验证通过。
 
 ### 9.6 分段 ASR 编排
@@ -604,7 +612,7 @@ Segment 级诊断字段（每段独立记录）：
 - 识别失败 -> `asrProcessFailure`
 - 本地运行时初始化失败 -> `asrRuntimeMissing`
 
-云端 ASR 错误（腾讯云 / 阿里云 / 火山引擎 / 科大讯飞）：
+云端 ASR 错误（腾讯云 / 阿里云 / 火山引擎 / 科大讯飞 / 小米 MiMo）：
 - 配置不完整 -> `cloudASRConfigurationIncomplete`
 - 鉴权失败 -> `cloudASRAuthenticationFailure`
 - 网络错误 -> `cloudASRNetworkFailure`

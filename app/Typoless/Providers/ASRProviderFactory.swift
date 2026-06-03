@@ -26,6 +26,11 @@ struct ASRProviderFactory {
                 apiKey: config.xunfei.apiKey,
                 apiSecret: config.xunfei.apiSecret
             )
+        case .xiaomiMiMoASR:
+            XiaomiMiMoASRProvider(
+                apiKey: config.xiaomiMiMo.apiKey,
+                language: config.xiaomiMiMo.language
+            )
         }
     }
 }

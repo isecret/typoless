@@ -54,6 +54,8 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.asrConfig.aliyun.accessKeyId, "")
         XCTAssertEqual(store.asrConfig.volcengine.apiKey, "")
         XCTAssertEqual(store.asrConfig.xunfei.appID, "")
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.apiKey, "")
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.language, "auto")
         XCTAssertTrue(store.generalConfig.interactionSoundEnabled)
         XCTAssertEqual(store.generalConfig.hotkey.displayString, "⌥ + Space")
     }
@@ -67,8 +69,11 @@ final class ConfigStoreTests: XCTestCase {
         asrConfig.aliyun.accessKeyId = "ak"
         asrConfig.aliyun.accessKeySecret = "secret"
         asrConfig.aliyun.appKey = "app"
+        asrConfig.xiaomiMiMo.apiKey = "mimo-key"
+        asrConfig.xiaomiMiMo.language = "zh"
         try firstStore.saveASRConfig(asrConfig)
         try firstStore.updateCloudValidationState(for: .volcengineSentence, status: .verified)
+        try firstStore.updateCloudValidationState(for: .xiaomiMiMoASR, status: .verified)
 
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertEqual(secondStore.asrConfig.selectedPlatform, .volcengineSentence)
@@ -77,6 +82,9 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeyId, "ak")
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeySecret, "secret")
         XCTAssertEqual(secondStore.asrConfig.aliyun.appKey, "app")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.apiKey, "mimo-key")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.language, "zh")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.validationStatus, .verified)
     }
 
     @MainActor
@@ -95,6 +103,24 @@ final class ConfigStoreTests: XCTestCase {
 
         XCTAssertEqual(store.asrConfig.tencentCloud.validationStatus, .unvalidated)
         XCTAssertNil(store.asrConfig.tencentCloud.lastValidationError)
+    }
+
+    @MainActor
+    func testChangingXiaomiMiMoLanguageInvalidatesValidationState() throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var asrConfig = store.asrConfig
+        asrConfig.selectedPlatform = .xiaomiMiMoASR
+        asrConfig.xiaomiMiMo.apiKey = "mimo-key"
+        asrConfig.xiaomiMiMo.language = "auto"
+        try store.saveASRConfig(asrConfig)
+        try store.updateCloudValidationState(for: .xiaomiMiMoASR, status: .verified)
+
+        var changedConfig = store.asrConfig
+        changedConfig.xiaomiMiMo.language = "zh"
+        try store.saveASRConfig(changedConfig)
+
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.validationStatus, .unvalidated)
+        XCTAssertNil(store.asrConfig.xiaomiMiMo.lastValidationError)
     }
 
     @MainActor
