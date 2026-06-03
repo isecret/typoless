@@ -390,13 +390,11 @@ struct XunfeiASRConfig: Codable, Equatable, Sendable {
 /// 小米 MiMo ASR 配置
 struct XiaomiMiMoASRConfig: Codable, Equatable, Sendable {
     var apiKey: String = ""
-    var language: String = "auto"
     var validationStatus: CloudASRValidationStatus = .unvalidated
     var lastValidationError: String?
 
     enum CodingKeys: String, CodingKey {
         case apiKey
-        case language
         case validationStatus
         case lastValidationError
     }
@@ -406,22 +404,12 @@ struct XiaomiMiMoASRConfig: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
-        let decodedLanguage = try container.decodeIfPresent(String.self, forKey: .language) ?? Self.defaultLanguage
-        language = Self.normalizedLanguage(decodedLanguage)
         validationStatus = try container.decodeIfPresent(CloudASRValidationStatus.self, forKey: .validationStatus) ?? .unvalidated
         lastValidationError = try container.decodeIfPresent(String.self, forKey: .lastValidationError)
     }
 
     var isComplete: Bool {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    static let defaultLanguage = "auto"
-    static let supportedLanguages = ["auto", "zh", "en"]
-
-    static func normalizedLanguage(_ language: String) -> String {
-        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
-        return supportedLanguages.contains(trimmed) ? trimmed : defaultLanguage
     }
 }
 

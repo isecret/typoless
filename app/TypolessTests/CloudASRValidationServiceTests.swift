@@ -187,30 +187,27 @@ final class CloudASRValidationServiceTests: XCTestCase {
         XCTAssertNil(service.lastErrorMessage)
     }
 
-    func testXiaomiMiMoValidationInputFingerprintIncludesLanguage() {
+    func testXiaomiMiMoValidationInputFingerprintUsesAPIKey() {
         var config = ASRConfig()
         config.xiaomiMiMo.apiKey = "mimo-key"
-        config.xiaomiMiMo.language = "zh"
 
         let input = CloudASRValidationInput(platform: .xiaomiMiMoASR, asrConfig: config)
 
         XCTAssertTrue(input.isCloudPlatform)
         XCTAssertTrue(input.isComplete)
-        XCTAssertEqual(input.fingerprint, "xiaomiMiMoASR\nmimo-key\nzh")
+        XCTAssertEqual(input.fingerprint, "xiaomiMiMoASR\nmimo-key")
     }
 
     func testXiaomiMiMoTokenPlanValidationInputFingerprintUsesIndependentPlatform() {
         var config = ASRConfig()
         config.xiaomiMiMo.apiKey = "mimo-key"
-        config.xiaomiMiMo.language = "zh"
         config.xiaomiMiMoTokenPlan.apiKey = "token-plan-key"
-        config.xiaomiMiMoTokenPlan.language = "en"
 
         let input = CloudASRValidationInput(platform: .xiaomiMiMoTokenPlanASR, asrConfig: config)
 
         XCTAssertTrue(input.isCloudPlatform)
         XCTAssertTrue(input.isComplete)
-        XCTAssertEqual(input.fingerprint, "xiaomiMiMoTokenPlanASR\ntoken-plan-key\nen")
+        XCTAssertEqual(input.fingerprint, "xiaomiMiMoTokenPlanASR\ntoken-plan-key")
     }
 
     @MainActor
