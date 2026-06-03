@@ -200,6 +200,18 @@ final class HUDFeedbackControllerTests: XCTestCase {
         XCTAssertFalse(controller.isHUDPresented)
     }
 
+    func testProcessingCancelledFromRecordingDismissesHUD() async {
+        let controller = HUDFeedbackController()
+
+        controller.handleEvent(.recordingStarted)
+        controller.handleEvent(.processingCancelled)
+
+        await waitForHUDToHide(controller)
+
+        XCTAssertEqual(controller.hudState, .hidden)
+        XCTAssertFalse(controller.isHUDPresented)
+    }
+
     func testDictionaryTermLearnedShowsNoticeHUD() {
         let controller = HUDFeedbackController()
 
