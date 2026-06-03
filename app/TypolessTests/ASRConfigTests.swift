@@ -113,13 +113,9 @@ final class ASRConfigTests: XCTestCase {
         XCTAssertEqual(decoded.selectedPlatform, .localSenseVoice)
     }
 
-    func testXiaomiMiMoLanguageNormalization() throws {
-        XCTAssertEqual(XiaomiMiMoASRConfig.normalizedLanguage(" zh "), "zh")
-        XCTAssertEqual(XiaomiMiMoASRConfig.normalizedLanguage("EN"), "en")
-        XCTAssertEqual(XiaomiMiMoASRConfig.normalizedLanguage("ja"), "auto")
-
+    func testXiaomiMiMoConfigIgnoresLegacyLanguageField() throws {
         let data = Data(#"{"apiKey":"key","language":"ja"}"#.utf8)
         let decoded = try JSONDecoder().decode(XiaomiMiMoASRConfig.self, from: data)
-        XCTAssertEqual(decoded.language, "auto")
+        XCTAssertEqual(decoded.apiKey, "key")
     }
 }

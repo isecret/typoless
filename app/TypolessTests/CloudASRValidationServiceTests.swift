@@ -190,13 +190,12 @@ final class CloudASRValidationServiceTests: XCTestCase {
     func testXiaomiMiMoValidationInputFingerprintIncludesLanguage() {
         var config = ASRConfig()
         config.xiaomiMiMo.apiKey = "mimo-key"
-        config.xiaomiMiMo.language = "zh"
 
         let input = CloudASRValidationInput(platform: .xiaomiMiMoASR, asrConfig: config)
 
         XCTAssertTrue(input.isCloudPlatform)
         XCTAssertTrue(input.isComplete)
-        XCTAssertEqual(input.fingerprint, "xiaomiMiMoASR\nmimo-key\nzh")
+        XCTAssertEqual(input.fingerprint, "xiaomiMiMoASR\nmimo-key")
     }
 
     @MainActor
@@ -205,7 +204,6 @@ final class CloudASRValidationServiceTests: XCTestCase {
         var config = store.asrConfig
         config.selectedPlatform = .xiaomiMiMoASR
         config.xiaomiMiMo.apiKey = "mimo-key"
-        config.xiaomiMiMo.language = "zh"
         try store.saveASRConfig(config)
         try store.updateCloudValidationState(for: .xiaomiMiMoASR, status: .verified)
 
@@ -224,7 +222,6 @@ final class CloudASRValidationServiceTests: XCTestCase {
         var config = store.asrConfig
         config.selectedPlatform = .xiaomiMiMoASR
         config.xiaomiMiMo.apiKey = "mimo-key"
-        config.xiaomiMiMo.language = "en"
         try store.saveASRConfig(config)
 
         let service = CloudASRValidationService(

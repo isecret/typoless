@@ -185,10 +185,7 @@ final class CloudASRValidationService {
                 apiSecret: input.asrConfig.xunfei.apiSecret
             )
         case .xiaomiMiMoASR:
-            return XiaomiMiMoASRProvider(
-                apiKey: input.asrConfig.xiaomiMiMo.apiKey,
-                language: input.asrConfig.xiaomiMiMo.language
-            )
+            return XiaomiMiMoASRProvider(apiKey: input.asrConfig.xiaomiMiMo.apiKey)
         }
     }
 

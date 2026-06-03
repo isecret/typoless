@@ -485,7 +485,6 @@ Segment 级诊断字段（每段独立记录）：
 - `asr.xunfei.validationStatus`：科大讯飞配置验证状态（unvalidated / validating / verified / failed）
 - `asr.xunfei.lastValidationError`：科大讯飞最近一次验证失败摘要
 - `asr.xiaomiMiMo.apiKey`：小米 MiMo API Key
-- `asr.xiaomiMiMo.language`：小米 MiMo ASR 识别语言（auto / zh / en，默认 auto）
 - `asr.xiaomiMiMo.validationStatus`：小米 MiMo 配置验证状态（unvalidated / validating / verified / failed）
 - `asr.xiaomiMiMo.lastValidationError`：小米 MiMo 最近一次验证失败摘要
 
@@ -558,8 +557,8 @@ Segment 级诊断字段（每段独立记录）：
 - `XunfeiSentenceASRProvider` 使用语音听写 WebSocket 接口，并从 `wav` 中提取 PCM 数据按帧发送。
 - 配置：AppID、API Key、API Secret，存于 `asr.xunfei`。
 - `XiaomiMiMoASRProvider` 调用 OpenAI Chat Completions 兼容接口 `https://api.xiaomimimo.com/v1/chat/completions`。
-- 模型固定为 `mimo-v2.5-asr`，请求体通过 `messages[].content[].input_audio.data` 传入 `data:audio/wav;base64,<audio>`，`asr_options.language` 支持 `auto`、`zh`、`en`。
-- 鉴权使用 `Authorization: Bearer <apiKey>`，配置：API Key、Language，存于 `asr.xiaomiMiMo`。
+- 模型固定为 `mimo-v2.5-asr`，请求体通过 `messages[].content[].input_audio.data` 传入 `data:audio/wav;base64,<audio>`，`asr_options.language` 固定发送 `auto`。
+- 鉴权使用 `Authorization: Bearer <apiKey>`，配置仅包含 API Key。
 - 所有云 Provider 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`。
 - 五个云 Provider 均需提供 `validateCredentials()` 能力，供设置页真实验证调用。
 - 验证请求以最小真实请求验证鉴权与接口可达性；若鉴权成功但测试音频返回空结果，仍视为验证通过。

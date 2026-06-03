@@ -8,7 +8,7 @@ final class XiaomiMiMoASRProviderTests: XCTestCase {
             responseData: Data(#"{"id":"req-1","choices":[{"message":{"content":" 你好世界 "}}]}"#.utf8),
             statusCode: 200
         )
-        let provider = XiaomiMiMoASRProvider(apiKey: "mimo-key", language: "zh", httpClient: client)
+        let provider = XiaomiMiMoASRProvider(apiKey: "mimo-key", httpClient: client)
 
         let result = try await provider.recognize(audioData: audioData, timeout: 23)
 
@@ -29,7 +29,7 @@ final class XiaomiMiMoASRProviderTests: XCTestCase {
         XCTAssertEqual(json?["stream"] as? Bool, false)
 
         let asrOptions = json?["asr_options"] as? [String: Any]
-        XCTAssertEqual(asrOptions?["language"] as? String, "zh")
+        XCTAssertEqual(asrOptions?["language"] as? String, "auto")
 
         let messages = try XCTUnwrap(json?["messages"] as? [[String: Any]])
         XCTAssertEqual(messages.first?["role"] as? String, "user")
@@ -39,12 +39,12 @@ final class XiaomiMiMoASRProviderTests: XCTestCase {
         XCTAssertEqual(inputAudio["data"] as? String, "data:audio/wav;base64,\(audioData.base64EncodedString())")
     }
 
-    func testRecognizeNormalizesUnsupportedLanguageToAuto() async throws {
+    func testRecognizeUsesAutoLanguageByDefault() async throws {
         let client = StubXiaomiMiMoHTTPClient(
             responseData: Data(#"{"choices":[{"message":{"content":"text"}}]}"#.utf8),
             statusCode: 200
         )
-        let provider = XiaomiMiMoASRProvider(apiKey: "mimo-key", language: "ja", httpClient: client)
+        let provider = XiaomiMiMoASRProvider(apiKey: "mimo-key", httpClient: client)
 
         _ = try await provider.recognize(audioData: Data([1]), timeout: nil)
 

@@ -9,20 +9,18 @@ extension URLSession: XiaomiMiMoASRHTTPClient {}
 final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked Sendable {
     static let recognizeURL = URL(string: "https://api.xiaomimimo.com/v1/chat/completions")!
     static let modelID = "mimo-v2.5-asr"
+    static let defaultLanguage = "auto"
 
     private static let defaultTimeout: TimeInterval = 15
 
     private let apiKey: String
-    private let language: String
     private let httpClient: any XiaomiMiMoASRHTTPClient
 
     init(
         apiKey: String,
-        language: String = "auto",
         httpClient: any XiaomiMiMoASRHTTPClient = URLSession.shared
     ) {
         self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.language = XiaomiMiMoASRConfig.normalizedLanguage(language)
         self.httpClient = httpClient
     }
 
@@ -46,7 +44,7 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
                     ]
                 ),
             ],
-            asrOptions: XiaomiMiMoASROptions(language: language),
+            asrOptions: XiaomiMiMoASROptions(language: Self.defaultLanguage),
             stream: false
         )
 

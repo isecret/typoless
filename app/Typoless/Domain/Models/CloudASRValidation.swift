@@ -45,7 +45,7 @@ struct CloudASRValidationInput: Equatable, Sendable {
         case .xunfeiSentence:
             return "\(platform.rawValue)\n\(asrConfig.xunfei.appID)\n\(asrConfig.xunfei.apiKey)\n\(asrConfig.xunfei.apiSecret)"
         case .xiaomiMiMoASR:
-            return "\(platform.rawValue)\n\(asrConfig.xiaomiMiMo.apiKey)\n\(asrConfig.xiaomiMiMo.language)"
+            return "\(platform.rawValue)\n\(asrConfig.xiaomiMiMo.apiKey)"
         }
     }
 }

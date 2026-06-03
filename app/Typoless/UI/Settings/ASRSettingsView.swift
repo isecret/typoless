@@ -104,7 +104,6 @@ struct ASRSettingsView: View {
     @State private var xunfeiAPISecret: String = ""
 
     @State private var xiaomiMiMoAPIKey: String = ""
-    @State private var xiaomiMiMoLanguage: String = "auto"
 
     @State private var isLoaded = false
     @State private var hasTriggeredValidation = false
@@ -173,7 +172,6 @@ struct ASRSettingsView: View {
         .onChange(of: xunfeiAPIKey) { debouncedSaveCloudConfig() }
         .onChange(of: xunfeiAPISecret) { debouncedSaveCloudConfig() }
         .onChange(of: xiaomiMiMoAPIKey) { debouncedSaveCloudConfig() }
-        .onChange(of: xiaomiMiMoLanguage) { debouncedSaveCloudConfig() }
     }
 
     // MARK: - Panels
@@ -230,15 +228,6 @@ struct ASRSettingsView: View {
     @ViewBuilder
     private var xiaomiMiMoPanel: some View {
         cloudSecureField(title: "API Key", text: $xiaomiMiMoAPIKey)
-        SettingsFormRow(title: "Language") {
-            Picker("Language", selection: $xiaomiMiMoLanguage) {
-                ForEach(XiaomiMiMoASRConfig.supportedLanguages, id: \.self) { language in
-                    Text(language).tag(language)
-                }
-            }
-            .labelsHidden()
-            .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
-        }
         cloudStatusRow(for: .xiaomiMiMoASR)
     }
 
@@ -363,7 +352,6 @@ struct ASRSettingsView: View {
         xunfeiAPISecret = configStore.asrConfig.xunfei.apiSecret
 
         xiaomiMiMoAPIKey = configStore.asrConfig.xiaomiMiMo.apiKey
-        xiaomiMiMoLanguage = configStore.asrConfig.xiaomiMiMo.language
 
         hasTriggeredValidation = false
         downloadManager = ModelDownloadManager(configStore: configStore)
@@ -388,7 +376,6 @@ struct ASRSettingsView: View {
         config.xunfei.apiKey = xunfeiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         config.xunfei.apiSecret = xunfeiAPISecret.trimmingCharacters(in: .whitespacesAndNewlines)
         config.xiaomiMiMo.apiKey = xiaomiMiMoAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        config.xiaomiMiMo.language = XiaomiMiMoASRConfig.normalizedLanguage(xiaomiMiMoLanguage)
         return config
     }
 
