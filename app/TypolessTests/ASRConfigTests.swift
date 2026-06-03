@@ -43,6 +43,12 @@ final class ASRConfigTests: XCTestCase {
         XCTAssertFalse(config.isReady(localModelsAvailable: false))
         config.xiaomiMiMo.validationStatus = .verified
         XCTAssertTrue(config.isReady(localModelsAvailable: false))
+
+        config.selectedPlatform = .xiaomiMiMoTokenPlanASR
+        config.xiaomiMiMoTokenPlan.apiKey = "token-plan-key"
+        XCTAssertFalse(config.isReady(localModelsAvailable: false))
+        config.xiaomiMiMoTokenPlan.validationStatus = .verified
+        XCTAssertTrue(config.isReady(localModelsAvailable: false))
     }
 
     func testNotReadyReasonMatchesPlatform() {
@@ -79,6 +85,16 @@ final class ASRConfigTests: XCTestCase {
             config.notReadyReason(localModelsAvailable: false),
             "小米 MiMo ASR 配置不完整，请填写 API Key"
         )
+
+        config.selectedPlatform = .xiaomiMiMoTokenPlanASR
+        XCTAssertEqual(
+            config.notReadyReason(localModelsAvailable: false),
+            "小米 MiMo（Token Plan） ASR 配置不完整，请填写 API Key"
+        )
+    }
+
+    func testXiaomiMiMoTokenPlanDisplayName() {
+        XCTAssertEqual(ASRPlatform.xiaomiMiMoTokenPlanASR.displayName, "小米 MiMo（Token Plan）")
     }
 
     func testProviderFactoryRoutesToExpectedProviderType() {
@@ -105,6 +121,10 @@ final class ASRConfigTests: XCTestCase {
         config.selectedPlatform = .xiaomiMiMoASR
         let xiaomiMiMo = factory.makeProvider(for: config)
         XCTAssertEqual(String(describing: type(of: xiaomiMiMo)), "XiaomiMiMoASRProvider")
+
+        config.selectedPlatform = .xiaomiMiMoTokenPlanASR
+        let xiaomiMiMoTokenPlan = factory.makeProvider(for: config)
+        XCTAssertEqual(String(describing: type(of: xiaomiMiMoTokenPlan)), "XiaomiMiMoASRProvider")
     }
 
     func testDecodingLegacyLocalASRValueMigratesToSenseVoice() throws {
@@ -113,9 +133,10 @@ final class ASRConfigTests: XCTestCase {
         XCTAssertEqual(decoded.selectedPlatform, .localSenseVoice)
     }
 
-    func testXiaomiMiMoConfigIgnoresLegacyLanguageField() throws {
+    func testXiaomiMiMoConfigNormalizesUnsupportedLanguageField() throws {
         let data = Data(#"{"apiKey":"key","language":"ja"}"#.utf8)
         let decoded = try JSONDecoder().decode(XiaomiMiMoASRConfig.self, from: data)
         XCTAssertEqual(decoded.apiKey, "key")
+        XCTAssertEqual(decoded.language, "auto")
     }
 }

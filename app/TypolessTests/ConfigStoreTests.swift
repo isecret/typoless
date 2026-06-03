@@ -69,9 +69,13 @@ final class ConfigStoreTests: XCTestCase {
         asrConfig.aliyun.accessKeySecret = "secret"
         asrConfig.aliyun.appKey = "app"
         asrConfig.xiaomiMiMo.apiKey = "mimo-key"
+        asrConfig.xiaomiMiMo.language = "zh"
+        asrConfig.xiaomiMiMoTokenPlan.apiKey = "token-plan-key"
+        asrConfig.xiaomiMiMoTokenPlan.language = "en"
         try firstStore.saveASRConfig(asrConfig)
         try firstStore.updateCloudValidationState(for: .volcengineSentence, status: .verified)
         try firstStore.updateCloudValidationState(for: .xiaomiMiMoASR, status: .verified)
+        try firstStore.updateCloudValidationState(for: .xiaomiMiMoTokenPlanASR, status: .verified)
 
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertEqual(secondStore.asrConfig.selectedPlatform, .volcengineSentence)
@@ -81,7 +85,11 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeySecret, "secret")
         XCTAssertEqual(secondStore.asrConfig.aliyun.appKey, "app")
         XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.apiKey, "mimo-key")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.language, "zh")
         XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.validationStatus, .verified)
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMoTokenPlan.apiKey, "token-plan-key")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMoTokenPlan.language, "en")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMoTokenPlan.validationStatus, .verified)
     }
 
     @MainActor
@@ -100,6 +108,24 @@ final class ConfigStoreTests: XCTestCase {
 
         XCTAssertEqual(store.asrConfig.tencentCloud.validationStatus, .unvalidated)
         XCTAssertNil(store.asrConfig.tencentCloud.lastValidationError)
+    }
+
+    @MainActor
+    func testChangingXiaomiMiMoTokenPlanLanguageInvalidatesValidationState() throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var asrConfig = store.asrConfig
+        asrConfig.selectedPlatform = .xiaomiMiMoTokenPlanASR
+        asrConfig.xiaomiMiMoTokenPlan.apiKey = "token-plan-key"
+        asrConfig.xiaomiMiMoTokenPlan.language = "auto"
+        try store.saveASRConfig(asrConfig)
+        try store.updateCloudValidationState(for: .xiaomiMiMoTokenPlanASR, status: .verified)
+
+        var changedConfig = store.asrConfig
+        changedConfig.xiaomiMiMoTokenPlan.language = "zh"
+        try store.saveASRConfig(changedConfig)
+
+        XCTAssertEqual(store.asrConfig.xiaomiMiMoTokenPlan.validationStatus, .unvalidated)
+        XCTAssertNil(store.asrConfig.xiaomiMiMoTokenPlan.lastValidationError)
     }
 
     @MainActor
@@ -259,6 +285,10 @@ final class ConfigStoreTests: XCTestCase {
             "xiaomiMiMo" : {
               "apiKey" : "mimo-key",
               "validationStatus" : "validating"
+            },
+            "xiaomiMiMoTokenPlan" : {
+              "apiKey" : "token-plan-key",
+              "validationStatus" : "validating"
             }
           },
           "general" : {
@@ -283,5 +313,7 @@ final class ConfigStoreTests: XCTestCase {
 
         XCTAssertEqual(store.asrConfig.xiaomiMiMo.validationStatus, .unvalidated)
         XCTAssertNil(store.asrConfig.xiaomiMiMo.lastValidationError)
+        XCTAssertEqual(store.asrConfig.xiaomiMiMoTokenPlan.validationStatus, .unvalidated)
+        XCTAssertNil(store.asrConfig.xiaomiMiMoTokenPlan.lastValidationError)
     }
 }
