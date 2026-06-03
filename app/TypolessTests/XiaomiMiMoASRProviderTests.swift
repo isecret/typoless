@@ -39,6 +39,33 @@ final class XiaomiMiMoASRProviderTests: XCTestCase {
         XCTAssertEqual(inputAudio["data"] as? String, "data:audio/wav;base64,\(audioData.base64EncodedString())")
     }
 
+    func testRecognizeUsesTokenPlanRequestURL() async throws {
+        let client = StubXiaomiMiMoHTTPClient(
+            responseData: Data(#"{"choices":[{"message":{"content":"text"}}]}"#.utf8),
+            statusCode: 200
+        )
+        let provider = XiaomiMiMoASRProvider(
+            apiKey: "mimo-key",
+            baseURL: XiaomiMiMoASRProvider.tokenPlanBaseURL,
+            httpClient: client
+        )
+
+        _ = try await provider.recognize(audioData: Data([1]), timeout: nil)
+
+        let lastRequest = await client.lastRequest
+        let request = try XCTUnwrap(lastRequest)
+        XCTAssertEqual(request.url, XiaomiMiMoASRProvider.tokenPlanRecognizeURL)
+    }
+
+    func testChatCompletionsURLNormalizesTrailingSlash() throws {
+        let withoutSlash = try XCTUnwrap(URL(string: "https://token-plan-cn.xiaomimimo.com/v1"))
+        let withSlash = try XCTUnwrap(URL(string: "https://token-plan-cn.xiaomimimo.com/v1/"))
+        let expected = try XCTUnwrap(URL(string: "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"))
+
+        XCTAssertEqual(XiaomiMiMoASRProvider.chatCompletionsURL(for: withoutSlash), expected)
+        XCTAssertEqual(XiaomiMiMoASRProvider.chatCompletionsURL(for: withSlash), expected)
+    }
+
     func testRecognizeUsesAutoLanguageByDefault() async throws {
         let client = StubXiaomiMiMoHTTPClient(
             responseData: Data(#"{"choices":[{"message":{"content":"text"}}]}"#.utf8),
@@ -54,6 +81,23 @@ final class XiaomiMiMoASRProviderTests: XCTestCase {
         let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
         let asrOptions = json?["asr_options"] as? [String: Any]
         XCTAssertEqual(asrOptions?["language"] as? String, "auto")
+    }
+
+    func testRecognizeUsesConfiguredLanguage() async throws {
+        let client = StubXiaomiMiMoHTTPClient(
+            responseData: Data(#"{"choices":[{"message":{"content":"text"}}]}"#.utf8),
+            statusCode: 200
+        )
+        let provider = XiaomiMiMoASRProvider(apiKey: "mimo-key", language: "zh", httpClient: client)
+
+        _ = try await provider.recognize(audioData: Data([1]), timeout: nil)
+
+        let lastRequest = await client.lastRequest
+        let request = try XCTUnwrap(lastRequest)
+        let body = try XCTUnwrap(request.httpBody)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let asrOptions = json?["asr_options"] as? [String: Any]
+        XCTAssertEqual(asrOptions?["language"] as? String, "zh")
     }
 
     func testRecognizeThrowsConfigurationIncompleteWhenAPIKeyMissing() async {

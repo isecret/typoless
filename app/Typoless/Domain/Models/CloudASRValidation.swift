@@ -29,6 +29,8 @@ struct CloudASRValidationInput: Equatable, Sendable {
             return asrConfig.xunfei.isComplete
         case .xiaomiMiMoASR:
             return asrConfig.xiaomiMiMo.isComplete
+        case .xiaomiMiMoTokenPlanASR:
+            return asrConfig.xiaomiMiMoTokenPlan.isComplete
         }
     }
 
@@ -45,7 +47,9 @@ struct CloudASRValidationInput: Equatable, Sendable {
         case .xunfeiSentence:
             return "\(platform.rawValue)\n\(asrConfig.xunfei.appID)\n\(asrConfig.xunfei.apiKey)\n\(asrConfig.xunfei.apiSecret)"
         case .xiaomiMiMoASR:
-            return "\(platform.rawValue)\n\(asrConfig.xiaomiMiMo.apiKey)"
+            return "\(platform.rawValue)\n\(asrConfig.xiaomiMiMo.apiKey)\n\(asrConfig.xiaomiMiMo.language)"
+        case .xiaomiMiMoTokenPlanASR:
+            return "\(platform.rawValue)\n\(asrConfig.xiaomiMiMoTokenPlan.apiKey)\n\(asrConfig.xiaomiMiMoTokenPlan.language)"
         }
     }
 }

@@ -190,12 +190,27 @@ final class CloudASRValidationServiceTests: XCTestCase {
     func testXiaomiMiMoValidationInputFingerprintIncludesLanguage() {
         var config = ASRConfig()
         config.xiaomiMiMo.apiKey = "mimo-key"
+        config.xiaomiMiMo.language = "zh"
 
         let input = CloudASRValidationInput(platform: .xiaomiMiMoASR, asrConfig: config)
 
         XCTAssertTrue(input.isCloudPlatform)
         XCTAssertTrue(input.isComplete)
-        XCTAssertEqual(input.fingerprint, "xiaomiMiMoASR\nmimo-key")
+        XCTAssertEqual(input.fingerprint, "xiaomiMiMoASR\nmimo-key\nzh")
+    }
+
+    func testXiaomiMiMoTokenPlanValidationInputFingerprintUsesIndependentPlatform() {
+        var config = ASRConfig()
+        config.xiaomiMiMo.apiKey = "mimo-key"
+        config.xiaomiMiMo.language = "zh"
+        config.xiaomiMiMoTokenPlan.apiKey = "token-plan-key"
+        config.xiaomiMiMoTokenPlan.language = "en"
+
+        let input = CloudASRValidationInput(platform: .xiaomiMiMoTokenPlanASR, asrConfig: config)
+
+        XCTAssertTrue(input.isCloudPlatform)
+        XCTAssertTrue(input.isComplete)
+        XCTAssertEqual(input.fingerprint, "xiaomiMiMoTokenPlanASR\ntoken-plan-key\nen")
     }
 
     @MainActor
@@ -236,6 +251,37 @@ final class CloudASRValidationServiceTests: XCTestCase {
         await waitUntil { service.status == .ready }
         XCTAssertEqual(store.asrConfig.xiaomiMiMo.validationStatus, .verified)
         XCTAssertNil(store.asrConfig.xiaomiMiMo.lastValidationError)
+    }
+
+    @MainActor
+    func testXiaomiMiMoTokenPlanValidationTransitionsToReadyAndPersistsIndependentState() async throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var config = store.asrConfig
+        config.selectedPlatform = .xiaomiMiMoTokenPlanASR
+        config.xiaomiMiMo.apiKey = "mimo-key"
+        config.xiaomiMiMoTokenPlan.apiKey = "token-plan-key"
+        try store.saveASRConfig(config)
+        try store.updateCloudValidationState(
+            for: .xiaomiMiMoASR,
+            status: .failed,
+            error: "ordinary failed"
+        )
+
+        let service = CloudASRValidationService(
+            configStore: store,
+            validatorFactory: { input in
+                XCTAssertEqual(input.platform, .xiaomiMiMoTokenPlanASR)
+                return StubCloudASRValidator {}
+            }
+        )
+
+        service.validate(CloudASRValidationInput(platform: .xiaomiMiMoTokenPlanASR, asrConfig: store.asrConfig))
+
+        await waitUntil { service.status == .ready }
+        XCTAssertEqual(store.asrConfig.xiaomiMiMoTokenPlan.validationStatus, .verified)
+        XCTAssertNil(store.asrConfig.xiaomiMiMoTokenPlan.lastValidationError)
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.validationStatus, .failed)
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.lastValidationError, "ordinary failed")
     }
 
     @MainActor

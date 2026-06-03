@@ -309,6 +309,9 @@ final class ConfigStore {
         case .xiaomiMiMoASR:
             updatedConfig.xiaomiMiMo.validationStatus = status
             updatedConfig.xiaomiMiMo.lastValidationError = error
+        case .xiaomiMiMoTokenPlanASR:
+            updatedConfig.xiaomiMiMoTokenPlan.validationStatus = status
+            updatedConfig.xiaomiMiMoTokenPlan.lastValidationError = error
         }
 
         var configFile = buildConfigFile()
@@ -399,9 +402,16 @@ final class ConfigStore {
             newConfig.xunfei.lastValidationError = nil
         }
 
-        if oldConfig.xiaomiMiMo.apiKey != newConfig.xiaomiMiMo.apiKey {
+        if oldConfig.xiaomiMiMo.apiKey != newConfig.xiaomiMiMo.apiKey
+            || oldConfig.xiaomiMiMo.language != newConfig.xiaomiMiMo.language {
             newConfig.xiaomiMiMo.validationStatus = .unvalidated
             newConfig.xiaomiMiMo.lastValidationError = nil
+        }
+
+        if oldConfig.xiaomiMiMoTokenPlan.apiKey != newConfig.xiaomiMiMoTokenPlan.apiKey
+            || oldConfig.xiaomiMiMoTokenPlan.language != newConfig.xiaomiMiMoTokenPlan.language {
+            newConfig.xiaomiMiMoTokenPlan.validationStatus = .unvalidated
+            newConfig.xiaomiMiMoTokenPlan.lastValidationError = nil
         }
     }
 
@@ -431,6 +441,11 @@ final class ConfigStore {
         if normalized.xiaomiMiMo.validationStatus == .validating {
             normalized.xiaomiMiMo.validationStatus = .unvalidated
             normalized.xiaomiMiMo.lastValidationError = nil
+        }
+
+        if normalized.xiaomiMiMoTokenPlan.validationStatus == .validating {
+            normalized.xiaomiMiMoTokenPlan.validationStatus = .unvalidated
+            normalized.xiaomiMiMoTokenPlan.lastValidationError = nil
         }
 
         return normalized

@@ -158,6 +158,8 @@ final class CloudASRValidationService {
             return input.asrConfig.xunfei
         case .xiaomiMiMoASR:
             return input.asrConfig.xiaomiMiMo
+        case .xiaomiMiMoTokenPlanASR:
+            return input.asrConfig.xiaomiMiMoTokenPlan
         }
     }
 
@@ -185,7 +187,17 @@ final class CloudASRValidationService {
                 apiSecret: input.asrConfig.xunfei.apiSecret
             )
         case .xiaomiMiMoASR:
-            return XiaomiMiMoASRProvider(apiKey: input.asrConfig.xiaomiMiMo.apiKey)
+            return XiaomiMiMoASRProvider(
+                apiKey: input.asrConfig.xiaomiMiMo.apiKey,
+                language: input.asrConfig.xiaomiMiMo.language,
+                baseURL: XiaomiMiMoASRProvider.defaultBaseURL
+            )
+        case .xiaomiMiMoTokenPlanASR:
+            return XiaomiMiMoASRProvider(
+                apiKey: input.asrConfig.xiaomiMiMoTokenPlan.apiKey,
+                language: input.asrConfig.xiaomiMiMoTokenPlan.language,
+                baseURL: XiaomiMiMoASRProvider.tokenPlanBaseURL
+            )
         }
     }
 

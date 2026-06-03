@@ -7,21 +7,37 @@ protocol XiaomiMiMoASRHTTPClient: Sendable {
 extension URLSession: XiaomiMiMoASRHTTPClient {}
 
 final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked Sendable {
-    static let recognizeURL = URL(string: "https://api.xiaomimimo.com/v1/chat/completions")!
+    static let defaultBaseURL = URL(string: "https://api.xiaomimimo.com/v1")!
+    static let tokenPlanBaseURL = URL(string: "https://token-plan-cn.xiaomimimo.com/v1")!
+    static let recognizeURL = chatCompletionsURL(for: defaultBaseURL)
+    static let tokenPlanRecognizeURL = chatCompletionsURL(for: tokenPlanBaseURL)
     static let modelID = "mimo-v2.5-asr"
     static let defaultLanguage = "auto"
 
     private static let defaultTimeout: TimeInterval = 15
 
     private let apiKey: String
+    private let language: String
+    private let recognizeURL: URL
     private let httpClient: any XiaomiMiMoASRHTTPClient
 
     init(
         apiKey: String,
+        language: String = Self.defaultLanguage,
+        baseURL: URL = Self.defaultBaseURL,
         httpClient: any XiaomiMiMoASRHTTPClient = URLSession.shared
     ) {
         self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.language = XiaomiMiMoASRConfig.normalizedLanguage(language)
+        self.recognizeURL = Self.chatCompletionsURL(for: baseURL)
         self.httpClient = httpClient
+    }
+
+    static func chatCompletionsURL(for baseURL: URL) -> URL {
+        baseURL
+            .deletingTrailingSlashPathComponent()
+            .appendingPathComponent("chat")
+            .appendingPathComponent("completions")
     }
 
     func recognize(audioData: Data, timeout: TimeInterval? = nil) async throws -> TranscriptResult {
@@ -44,13 +60,13 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
                     ]
                 ),
             ],
-            asrOptions: XiaomiMiMoASROptions(language: Self.defaultLanguage),
+            asrOptions: XiaomiMiMoASROptions(language: language),
             stream: false
         )
 
         let bodyData = try JSONEncoder().encode(requestBody)
 
-        var request = URLRequest(url: Self.recognizeURL)
+        var request = URLRequest(url: recognizeURL)
         request.httpMethod = "POST"
         request.httpBody = bodyData
         request.timeoutInterval = timeout ?? Self.defaultTimeout
@@ -104,6 +120,18 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
             channels: 1
         )
         _ = try await recognize(audioData: silentAudio, timeout: 15)
+    }
+}
+
+private extension URL {
+    func deletingTrailingSlashPathComponent() -> URL {
+        var components = URLComponents(url: self, resolvingAgainstBaseURL: false)
+        let currentPath = components?.path ?? self.path
+        if currentPath.count > 1, currentPath.hasSuffix("/") {
+            components?.path = String(currentPath.dropLast())
+            return components?.url ?? self
+        }
+        return self
     }
 }
 

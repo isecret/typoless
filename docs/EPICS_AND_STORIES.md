@@ -804,13 +804,13 @@
 
 ### 目标
 
-将本地 SenseVoice 模型改为用户目录外置下载，并新增腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo 作为可选云 ASR 平台。
+将本地 SenseVoice 模型改为用户目录外置下载，并新增腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo、小米 MiMo（Token Plan）作为可选云 ASR 平台。
 
 ### Stories
 
 #### S17.1 ASR 配置模型与平台切换
 
-作为用户，我希望在设置页选择 ASR 平台（本地 SenseVoice 或五种云 ASR），以便根据需求选择合适的识别方式。
+作为用户，我希望在设置页选择 ASR 平台（本地 SenseVoice 或六个云端入口），以便根据需求选择合适的识别方式。
 
 验收标准：
 
@@ -844,7 +844,7 @@
 
 - `TencentSentenceASRProvider` 实现 `ASRProvider` 协议
 - `AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`、`XiaomiMiMoASRProvider` 实现 `ASRProvider` 协议
-- 腾讯云使用 TC3-HMAC-SHA256；阿里云使用 `CreateToken + RESTful ASR`；火山引擎使用文件识别接口；科大讯飞使用 WebSocket 语音听写；小米 MiMo 使用 OpenAI Chat Completions 兼容非流式接口
+- 腾讯云使用 TC3-HMAC-SHA256；阿里云使用 `CreateToken + RESTful ASR`；火山引擎使用文件识别接口；科大讯飞使用 WebSocket 语音听写；小米 MiMo 与小米 MiMo（Token Plan）使用 OpenAI Chat Completions 兼容非流式接口，二者仅 Base URL 不同
 - 各云平台超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
 - 配置项最小化：只暴露调用所需凭据
 - 错误映射完整：配置不全、鉴权失败、网络错误、空响应、响应无效
@@ -859,7 +859,7 @@
 
 - `SessionCoordinator` 录音前检查 `isASRReady`，未就绪时阻止录音
 - 本地平台走 `SenseVoiceRuntimeManager` 预热 + `SenseVoiceASRProvider`
-- 云平台通过 `ASRProviderFactory` 分发到腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo 对应 Provider
+- 云平台通过 `ASRProviderFactory` 分发到腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo、小米 MiMo（Token Plan）对应 Provider
 - 不做平台间自动回退
 
 ## E18. LLM 保守型结构化处理

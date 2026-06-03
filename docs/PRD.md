@@ -21,7 +21,7 @@ Typoless 是一款面向 macOS 的语音 + AI 输入助手。用户通过全局�
 - 在 macOS 上提供可常驻运行的全局语音输入能力。
 - 首版优先优化中文短语音输入体验。
 - 使用本地离线 ASR（基于 `SenseVoiceSmall-onnx`）或云端 ASR 完成语音转写。本地模型外置存储于用户目录 `~/.typoless/models/sensevoice-small-onnx/`，通过设置页引导下载。
-- 用户可在设置中手动选择 ASR 平台（本地 `SenseVoice`、腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo）。
+- 用户可在设置中手动选择 ASR 平台（本地 `SenseVoice`、腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo、小米 MiMo（Token Plan））。
 - 通过本地降噪、个人词典与 AI 润色提升中文短语音识别落地质量。
 - 接入用户自定义的 OpenAI 兼容大模型服务完成文本纠错与保守型结构化处理。
 - 在调用配置好的 OpenAI 兼容服务时，可按单次会话附带有限聚焦窗口上下文（元数据 + 光标附近少量文本）帮助消歧；敏感场景仅发送元数据。
@@ -207,7 +207,7 @@ HUD 复制入口（待 HTML 原型验证）：
 
 #### F. ASR 配置
 
-- ASR 平台选择（本地 `SenseVoice` / 腾讯云 / 阿里云 / 火山引擎 / 科大讯飞 / 小米 MiMo）
+- ASR 平台选择（本地 `SenseVoice` / 腾讯云 / 阿里云 / 火山引擎 / 科大讯飞 / 小米 MiMo / 小米 MiMo（Token Plan））
 - 本地模型状态展示与下载入口
 - 云端平台最小凭据配置入口
 - 云端平台在字段完整后自动执行真实请求验证，状态区展示未就绪 / 验证中 / 已就绪 / 验证失败
@@ -236,7 +236,7 @@ HUD 复制入口（待 HTML 原型验证）：
 - 录音结束后、进入 ASR 前，默认执行本地降噪处理。
 - 降噪方案使用开源 RNNoise。
 - 默认 ASR 方案为本地 `SenseVoiceSmall-onnx` 离线识别，通过内置 `sherpa-onnx` 运行时加载 ONNX 模型执行。
-- 云端 ASR 固定支持腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo 五种平台，均以单次短语音、非流式 final text 方式接入。
+- 云端 ASR 固定支持腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo、小米 MiMo（Token Plan）六个入口，均以单次短语音、非流式 final text 方式接入。
 - 所有 ASR 平台统一走分段编排，包括本地 `SenseVoice` 和云端 ASR。
 - 每个分段继续调用现有短音频 ASR Provider，不新增厂商长音频接口。
 - 分段 ASR 串行执行，降低 sidecar 并发、WebSocket 并发和云服务限流风险。
