@@ -23,8 +23,8 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
 
     init(
         apiKey: String,
-        language: String = Self.defaultLanguage,
-        baseURL: URL = Self.defaultBaseURL,
+        language: String = XiaomiMiMoASRProvider.defaultLanguage,
+        baseURL: URL = XiaomiMiMoASRProvider.defaultBaseURL,
         httpClient: any XiaomiMiMoASRHTTPClient = URLSession.shared
     ) {
         self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
