@@ -89,6 +89,62 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     }
 
     @MainActor
+    func testImportEntriesUpdatesListAndStatusMessage() throws {
+        let viewModel = makeViewModel()
+        viewModel.addPlaceholderTerm("Typoless")
+
+        let importURL = tempDirectory.appendingPathComponent("import.json")
+        let importJSON = """
+        [
+          {
+            "id": "duplicate-id",
+            "term": "Typoless"
+          },
+          {
+            "id": "new-id",
+            "term": "FunASR"
+          }
+        ]
+        """
+        try importJSON.write(to: importURL, atomically: true, encoding: .utf8)
+
+        viewModel.importEntries(from: importURL)
+
+        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless", "FunASR"])
+        XCTAssertEqual(viewModel.statusMessage, "已导入 1 个词条，跳过 1 个重复词条")
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    @MainActor
+    func testImportInvalidJSONShowsError() throws {
+        let viewModel = makeViewModel()
+        viewModel.addPlaceholderTerm("Typoless")
+
+        let importURL = tempDirectory.appendingPathComponent("invalid.json")
+        try "{ invalid".write(to: importURL, atomically: true, encoding: .utf8)
+
+        viewModel.importEntries(from: importURL)
+
+        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless"])
+        XCTAssertEqual(viewModel.errorMessage, PersonalDictionaryViewModel.ValidationError.importFailed.rawValue)
+        XCTAssertNil(viewModel.statusMessage)
+    }
+
+    @MainActor
+    func testExportEntriesWritesFileAndStatusMessage() throws {
+        let viewModel = makeViewModel()
+        viewModel.addPlaceholderTerm("Typoless")
+
+        let exportURL = tempDirectory.appendingPathComponent("export.json")
+        viewModel.exportEntries(to: exportURL)
+
+        let exportedEntries = try JSONDecoder().decode([DictionaryEntry].self, from: Data(contentsOf: exportURL))
+        XCTAssertEqual(exportedEntries.map(\.term), ["Typoless"])
+        XCTAssertEqual(viewModel.statusMessage, "已导出 1 个词条")
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    @MainActor
     func testValidEditAfterEmptyEditPersistsAndClearsError() {
         let viewModel = makeViewModel()
         viewModel.addPlaceholderTerm("新词条")

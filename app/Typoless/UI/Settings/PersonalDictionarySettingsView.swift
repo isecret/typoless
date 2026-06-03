@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PersonalDictionarySettingsView: View {
     private static let dictionaryListBottomAnchorID = "dictionary-list-bottom-anchor"
@@ -59,6 +61,11 @@ struct PersonalDictionarySettingsView: View {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .padding(.leading, Layout.leadingInset)
+            } else if let statusMessage = viewModel.statusMessage {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .padding(.leading, Layout.leadingInset)
             }
 
@@ -121,6 +128,16 @@ struct PersonalDictionarySettingsView: View {
             .help("添加词条")
 
             Spacer()
+
+            Button("导入...") {
+                importDictionary()
+            }
+            .help("从 JSON 文件导入词典")
+
+            Button("导出...") {
+                exportDictionary()
+            }
+            .help("导出词典为 JSON 文件")
         }
         .padding(.leading, Layout.leadingInset)
     }
@@ -196,6 +213,38 @@ struct PersonalDictionarySettingsView: View {
                 return (entry.id, term)
             }
         )
+    }
+
+    private func importDictionary() {
+        viewModel.flushPendingEdits()
+        syncDraftTerms()
+
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.json]
+        panel.prompt = "导入"
+        panel.message = "选择一个 Typoless 词典 JSON 文件"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        viewModel.importEntries(from: url)
+        syncDraftTerms()
+    }
+
+    private func exportDictionary() {
+        viewModel.flushPendingEdits()
+        syncDraftTerms()
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "typoless-dictionary.json"
+        panel.prompt = "导出"
+        panel.message = "导出 Typoless 词典 JSON 文件"
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        viewModel.exportEntries(to: url)
     }
 
     private func makePlaceholderTerm() -> String {

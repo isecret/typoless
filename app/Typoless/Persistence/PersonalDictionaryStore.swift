@@ -59,6 +59,58 @@ final class PersonalDictionaryStore {
         try save()
     }
 
+    @discardableResult
+    func importEntries(from fileURL: URL) throws -> DictionaryImportSummary {
+        let importedEntries = try Self.decodeEntries(from: fileURL)
+        let previousEntries = entries
+        let existingTerms = Set(entries.map { normalizedTermKey($0.term) })
+        var knownTerms = existingTerms
+        var knownIDs = Set(entries.map(\.id))
+        var mergedEntries = entries
+        var addedCount = 0
+        var skippedDuplicateCount = 0
+
+        for importedEntry in importedEntries {
+            let termKey = normalizedTermKey(importedEntry.term)
+            guard !termKey.isEmpty else { continue }
+
+            if knownTerms.contains(termKey) {
+                skippedDuplicateCount += 1
+                continue
+            }
+
+            var entry = importedEntry
+            entry.term = termKey
+            if knownIDs.contains(entry.id) {
+                entry.id = UUID().uuidString
+            }
+
+            mergedEntries.append(entry)
+            knownTerms.insert(termKey)
+            knownIDs.insert(entry.id)
+            addedCount += 1
+        }
+
+        entries = mergedEntries
+        do {
+            try save()
+        } catch {
+            entries = previousEntries
+            throw error
+        }
+
+        return DictionaryImportSummary(
+            importedCount: addedCount,
+            skippedDuplicateCount: skippedDuplicateCount
+        )
+    }
+
+    func exportEntries(to fileURL: URL) throws {
+        let encoder = Self.makeEncoder()
+        let data = try encoder.encode(entries)
+        try data.write(to: fileURL, options: .atomic)
+    }
+
     // MARK: - Hotwords 生成
 
     /// 为本地 ASR 生成 hotwords 参数字符串（空格分隔）
@@ -94,12 +146,9 @@ final class PersonalDictionaryStore {
         }
 
         do {
-            let data = try Data(contentsOf: url)
-            let decodedEntries = try JSONDecoder().decode([StoredDictionaryEntry].self, from: data)
-            let migratedEntries = decodedEntries
-                .filter { $0.enabled != false }
-                .map(\.dictionaryEntry)
-            let shouldRewriteFile = decodedEntries.contains { $0.enabled != nil }
+            let decodedEntries = try Self.decodeStoredEntries(from: url)
+            let migratedEntries = Self.migrateStoredEntries(decodedEntries)
+            let shouldRewriteFile = Self.shouldRewriteStoredEntries(decodedEntries)
             entries = migratedEntries
 
             if shouldRewriteFile {
@@ -121,17 +170,49 @@ final class PersonalDictionaryStore {
         }
         try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dirURL.path)
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoder = Self.makeEncoder()
         let data = try encoder.encode(entries)
 
         try data.write(to: fileURL, options: .atomic)
         try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
+    private static func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
+    }
+
+    private static func decodeEntries(from fileURL: URL) throws -> [DictionaryEntry] {
+        migrateStoredEntries(try decodeStoredEntries(from: fileURL))
+    }
+
+    private static func decodeStoredEntries(from fileURL: URL) throws -> [StoredDictionaryEntry] {
+        let data = try Data(contentsOf: fileURL)
+        return try JSONDecoder().decode([StoredDictionaryEntry].self, from: data)
+    }
+
+    private static func migrateStoredEntries(_ storedEntries: [StoredDictionaryEntry]) -> [DictionaryEntry] {
+        storedEntries
+            .filter { $0.enabled != false }
+            .map(\.dictionaryEntry)
+    }
+
+    private static func shouldRewriteStoredEntries(_ storedEntries: [StoredDictionaryEntry]) -> Bool {
+        storedEntries.contains { $0.enabled != nil }
+    }
+
+    private func normalizedTermKey(_ term: String) -> String {
+        normalizedTerm(term)
+    }
 
     private func normalizedTerm(_ term: String) -> String {
         term.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+}
+
+struct DictionaryImportSummary: Equatable, Sendable {
+    let importedCount: Int
+    let skippedDuplicateCount: Int
 }
 
 // MARK: - Dictionary Entry Model
