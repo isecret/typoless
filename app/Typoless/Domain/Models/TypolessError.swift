@@ -40,7 +40,7 @@ enum TypolessError: Error, Equatable, Sendable {
         case .audioRecordingUnavailable:
             "无法开始录音，请检查麦克风设备或系统输入设置"
         case .accessibilityPermissionDenied:
-            "辅助功能权限未开启，无法注入文本"
+            "辅助功能权限未开启，无法开始录音"
         case .asrEmptyAudio:
             "录音数据为空，请重试"
         case .asrEmptyTranscript:

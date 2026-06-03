@@ -19,7 +19,7 @@
 - UI：SwiftUI
 - 系统交互：AppKit
 - 架构：MVVM + Service Layer
-- ASR：本地 FunASR 离线识别 / 腾讯云一句话识别（用户手动选择）
+- ASR：本地 SenseVoice 离线识别 / 腾讯云一句话识别（用户手动选择）
 - LLM：OpenAI Chat Completions 兼容接口
 - 音频格式：PCM/WAV 16k mono
 - 配置存储：~/.typoless/config.json（UTF-8 JSON）
@@ -65,7 +65,7 @@ AGENTS.md
 - 全局快捷键
 - 按一次开始录音，再按一次结束录音
 - 录音期间基于静音检测自动切段，单段上限 55 秒，分段串行 ASR
-- 本地 FunASR 离线语音识别（模型外置到用户目录）
+- 本地 SenseVoice 离线语音识别（模型外置到用户目录）
 - 腾讯云一句话识别（用户手动选择）
 - OpenAI 兼容 LLM 润色（必须成功后才注入）
 - LLM 翻译模式
@@ -132,7 +132,7 @@ AGENTS.md
 以下修改必须先向用户升级确认：
 
 - 产品从“菜单栏助手”改为“系统输入法”
-- 新增 ASR 平台超出已有 localFunASR / tencentCloud 范围
+- 新增 ASR 平台超出已有 localSenseVoice / tencentCloud 范围
 - LLM 接口协议变更或开放自定义 Prompt / 高级参数
 - 文本注入策略从当前主方案切换到剪贴板主方案
 - 录音保存策略、日志保留策略、隐私边界变化
@@ -141,7 +141,7 @@ AGENTS.md
 ## 测试要求
 
 - 单元测试优先覆盖 `SessionCoordinator`
-- 单元测试优先覆盖 `AudioSegmenter`、`FunASRProvider`、`LLMProvider`、`TextInjector` 的关键分支
+- 单元测试优先覆盖 `AudioSegmenter`、`SenseVoiceASRProvider`、`LLMProvider`、`TextInjector` 的关键分支
 - `AudioSegmenterTests` 覆盖：
   - 1.6s 静音且段长达 15s 后自动切段
   - 段长低于 15s 时遇到静音不自动切段

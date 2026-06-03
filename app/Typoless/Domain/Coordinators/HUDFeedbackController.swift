@@ -7,13 +7,14 @@ import SwiftUI
 @Observable
 final class HUDFeedbackController {
     private static let logger = Logger(subsystem: "com.isecret.typoless", category: "HUDFeedback")
+    private static let learnedTermDisplayLimit = 4
+    static let defaultLearnedTermNoticeDismissSeconds = 1.8
 
     // MARK: - Observable State (HUDContentView 读取)
 
     private(set) var hudState: HUDState = .hidden
     private(set) var modeCueLabel: String?
-    private(set) var barHeights: [CGFloat] = Array(repeating: 1, count: 7)
-    private(set) var barOpacities: [Double] = Array(repeating: 0.28, count: 7)
+    private(set) var barHeights: [CGFloat] = Array(repeating: HUDLayout.resetBarHeight, count: 7)
     private(set) var isHUDPresented = false
 
     // MARK: - Callbacks (由 AppCoordinator 注入)
@@ -30,28 +31,39 @@ final class HUDFeedbackController {
 
     private let soundPlayer: FeedbackSoundPlaying
     private let modeCueDuration: Duration
+    private let learnedTermNoticeDismissSeconds: Double
     private var hudWindow: HUDWindow?
     private var hostingView: NSHostingView<HUDContentView>?
     private var dismissTask: Task<Void, Never>?
     private var modeCueTask: Task<Void, Never>?
     private var levelPollingTask: Task<Void, Never>?
+    private var startSoundPlaybackTask: Task<Void, Never>?
     private var escEventTap: CFMachPort?
     private var escRunLoopSource: CFRunLoopSource?
     private var presentationGeneration: UInt64 = 0
     private var waveformEnvelope: CGFloat = 0
+    private var waveformEnergy: CGFloat = 0
     private var waveformPhase: CGFloat = 0
 
     private static let barsCount = 7
+    private static let activeWaveformProfile: [CGFloat] = [0.10, 0.42, 0.62, 0.88, 0.62, 0.42, 0.10]
+    private static let activeWaveformPeakBias: [CGFloat] = [0, 0, 0.02, 0.14, 0.02, 0, 0]
 
     init(
         soundPlayer: FeedbackSoundPlaying = FeedbackSoundPlayer(),
-        modeCueDuration: Duration = .milliseconds(650)
+        modeCueDuration: Duration = .milliseconds(650),
+        learnedTermNoticeDismissSeconds: Double = HUDFeedbackController.defaultLearnedTermNoticeDismissSeconds
     ) {
         self.soundPlayer = soundPlayer
         self.modeCueDuration = modeCueDuration
+        self.learnedTermNoticeDismissSeconds = learnedTermNoticeDismissSeconds
     }
 
     // MARK: - Public Event Handler
+
+    func setInteractionSoundKeepAliveEnabled(_ enabled: Bool) {
+        soundPlayer.setSilentKeepAliveEnabled(enabled)
+    }
 
     /// 处理来自 SessionCoordinator 的反馈事件
     func handleEvent(_ event: SessionFeedbackEvent) {
@@ -62,6 +74,7 @@ final class HUDFeedbackController {
 
         switch event {
         case .recordingStarted:
+            cancelPendingStartSound()
             clearModeCue()
             hudState = .recording
             showHUD()
@@ -69,11 +82,10 @@ final class HUDFeedbackController {
             startEscMonitor()
 
         case .startSoundCue:
-            if shouldPlayInteractionSound {
-                soundPlayer.playStart()
-            }
+            playStartSoundWhenReady()
 
         case .recordingStopped:
+            cancelPendingStartSound()
             clearModeCue()
             if shouldPlayInteractionSound {
                 soundPlayer.playStop()
@@ -99,11 +111,28 @@ final class HUDFeedbackController {
             }
 
         case .processingFinished:
+            cancelPendingStartSound()
             clearModeCue()
-            hudState = .success
-            scheduleDismiss(after: 0.8)
+            stopLevelPolling()
+            stopEscMonitor()
+            resetBars()
+            dismissHUD()
+
+        case .dictionaryTermLearned(let term):
+            clearModeCue()
+            stopLevelPolling()
+            stopEscMonitor()
+            resetBars()
+            hudState = .notice(Self.learnedTermNoticeText(term))
+            if isHUDPresented {
+                updateMouseInteraction()
+            } else {
+                showHUD()
+            }
+            scheduleDismiss(after: learnedTermNoticeDismissSeconds)
 
         case .processingFailed(let reason):
+            cancelPendingStartSound()
             clearModeCue()
             stopLevelPolling()
             stopEscMonitor()
@@ -117,14 +146,36 @@ final class HUDFeedbackController {
             scheduleDismiss(after: 1.2)
 
         case .processingCancelled:
+            cancelPendingStartSound()
             clearModeCue()
             stopLevelPolling()
             stopEscMonitor()
             resetBars()
-            hudState = .cancelled
-            updateMouseInteraction()
-            scheduleDismiss(after: 0.8)
+            dismissHUD()
         }
+    }
+
+    private func playStartSoundWhenReady() {
+        cancelPendingStartSound()
+        guard shouldPlayInteractionSound else { return }
+
+        startSoundPlaybackTask = Task { [weak self] in
+            guard let self else { return }
+            await self.soundPlayer.playStartAfterOutputStabilizes(
+                maxWaitMs: 2_200,
+                minimumWaitMs: 600,
+                pollIntervalMs: 100,
+                retryDelayMs: 200
+            )
+            if !Task.isCancelled {
+                self.startSoundPlaybackTask = nil
+            }
+        }
+    }
+
+    private func cancelPendingStartSound() {
+        startSoundPlaybackTask?.cancel()
+        startSoundPlaybackTask = nil
     }
 
     // MARK: - Audio Level Polling
@@ -228,38 +279,56 @@ final class HUDFeedbackController {
         }
     }
 
-    /// 根据音频电平计算声波条高度，复刻原型 JS 算法
+    /// 根据音频电平计算声波条高度：低幅待机 + 软触发的有声峰值
     private func updateWaveform(level: Float) {
-        let rawTarget = CGFloat(level)
-        let count = Self.barsCount
-        let maxH: CGFloat = 12.6
-        let minH: CGFloat = 1.2
-        let center = CGFloat(count - 1) / 2
+        let clampedLevel = min(max(CGFloat(level), 0), 1)
+        let maxH = HUDLayout.waveformMaxHeight
+        let minH = HUDLayout.waveformMinHeight
+        let presenceTarget = Self.smoothStep(edge0: 0.08, edge1: 0.17, value: clampedLevel)
+        let energyTarget = Self.smoothStep(edge0: 0.08, edge1: 0.52, value: clampedLevel)
 
-        // 使用包络平滑替代逐帧随机跳变，让整体起伏更连续自然。
-        let risingSmoothing: CGFloat = 0.34
-        let fallingSmoothing: CGFloat = 0.2
-        let smoothing = rawTarget > waveformEnvelope ? risingSmoothing : fallingSmoothing
-        waveformEnvelope += (rawTarget - waveformEnvelope) * smoothing
-        waveformPhase += 0.28 + waveformEnvelope * 0.18
+        let presenceRising: CGFloat = 0.42
+        let presenceFalling: CGFloat = 0.16
+        let presenceSmoothing = presenceTarget > waveformEnvelope ? presenceRising : presenceFalling
+        waveformEnvelope += (presenceTarget - waveformEnvelope) * presenceSmoothing
 
-        for i in 0..<count {
-            let centerWeight = 1 - abs(CGFloat(i) - center) / center
-            let offset = CGFloat(i) * 0.72
+        let energyRising: CGFloat = 0.24
+        let energyFalling: CGFloat = 0.18
+        let energySmoothing = energyTarget > waveformEnergy ? energyRising : energyFalling
+        waveformEnergy += (energyTarget - waveformEnergy) * energySmoothing
+
+        waveformPhase += 0.16 + waveformEnvelope * 0.12 + waveformEnergy * 0.08
+
+        for i in 0..<Self.barsCount {
+            let offset = CGFloat(i) * 0.68
             let pulse = (sin(waveformPhase + offset) + 1) * 0.5
-            let modulation = 0.94 + pulse * 0.16
-            let floor = 0.22 + centerWeight * 0.06
-            let eased = floor + waveformEnvelope * (0.5 + centerWeight * 0.66) * modulation
-            barHeights[i] = minH + eased * (maxH - minH)
-            barOpacities[i] = 0.28 + min(0.72, Double(eased))
+            let sway = (sin(waveformPhase * 0.56 - offset * 0.9) + 1) * 0.5
+
+            let profile = Self.activeWaveformProfile[i]
+            let idleShape = 0.08 + profile * 0.03 + pulse * 0.025 + sway * 0.02
+
+            let activeFloor = 0.2 + profile * 0.48
+            let activeReach = 0.16 + profile * (0.14 + waveformEnergy * 0.22)
+            let motion = 0.76 + pulse * 0.18 + sway * 0.1
+            let peakBias = Self.activeWaveformPeakBias[i] * (0.75 + waveformEnergy * 0.25)
+            let activeShape = min(1, activeFloor + activeReach * motion + peakBias)
+
+            let normalizedHeight = idleShape + (activeShape - idleShape) * waveformEnvelope
+            barHeights[i] = minH + normalizedHeight * (maxH - minH)
         }
     }
 
     private func resetBars() {
         waveformEnvelope = 0
+        waveformEnergy = 0
         waveformPhase = 0
-        barHeights = Array(repeating: 1, count: Self.barsCount)
-        barOpacities = Array(repeating: 0.28, count: Self.barsCount)
+        barHeights = Array(repeating: HUDLayout.resetBarHeight, count: Self.barsCount)
+    }
+
+    private static func smoothStep(edge0: CGFloat, edge1: CGFloat, value: CGFloat) -> CGFloat {
+        guard edge0 != edge1 else { return value >= edge1 ? 1 : 0 }
+        let t = min(max((value - edge0) / (edge1 - edge0), 0), 1)
+        return t * t * (3 - 2 * t)
     }
 
     private func clearModeCue() {
@@ -287,6 +356,11 @@ final class HUDFeedbackController {
     private func dismissHUD() {
         clearModeCue()
         stopLevelPolling()
+        stopEscMonitor()
+        guard isHUDPresented else {
+            hudState = .hidden
+            return
+        }
         let gen = presentationGeneration
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.25
@@ -328,5 +402,19 @@ final class HUDFeedbackController {
 
         hostingView = hosting
         hudWindow = HUDWindow(contentView: hosting)
+    }
+
+    private static func learnedTermNoticeText(_ term: String) -> String {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "-" }
+
+        let glyphs = Array(trimmed)
+        let displayTerm: String
+        if glyphs.count <= learnedTermDisplayLimit {
+            displayTerm = String(glyphs)
+        } else {
+            displayTerm = String(glyphs.prefix(learnedTermDisplayLimit)) + "…"
+        }
+        return displayTerm
     }
 }

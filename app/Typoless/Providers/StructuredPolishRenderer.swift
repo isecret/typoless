@@ -14,9 +14,6 @@ enum StructuredPolishRenderer {
 
         case .list:
             return renderList(response: response)
-
-        case .message:
-            return renderMessage(response: response)
         }
     }
 
@@ -49,35 +46,6 @@ enum StructuredPolishRenderer {
         }
 
         return renderedItems
-    }
-
-    /// message 模式：称呼 + 正文 + 结尾，缺失部分不强补
-    private static func renderMessage(response: LLMStructuredResponse) -> String {
-        guard let body = response.body, !body.isEmpty else {
-            return response.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        var parts: [String] = []
-
-        if let salutation = response.salutation?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !salutation.isEmpty {
-            parts.append(salutation)
-        }
-
-        let bodyText = body
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        if !bodyText.isEmpty {
-            parts.append(bodyText)
-        }
-
-        if let closing = response.closing?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !closing.isEmpty {
-            parts.append(closing)
-        }
-
-        return parts.joined(separator: "\n")
     }
 
     private static func normalizedListIntro(from intro: String?) -> String? {

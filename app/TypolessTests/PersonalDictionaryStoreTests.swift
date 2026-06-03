@@ -23,16 +23,18 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         let store = PersonalDictionaryStore(directoryURL: tempDirectory)
 
         try store.addEntry(DictionaryEntry(term: "Typoless"))
-        try store.addEntry(DictionaryEntry(term: "FunASR"))
+        try store.addEntry(DictionaryEntry(term: "SenseVoice"))
 
-        XCTAssertEqual(store.entries.map(\.term), ["Typoless", "FunASR"])
+        XCTAssertEqual(store.entries.map(\.term), ["Typoless", "SenseVoice"])
         XCTAssertNil(store.entries[0].pronunciationHint)
         XCTAssertNil(store.entries[0].category)
+        XCTAssertEqual(store.entries[0].source, .manual)
 
         let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
-        XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless", "FunASR"])
+        XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless", "SenseVoice"])
         XCTAssertNil(reloaded.entries[0].pronunciationHint)
         XCTAssertNil(reloaded.entries[0].category)
+        XCTAssertEqual(reloaded.entries[0].source, .manual)
     }
 
     @MainActor
@@ -60,7 +62,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try store.addEntry(DictionaryEntry(term: "李四"))
         try store.addEntry(DictionaryEntry(term: "王五", pronunciationHint: nil))
 
-        XCTAssertEqual(store.hotwordsForFunASR(), "zhang san 李四 王五")
+        XCTAssertEqual(store.hotwordsForLocalASR(), "zhang san 李四 王五")
         XCTAssertEqual(
             store.termsForPrompt(),
             [
@@ -77,7 +79,7 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         try store.addEntry(DictionaryEntry(term: ""))
         try store.addEntry(DictionaryEntry(term: "Typoless"))
 
-        XCTAssertEqual(store.hotwordsForFunASR(), "Typoless")
+        XCTAssertEqual(store.hotwordsForLocalASR(), "Typoless")
         XCTAssertEqual(store.termsForPrompt(), [TermReference(term: "Typoless", pronunciationHint: nil)])
     }
 
@@ -109,7 +111,6 @@ final class PersonalDictionaryStoreTests: XCTestCase {
         XCTAssertFalse(persistedJSON.contains("\"enabled\""))
         XCTAssertFalse(persistedJSON.contains("Obsolete"))
     }
-
     @MainActor
     func testImportEntriesMergesJSONFileAndSkipsDuplicateTerms() throws {
         let store = PersonalDictionaryStore(directoryURL: tempDirectory)
@@ -177,6 +178,41 @@ final class PersonalDictionaryStoreTests: XCTestCase {
                 DictionaryEntry(id: "entry-1", term: "Typoless"),
                 DictionaryEntry(id: "entry-2", term: "FunASR", pronunciationHint: "fun a s r", category: "ASR")
             ]
+        )
+    }
+
+    @MainActor
+    func testAutoLearnedTermPersistsWithSourceAndDeduplicates() throws {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+
+        XCTAssertTrue(try store.addLearnedTermIfNeeded("朴邻"))
+        XCTAssertFalse(try store.addLearnedTermIfNeeded("  朴邻  "))
+
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertEqual(store.entries.first?.term, "朴邻")
+        XCTAssertEqual(store.entries.first?.source, .autoLearned)
+
+        let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
+        XCTAssertEqual(reloaded.entries.first?.source, .autoLearned)
+    }
+
+    @MainActor
+    func testLegacyEntriesWithoutSourceDefaultToManual() throws {
+        let legacyJSON = """
+        [
+          {
+            "id": "legacy-entry",
+            "term": "Typoless"
+          }
+        ]
+        """
+
+        try legacyJSON.write(to: dictionaryFileURL, atomically: true, encoding: .utf8)
+
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        XCTAssertEqual(
+            store.entries,
+            [DictionaryEntry(id: "legacy-entry", term: "Typoless", source: .manual)]
         )
     }
 }

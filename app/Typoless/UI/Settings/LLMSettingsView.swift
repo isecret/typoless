@@ -47,7 +47,7 @@ struct LLMSettingsView: View {
                 }
             }
         } footer: {
-            Text("支持 OpenAI Chat Completions 兼容接口。配置完整后，在识别后自动整理文本。")
+            Text("支持 OpenAI 兼容接口；模型处理时可能附带窗口上下文，敏感场景将脱敏。")
         }
         .onAppear {
             loadDraft()

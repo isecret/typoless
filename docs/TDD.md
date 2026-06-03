@@ -93,10 +93,12 @@
   负责 OpenAI Chat Completions 调用
 - `TextInjector`
   负责 AX 注入和键盘事件回退
+- `WindowContextService`
+  负责基于 Accessibility API 捕获当前聚焦输入环境的有限上下文，并执行敏感场景脱敏
 - `PermissionsManager`
   负责麦克风与辅助功能权限检查
 - `HotkeyManager`
-  负责全局快捷键注册与更新
+  负责全局快捷键注册、特殊修饰键监听与更新
 - `ConfigStore`
   负责普通配置和密钥读写
 - `AppUpdateService`
@@ -114,6 +116,21 @@
 - 决定首次启动是否自动打开设置页
 - 订阅 `SessionCoordinator` 状态用于刷新菜单栏 UI
 - 在应用启动后启动 Sparkle 更新器，并按用户偏好执行自动检查
+- 在普通热键和特殊修饰键热键之间统一分发录音触发动作
+
+### 5.1.1 HotkeyManager
+
+- 标准快捷键继续使用 Carbon `RegisterEventHotKey` 注册，覆盖包含普通键的组合
+- 纯修饰键和左右侧修饰键组合通过 `flagsChanged` 事件监听实现，不依赖普通 hotkey 库
+- 设置页录制控件直接采集按键事件，支持：
+  - `Right Command` 单键
+  - `Left Command + Option`
+  - `Control + Option`
+  - 其他左右侧修饰键组合
+- 快捷键配置模型同时兼容：
+  - 旧版 `keyCode + modifiers + displayString` 普通组合键结构
+  - 新版纯修饰键 `specialModifiers` 结构
+- 特殊修饰键匹配要求物理按键组合精确一致；存在额外修饰键时不触发
 
 ### 5.2 SessionCoordinator
 
@@ -130,6 +147,8 @@
 - 负责回退逻辑
 - 在内存中维护最近一次注入失败文本，成功注入后清空
 - 取消 session 时，需要取消录音和未完成 ASR 任务
+- 在录音开始后异步捕获一次窗口上下文；捕获失败、超时或无权限时静默降级，不阻塞主链路
+- 在成功、失败或取消后清空窗口上下文快照
 - 负责输出会话耗时诊断日志，包含分段级诊断
 
 ### 5.3 AudioRecorder
@@ -248,8 +267,25 @@
 - 若上游明确返回 `thinking` 字段不支持，则回退一次普通请求，并将该结果写入 `~/.typoless/config.json`
 - 返回保守型结构化处理后的最终文本
 - 优先解析结构化 JSON 结果，并保留兼容的纯文本提取回退路径
+- 不支持独立 `message` 模式；短消息口述、回复口述、转发口述统一保持 `plain_text`
+- 当 `WindowContextService` 成功返回快照时，将其作为弱参考附加到 Prompt：
+  - 只允许用于消歧、模式判断和编辑意图识别
+  - 不得直接复制未说出的窗口内容
+  - 若窗口上下文与 ASR 冲突，以 ASR 为准
+  - 首版主链路 `polish / translate` 只向 LLM 发送元信息级上下文：应用名、bundle id、窗口标题、输入面类型、角色元数据与 placeholder
+  - 不向主链路 LLM 发送 `selectedText`、`surroundingTextBefore`、`surroundingTextAfter` 或 `nearbyLabels`，避免把输入框已有正文误拼回结果
 - 不处理 UI 和回退逻辑
 - Prompt 可接收个人词典术语参考，但不开放用户自定义 Prompt
+
+### 5.6.2 WindowContextService
+
+- 基于与 `TextInjector` 共享的聚焦元素解析路径，读取当前 focused element、window title、placeholder、selected text 与光标附近有限文本。
+- 默认上下文载荷为：应用名、bundle id、窗口标题、输入面类型、角色元数据、placeholder、selected text、光标前后各最多 80 字、附近标签最多 5 项。
+- `selectedText` 最多 200 字；所有文本在发送前都会裁剪和去空。
+- 其中 `selectedText`、`surroundingTextBefore`、`surroundingTextAfter` 与 `nearbyLabels` 仅保留在内存快照中供本地判定链路使用，不直接发送给主链路 `polish / translate` LLM。
+- 敏感场景严格脱敏：密码框、系统认证/安全输入、密码管理器、终端类应用只保留元数据，不发送 placeholder、selected text、surrounding text 或 nearby labels。
+- 窗口上下文仅保存在内存中的 active session 内，不写入配置、日志、HUD、菜单栏或失败恢复入口。
+- 诊断日志只记录事件码，如 `window_context_captured`、`window_context_redacted`、`window_context_unavailable`、`window_context_capture_failed`、`window_context_capture_timeout`，不记录原始内容。
 
 ### 5.6.1 LLMModelProvider
 
@@ -291,11 +327,23 @@
 
 ### 5.10 PersonalDictionaryStore
 
-- 使用 `~/.typoless/dictionary.json` 存储用户维护的个人词典。
-- 词条至少包含 `term`，可选 `pronunciationHint`、`category`；旧版 `enabled` 字段仅用于读取迁移。
+- 使用 `~/.typoless/dictionary.json` 存储用户维护和自动学习到的个人词典。
+- 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`、`source`；旧版 `enabled` 字段仅用于读取迁移。
+- `source` 取值为 `manual` 或 `auto_learned`，用于区分手动维护和自动学习来源。
+- 个人词典导入、导出均使用 JSON 文件；导入时跳过重复术语，不覆盖现有词条。
 - 为 LLM Prompt 提供术语参考。
+- 自动学习入口只保存最终词条，不保存注入前后全文或 diff 原文。
 
-### 5.11 DiagnosticsLogger
+### 5.11 PostInjectionDictionaryLearner
+
+- 在文本注入成功后、且当前处理模式为 `polish` 时启动。
+- 最长观察 30 秒，每 500ms 轮询一次当前聚焦输入框文本；不切回目标应用，不打断用户当前操作。
+- 仅当文本变化可归约为单一连续替换时，才提取替换后的 `newSpan` 作为候选词条。
+- 候选词条需满足：长度 2 到 24、无换行、非纯数字、非纯符号、非明显句末整句片段。
+- 学习成功后立即写入个人词典，并触发 HUD 轻提示；翻译模式不参与自动学习。
+- 任一阶段若焦点切换、读取失败、新 session 开始、会话取消或错误发生，立即停止观察。
+
+### 5.12 DiagnosticsLogger
 
 - 使用 `os.Logger(subsystem: "com.isecret.typoless", category: "Session")` 输出应用日志。
 - 记录 `session_id`、各阶段耗时、文本长度、结果来源、错误分类和目标 app bundle id。
@@ -412,10 +460,11 @@ Segment 级诊断字段（每段独立记录）：
 - `asr.xunfei.appID`
 - `asr.xunfei.apiKey`
 - `asr.xunfei.apiSecret`
+- `asr.xiaomiMiMo.apiKey`
 
 ### 8.3 ASR 配置
 
-- `asr.selectedPlatform`：当前选中的 ASR 平台（`localSenseVoice` / `tencentCloudSentence` / `aliyunSentence` / `volcengineSentence` / `xunfeiSentence`）
+- `asr.selectedPlatform`：当前选中的 ASR 平台（`localSenseVoice` / `tencentCloudSentence` / `aliyunSentence` / `volcengineSentence` / `xunfeiSentence` / `xiaomiMiMoASR`）
 - `asr.local.modelStatus`：本地模型状态（notDownloaded / downloading / ready / failed）
 - `asr.local.lastError`：最近一次下载失败的错误信息
 - `asr.local.mirrorSource`：自定义镜像源 URL
@@ -436,6 +485,9 @@ Segment 级诊断字段（每段独立记录）：
 - `asr.xunfei.apiSecret`：科大讯飞 API Secret
 - `asr.xunfei.validationStatus`：科大讯飞配置验证状态（unvalidated / validating / verified / failed）
 - `asr.xunfei.lastValidationError`：科大讯飞最近一次验证失败摘要
+- `asr.xiaomiMiMo.apiKey`：小米 MiMo API Key
+- `asr.xiaomiMiMo.validationStatus`：小米 MiMo 配置验证状态（unvalidated / validating / verified / failed）
+- `asr.xiaomiMiMo.lastValidationError`：小米 MiMo 最近一次验证失败摘要
 
 ### 8.4 个人词典配置
 
@@ -467,9 +519,9 @@ Segment 级诊断字段（每段独立记录）：
 ### 9.1 Provider 架构
 
 - 统一 `ASRProvider` 协议需支持 final 结果。
-- 用户在设置中手动选择 ASR 平台：`本地 SenseVoice`、`腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`。
+- 用户在设置中手动选择 ASR 平台：`本地 SenseVoice`、`腾讯云`、`阿里云`、`火山引擎`、`科大讯飞`、`小米 MiMo`。
 - 默认实现为 `SenseVoiceASRProvider`，通过 `SenseVoiceRuntimeManager` 管理本地 recognizer。
-- 云端 Provider 固定为 `TencentSentenceASRProvider`、`AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`。
+- 云端 Provider 固定为 `TencentSentenceASRProvider`、`AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`、`XiaomiMiMoASRProvider`。
 - 不做平台间自动回退；所选平台不可用时直接报错阻止录音。
 
 ### 9.2 RNNoise 降噪
@@ -507,8 +559,11 @@ Segment 级诊断字段（每段独立记录）：
 - 配置：API Key，存于 `asr.volcengine`。
 - `XunfeiSentenceASRProvider` 使用语音听写 WebSocket 接口，并从 `wav` 中提取 PCM 数据按帧发送。
 - 配置：AppID、API Key、API Secret，存于 `asr.xunfei`。
+- `XiaomiMiMoASRProvider` 调用 OpenAI Chat Completions 兼容接口 `https://api.xiaomimimo.com/v1/chat/completions`。
+- 模型固定为 `mimo-v2.5-asr`，请求体通过 `messages[].content[].input_audio.data` 传入 `data:audio/wav;base64,<audio>`，`asr_options.language` 固定发送 `auto`。
+- 鉴权使用 `Authorization: Bearer <apiKey>`，配置仅包含 API Key。
 - 所有云 Provider 超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`。
-- 四个云 Provider 均需提供 `validateCredentials()` 能力，供设置页真实验证调用。
+- 五个云 Provider 均需提供 `validateCredentials()` 能力，供设置页真实验证调用。
 - 验证请求以最小真实请求验证鉴权与接口可达性；若鉴权成功但测试音频返回空结果，仍视为验证通过。
 
 ### 9.6 分段 ASR 编排
@@ -553,13 +608,13 @@ Segment 级诊断字段（每段独立记录）：
 
 本地音频与 ASR 错误：
 - 降噪资源缺失或处理失败 -> `audioPreprocessFailure`
-- Python runtime 缺失 -> `asrRuntimeMissing`
-- FunASR 模型缺失 -> `asrModelMissing`
-- sidecar worker 缺失 -> `asrBinaryNotFound`
+- 本地运行时资源缺失 -> `asrRuntimeMissing`
+- SenseVoice 模型缺失 -> `asrModelMissing`
+- 本地识别引擎二进制缺失 -> `asrBinaryNotFound`
 - 识别失败 -> `asrProcessFailure`
-- sidecar 健康检查失败 -> `asrRuntimeMissing`
+- 本地运行时初始化失败 -> `asrRuntimeMissing`
 
-云端 ASR 错误（腾讯云 / 阿里云 / 火山引擎 / 科大讯飞）：
+云端 ASR 错误（腾讯云 / 阿里云 / 火山引擎 / 科大讯飞 / 小米 MiMo）：
 - 配置不完整 -> `cloudASRConfigurationIncomplete`
 - 鉴权失败 -> `cloudASRAuthenticationFailure`
 - 网络错误 -> `cloudASRNetworkFailure`
@@ -595,7 +650,7 @@ Segment 级诊断字段（每段独立记录）：
 - 自动补自然中文标点
 - 保留个人词典中的专有名词
 - 中英混合术语恢复：ASR 把英文术语识别成中文音近词时，恢复为正确英文写法
-- 在结构信号明确时，将内容保守整理为 `plain_text`、`list`、`message`
+- 在结构信号明确时，将内容保守整理为 `plain_text`、`list`
 - 在“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正场景下，优先保留最终明确表达
 - 当输入来自多段分段转写时，Prompt 明确说明：输入来自同一次语音输入的连续分段转写，请按原始顺序理解为一段连续表达；可以合并因分段造成的断句，但不得扩写、改写原意或补充事实
 
@@ -615,10 +670,6 @@ Segment 级诊断字段（每段独立记录）：
 - `list`
   - 仅在存在稳定枚举信号时启用
   - 仅拆分原有内容，不新增要点
-- `message`
-  - 仅处理短消息/短邮件级别输出
-  - 允许称呼、正文和简短结尾的最小重排
-  - 不补充未说出的事实、承诺、时间或地点
 
 ### 10.3 输入输出
 
@@ -640,16 +691,12 @@ Segment 级诊断字段（每段独立记录）：
   - `intro: String?`
   - `items: [String]?`
   - `outro: String?`
-  - `salutation: String?`
-  - `body: [String]?`
-  - `closing: String?`
   - `correctionApplied: Bool`
-  - `isValid: Bool`（语义校验：list 要求 items 非空，message 要求 body 非空）
+  - `isValid: Bool`（语义校验：list 要求 items 非空）
 
 - `PolishMode`
   - `plainText`
   - `list`
-  - `message`
 
 解析与渲染约束：
 
@@ -657,7 +704,6 @@ Segment 级诊断字段（每段独立记录）：
 - 解析成功后按 mode 在客户端本地渲染最终文本
   - `plain_text`：直接使用 `text` 字段
   - `list`：若有 `intro`，先输出 `intro`；按 `items` 编号换行渲染；若有 `outro`，再输出 `outro`
-  - `message`：按 `salutation` + `body` + `closing` 拼接，缺失部分不强补
 - 语义校验失败时（如 list 但 items 为空），退回使用 JSON 中的 `text` 字段
 - 非法 JSON 时多级回退：尝试宽容提取 `text` 字段 → 使用原始内容（仅当内容不是 JSON 结构时）
 - 最终注入文本始终取自安全渲染后的 `PolishResult.text`
@@ -709,7 +755,7 @@ Segment 级诊断字段（每段独立记录）：
 ### 12.2 辅助功能权限
 
 - 在设置页中展示状态
-- 未授权时允许走到注入前，但注入会失败并给出明确提示
+- 未授权时禁止开始录音，不进入录音 HUD，并给出明确提示
 - 正常覆盖升级时，只有在 `bundle id` 与签名身份保持一致的前提下，系统权限才应继续沿用
 - 若签名身份或 `bundle id` 变化，TCC 可能将其视为新应用并要求重新授权
 
@@ -776,18 +822,18 @@ Segment 级诊断字段（每段独立记录）：
 - 正常主链路
 - LLM 配置不完整
 - LLM 失败直接报错
-- `plain_text` 不被误判为 `list` 或 `message`
+- `plain_text` 不被误判为 `list`
 - `list` 可稳定识别枚举内容且顺序不乱
-- `message` 可完成最小格式化且不补事实
+- 短消息口述、回复口述、转发口述保持 `plain_text`
 - “不是 A，是 B”“改成”“最后一句不要了”等显式自我修正
 - 非法 JSON、缺字段和纯文本兼容回退
 - 用户取消
 - 低于 500ms 的短录音静默取消
 - ASR 超时
-- sidecar 异常退出与恢复
+- 本地运行时初始化失败与恢复
 - 并发 session 拒绝
 - 配置错误映射
-- FunASR/RNNoise 资源缺失时阻止录音
+- SenseVoice/RNNoise 资源缺失时阻止录音
 - Debug/Release 日志脱敏策略
 
 分段 ASR 测试场景：
@@ -831,8 +877,8 @@ Segment 级诊断字段（每段独立记录）：
 6. AudioSegmenter 分段切割
 7. ASR/LLM Debug 对照日志
 8. LLM Provider 与 Prompt 优化
-9. FunASR Provider 与 sidecar 集成
-10. 个人词典与 hotwords/Prompt 集成
+9. SenseVoice 运行时与 Provider 集成
+10. 个人词典与 Prompt 集成
 11. SessionCoordinator 与状态机整合（含分段 ASR 编排）
 12. 注入失败恢复与错误摘要
 13. 单元测试与端到端手工验收
@@ -844,7 +890,7 @@ Segment 级诊断字段（每段独立记录）：
 - 主链路从录音到注入可以稳定运行
 - 所有关键状态可在菜单栏中反映
 - 所有关键错误可被统一分类和展示
-- 本地降噪与 FunASR 离线 ASR 默认链路可运行
+- 本地降噪与 SenseVoice 离线 ASR 默认链路可运行
 - LLM 配置不完整或请求失败时不会注入任何文本
 - 注入失败时文本不会丢失
 - 配置、权限在重启后行为正确

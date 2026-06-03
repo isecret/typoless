@@ -13,18 +13,15 @@ final class PersonalDictionaryViewModel {
 
     var errorMessage: String?
     var statusMessage: String?
-    private(set) var entries: [DictionaryEntry]
-    private(set) var editRevision = 0
 
     private let store: PersonalDictionaryStore
-    private var editTasks: [String: Task<Void, Never>] = [:]
-    private var pendingEdits: [String: String] = [:]
-    private let debounceDuration: Duration
 
-    init(store: PersonalDictionaryStore, debounceDuration: Duration = .milliseconds(500)) {
+    init(store: PersonalDictionaryStore) {
         self.store = store
-        self.entries = store.entries
-        self.debounceDuration = debounceDuration
+    }
+
+    var entries: [DictionaryEntry] {
+        store.entries
     }
 
     var totalCount: Int {
@@ -34,7 +31,6 @@ final class PersonalDictionaryViewModel {
     func addPlaceholderTerm(_ term: String) {
         do {
             try store.addEntry(DictionaryEntry(term: term))
-            refreshEntries()
             statusMessage = nil
             clearError()
         } catch {
@@ -42,27 +38,9 @@ final class PersonalDictionaryViewModel {
         }
     }
 
-    func scheduleTermUpdate(id: String, term: String) {
-        editTasks[id]?.cancel()
-        let normalized = normalizedTerm(term)
-        pendingEdits[id] = normalized
-
-        editTasks[id] = Task { [weak self] in
-            guard let self else { return }
-            try? await Task.sleep(for: debounceDuration)
-            guard !Task.isCancelled else { return }
-            self.commitTermUpdate(id: id, term: normalized)
-        }
-    }
-
     func deleteEntry(_ entry: DictionaryEntry) {
-        editTasks[entry.id]?.cancel()
-        editTasks[entry.id] = nil
-        pendingEdits[entry.id] = nil
-
         do {
             try store.removeEntry(id: entry.id)
-            refreshEntries()
             statusMessage = nil
             clearError()
         } catch {
@@ -71,12 +49,8 @@ final class PersonalDictionaryViewModel {
     }
 
     func importEntries(from fileURL: URL) {
-        flushPendingEdits()
-
         do {
             let summary = try store.importEntries(from: fileURL)
-            refreshEntries()
-            editRevision += 1
             clearError()
             if summary.importedCount == 0 {
                 statusMessage = summary.skippedDuplicateCount > 0 ? "没有新增词条，重复词条已跳过" : "没有可导入的词条"
@@ -91,8 +65,6 @@ final class PersonalDictionaryViewModel {
     }
 
     func exportEntries(to fileURL: URL) {
-        flushPendingEdits()
-
         do {
             try store.exportEntries(to: fileURL)
             clearError()
@@ -102,50 +74,36 @@ final class PersonalDictionaryViewModel {
         }
     }
 
-    func flushPendingEdits() {
-        let pending = pendingEdits
-        editTasks.values.forEach { $0.cancel() }
-        editTasks.removeAll()
-        pendingEdits.removeAll()
+    func flushPendingEdits() {}
 
-        for (id, term) in pending {
-            commitTermUpdate(id: id, term: term)
-        }
-    }
-
-    private func commitTermUpdate(id: String, term: String) {
-        editTasks[id] = nil
-        pendingEdits[id] = nil
-        guard let entry = entries.first(where: { $0.id == id }) else { return }
+    @discardableResult
+    func commitTermUpdate(id: String, term: String) -> Bool {
+        let term = normalizedTerm(term)
+        guard let entry = entries.first(where: { $0.id == id }) else { return false }
         guard term != normalizedTerm(entry.term) else {
             clearError()
-            return
+            return true
         }
 
         if term.isEmpty {
-            deleteEntry(entry)
-            clearError()
-            return
+            showError(.empty)
+            return false
         }
 
-        guard validateEditedTerm(term, editingID: id) else { return }
+        guard validateEditedTerm(term, editingID: id) else { return false }
 
         var updated = entry
         updated.term = term
 
         do {
             try store.updateEntry(updated)
-            refreshEntries()
-            editRevision += 1
             statusMessage = nil
             clearError()
+            return true
         } catch {
             showError(.saveFailed)
+            return false
         }
-    }
-
-    private func validateNewTerm(_ term: String) -> Bool {
-        validateTerm(term, editingID: nil)
     }
 
     private func validateEditedTerm(_ term: String, editingID: String) -> Bool {
@@ -171,10 +129,6 @@ final class PersonalDictionaryViewModel {
 
     private func normalizedTerm(_ term: String) -> String {
         term.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func refreshEntries() {
-        entries = store.entries
     }
 
     private func showError(_ error: ValidationError) {

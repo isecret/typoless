@@ -12,9 +12,6 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
 
 packages:
-  KeyboardShortcuts:
-    url: https://github.com/sindresorhus/KeyboardShortcuts
-    from: "2.2.0"
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: "2.9.1"
@@ -28,7 +25,6 @@ targets:
         excludes:
           - "**/.gitkeep"
           - "Resources/rnnoise"
-          - "Resources/funasr"
           - "Resources/sherpa-onnx"
     resources:
       - path: Typoless/Resources/zh-Hans.lproj
@@ -40,7 +36,6 @@ targets:
         buildPhase: resources
         optional: true
     dependencies:
-      - package: KeyboardShortcuts
       - package: Sparkle
     settings:
       base:
@@ -71,6 +66,10 @@ targets:
           fi
           if [ ! -f "${SHERPA_DIR}/lib/libonnxruntime.1.24.4.dylib" ]; then
             echo "error: onnxruntime library not found."
+            exit 1
+          fi
+          if [ -e "${SHERPA_DIR}/lib/libonnxruntime.dylib" ] && [ ! -L "${SHERPA_DIR}/lib/libonnxruntime.dylib" ]; then
+            echo "error: libonnxruntime.dylib must be a symlink to libonnxruntime.1.24.4.dylib"
             exit 1
           fi
           if [ ! -f "${SHERPA_DIR}/include/sherpa-onnx/c-api/c-api.h" ]; then
@@ -107,7 +106,6 @@ targets:
             rm -rf "${SHERPA_DST}"
             ditto "${SHERPA_SRC}" "${SHERPA_DST}"
             sign_resource_binary "${SHERPA_DST}/lib/libonnxruntime.1.24.4.dylib"
-            sign_resource_binary "${SHERPA_DST}/lib/libonnxruntime.dylib"
             sign_resource_binary "${SHERPA_DST}/lib/libsherpa-onnx-c-api.dylib"
           fi
           touch "${SCRIPT_OUTPUT_FILE_0}"

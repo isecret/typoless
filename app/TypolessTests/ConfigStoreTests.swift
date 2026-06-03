@@ -54,7 +54,9 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.asrConfig.aliyun.accessKeyId, "")
         XCTAssertEqual(store.asrConfig.volcengine.apiKey, "")
         XCTAssertEqual(store.asrConfig.xunfei.appID, "")
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.apiKey, "")
         XCTAssertTrue(store.generalConfig.interactionSoundEnabled)
+        XCTAssertEqual(store.generalConfig.hotkey.displayString, "⌥ + Space")
     }
 
     @MainActor
@@ -66,8 +68,10 @@ final class ConfigStoreTests: XCTestCase {
         asrConfig.aliyun.accessKeyId = "ak"
         asrConfig.aliyun.accessKeySecret = "secret"
         asrConfig.aliyun.appKey = "app"
+        asrConfig.xiaomiMiMo.apiKey = "mimo-key"
         try firstStore.saveASRConfig(asrConfig)
         try firstStore.updateCloudValidationState(for: .volcengineSentence, status: .verified)
+        try firstStore.updateCloudValidationState(for: .xiaomiMiMoASR, status: .verified)
 
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertEqual(secondStore.asrConfig.selectedPlatform, .volcengineSentence)
@@ -76,6 +80,8 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeyId, "ak")
         XCTAssertEqual(secondStore.asrConfig.aliyun.accessKeySecret, "secret")
         XCTAssertEqual(secondStore.asrConfig.aliyun.appKey, "app")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.apiKey, "mimo-key")
+        XCTAssertEqual(secondStore.asrConfig.xiaomiMiMo.validationStatus, .verified)
     }
 
     @MainActor
@@ -107,6 +113,27 @@ final class ConfigStoreTests: XCTestCase {
 
         let secondStore = ConfigStore(configDirectory: tempDirectory)
         XCTAssertFalse(secondStore.generalConfig.interactionSoundEnabled)
+    }
+
+    @MainActor
+    func testSaveAndReloadSpecialHotkeyConfig() throws {
+        let firstStore = ConfigStore(configDirectory: tempDirectory)
+        let specialHotkey = HotkeyCombo.special(
+            modifiers: [
+                HotkeyModifierSpec(key: .command, side: .right),
+                HotkeyModifierSpec(key: .option, side: .left),
+            ]
+        )
+
+        try firstStore.saveGeneralConfig(
+            GeneralConfig(
+                hotkey: specialHotkey,
+                interactionSoundEnabled: true
+            )
+        )
+
+        let secondStore = ConfigStore(configDirectory: tempDirectory)
+        XCTAssertEqual(secondStore.generalConfig.hotkey, specialHotkey)
     }
 
     @MainActor
@@ -220,5 +247,41 @@ final class ConfigStoreTests: XCTestCase {
 
         let savedJSON = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertFalse(savedJSON.contains("automaticUpdateChecksEnabled"))
+    }
+
+    @MainActor
+    func testLoadResetsInterruptedCloudValidationStateToUnvalidated() throws {
+        let configURL = tempDirectory.appendingPathComponent("config.json")
+        let configJSON = """
+        {
+          "asr" : {
+            "selectedPlatform" : "xiaomiMiMoASR",
+            "xiaomiMiMo" : {
+              "apiKey" : "mimo-key",
+              "validationStatus" : "validating"
+            }
+          },
+          "general" : {
+            "hotkey" : {
+              "displayString" : "⌥ Space",
+              "keyCode" : 49,
+              "modifiers" : 524576
+            },
+            "interactionSoundEnabled" : true
+          },
+          "llm" : {
+            "apiKey" : "",
+            "baseURL" : "",
+            "model" : "",
+            "thinkingDisabled" : false
+          }
+        }
+        """
+        try configJSON.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = ConfigStore(configDirectory: tempDirectory)
+
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.validationStatus, .unvalidated)
+        XCTAssertNil(store.asrConfig.xiaomiMiMo.lastValidationError)
     }
 }

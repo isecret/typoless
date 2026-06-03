@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 // MARK: - LLM 配置（不含密钥）
@@ -17,6 +18,7 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
     case aliyunSentence = "aliyunSentence"
     case volcengineSentence = "volcengineSentence"
     case xunfeiSentence = "xunfeiSentence"
+    case xiaomiMiMoASR = "xiaomiMiMoASR"
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -32,6 +34,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             self = .volcengineSentence
         case "xunfeiSentence":
             self = .xunfeiSentence
+        case "xiaomiMiMoASR":
+            self = .xiaomiMiMoASR
         default:
             throw DecodingError.dataCorruptedError(
                 in: container,
@@ -57,6 +61,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             "火山引擎"
         case .xunfeiSentence:
             "科大讯飞"
+        case .xiaomiMiMoASR:
+            "小米 MiMo"
         }
     }
 
@@ -72,6 +78,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             "火山引擎模式：语音会发送到火山引擎语音识别服务。"
         case .xunfeiSentence:
             "科大讯飞模式：语音会发送到科大讯飞语音识别服务。"
+        case .xiaomiMiMoASR:
+            "小米 MiMo 模式：语音会发送到 Xiaomi MiMo ASR 服务。"
         }
     }
 
@@ -87,6 +95,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             URL(string: "https://www.volcengine.com/docs/6561/1257584")!
         case .xunfeiSentence:
             URL(string: "https://www.xfyun.cn/doc/asr/voicedictation/API.html")!
+        case .xiaomiMiMoASR:
+            URL(string: "https://platform.xiaomimimo.com/docs/zh-CN/api/audio/Speech-Recognition")!
         }
     }
 }
@@ -99,6 +109,7 @@ struct ASRConfig: Codable, Equatable, Sendable {
     var aliyun: AliyunASRConfig = AliyunASRConfig()
     var volcengine: VolcengineASRConfig = VolcengineASRConfig()
     var xunfei: XunfeiASRConfig = XunfeiASRConfig()
+    var xiaomiMiMo: XiaomiMiMoASRConfig = XiaomiMiMoASRConfig()
 
     enum CodingKeys: String, CodingKey {
         case selectedPlatform
@@ -107,6 +118,7 @@ struct ASRConfig: Codable, Equatable, Sendable {
         case aliyun
         case volcengine
         case xunfei
+        case xiaomiMiMo
     }
 
     init() {}
@@ -119,6 +131,7 @@ struct ASRConfig: Codable, Equatable, Sendable {
         aliyun = try container.decodeIfPresent(AliyunASRConfig.self, forKey: .aliyun) ?? AliyunASRConfig()
         volcengine = try container.decodeIfPresent(VolcengineASRConfig.self, forKey: .volcengine) ?? VolcengineASRConfig()
         xunfei = try container.decodeIfPresent(XunfeiASRConfig.self, forKey: .xunfei) ?? XunfeiASRConfig()
+        xiaomiMiMo = try container.decodeIfPresent(XiaomiMiMoASRConfig.self, forKey: .xiaomiMiMo) ?? XiaomiMiMoASRConfig()
     }
 
     func isReady(localModelsAvailable: Bool) -> Bool {
@@ -133,6 +146,8 @@ struct ASRConfig: Codable, Equatable, Sendable {
             return volcengine.isReady
         case .xunfeiSentence:
             return xunfei.isReady
+        case .xiaomiMiMoASR:
+            return xiaomiMiMo.isReady
         }
     }
 
@@ -150,6 +165,8 @@ struct ASRConfig: Codable, Equatable, Sendable {
             return volcengine.notReadyReason(platformName: "火山引擎")
         case .xunfeiSentence:
             return xunfei.notReadyReason(platformName: "科大讯飞")
+        case .xiaomiMiMoASR:
+            return xiaomiMiMo.notReadyReason(platformName: "小米 MiMo")
         }
     }
 }
@@ -354,6 +371,32 @@ struct XunfeiASRConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// 小米 MiMo ASR 配置
+struct XiaomiMiMoASRConfig: Codable, Equatable, Sendable {
+    var apiKey: String = ""
+    var validationStatus: CloudASRValidationStatus = .unvalidated
+    var lastValidationError: String?
+
+    enum CodingKeys: String, CodingKey {
+        case apiKey
+        case validationStatus
+        case lastValidationError
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        validationStatus = try container.decodeIfPresent(CloudASRValidationStatus.self, forKey: .validationStatus) ?? .unvalidated
+        lastValidationError = try container.decodeIfPresent(String.self, forKey: .lastValidationError)
+    }
+
+    var isComplete: Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
 extension TencentASRConfig: CloudASRConfigState {
     func incompleteReason(platformName: String) -> String {
         "\(platformName) ASR 配置不完整，请填写 SecretId 和 SecretKey"
@@ -375,6 +418,12 @@ extension VolcengineASRConfig: CloudASRConfigState {
 extension XunfeiASRConfig: CloudASRConfigState {
     func incompleteReason(platformName: String) -> String {
         "\(platformName) ASR 配置不完整，请填写 AppID、API Key 和 API Secret"
+    }
+}
+
+extension XiaomiMiMoASRConfig: CloudASRConfigState {
+    func incompleteReason(platformName: String) -> String {
+        "\(platformName) ASR 配置不完整，请填写 API Key"
     }
 }
 
@@ -420,14 +469,354 @@ struct GeneralConfig: Codable, Equatable, Sendable {
 
 // MARK: - 快捷键组合
 
+enum HotkeyKind: String, Codable, Equatable, Sendable {
+    case standard
+    case special
+}
+
+enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIterable {
+    case command
+    case option
+    case control
+    case shift
+
+    var genericFlags: NSEvent.ModifierFlags {
+        switch self {
+        case .command:
+            .command
+        case .option:
+            .option
+        case .control:
+            .control
+        case .shift:
+            .shift
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .command:
+            "⌘"
+        case .option:
+            "⌥"
+        case .control:
+            "⌃"
+        case .shift:
+            "⇧"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .command:
+            "Command"
+        case .option:
+            "Option"
+        case .control:
+            "Control"
+        case .shift:
+            "Shift"
+        }
+    }
+
+    var shortDisplayName: String {
+        symbol
+    }
+
+    var sortPriority: Int {
+        switch self {
+        case .control:
+            0
+        case .option:
+            1
+        case .shift:
+            2
+        case .command:
+            3
+        }
+    }
+}
+
+enum HotkeyModifierSide: String, Codable, Equatable, Hashable, Sendable {
+    case left
+    case right
+    case either
+
+    var prefix: String {
+        switch self {
+        case .left:
+            "Left "
+        case .right:
+            "Right "
+        case .either:
+            ""
+        }
+    }
+
+    var shortPrefix: String {
+        switch self {
+        case .left:
+            "L "
+        case .right:
+            "R "
+        case .either:
+            ""
+        }
+    }
+}
+
+struct HotkeyModifierSpec: Codable, Equatable, Hashable, Sendable {
+    var key: HotkeyModifierKey
+    var side: HotkeyModifierSide
+
+    init(key: HotkeyModifierKey, side: HotkeyModifierSide = .either) {
+        self.key = key
+        self.side = side
+    }
+
+    var displayString: String {
+        "\(side.shortPrefix)\(key.shortDisplayName)"
+    }
+}
+
 struct HotkeyCombo: Codable, Equatable, Sendable {
-    var keyCode: UInt16
+    var kind: HotkeyKind
+    var keyCode: UInt16?
     var modifiers: UInt
+    var specialModifiers: [HotkeyModifierSpec]
     var displayString: String
+
+    init(
+        kind: HotkeyKind,
+        keyCode: UInt16?,
+        modifiers: UInt,
+        specialModifiers: [HotkeyModifierSpec] = [],
+        displayString: String
+    ) {
+        self.kind = kind
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+        self.specialModifiers = specialModifiers.sorted(by: Self.compareModifierSpecs)
+        self.displayString = displayString
+    }
+
+    init(keyCode: UInt16, modifiers: UInt, displayString: String) {
+        self.init(
+            kind: .standard,
+            keyCode: keyCode,
+            modifiers: modifiers,
+            displayString: displayString
+        )
+    }
+
+    static func standard(
+        keyCode: UInt16,
+        modifiers: UInt,
+        keyLabel: String,
+        physicalModifiers: [HotkeyModifierSpec] = []
+    ) -> HotkeyCombo {
+        let sortedPhysicalModifiers = physicalModifiers.sorted(by: compareModifierSpecs)
+        return HotkeyCombo(
+            kind: .standard,
+            keyCode: keyCode,
+            modifiers: modifiers,
+            specialModifiers: sortedPhysicalModifiers,
+            displayString: standardDisplayString(
+                modifiers: modifiers,
+                physicalModifiers: sortedPhysicalModifiers,
+                keyLabel: keyLabel
+            )
+        )
+    }
+
+    static func special(modifiers specs: [HotkeyModifierSpec]) -> HotkeyCombo {
+        let sortedSpecs = specs.sorted(by: compareModifierSpecs)
+        let genericModifiers = sortedSpecs.reduce(into: NSEvent.ModifierFlags()) { partialResult, spec in
+            partialResult.formUnion(spec.key.genericFlags)
+        }
+
+        return HotkeyCombo(
+            kind: .special,
+            keyCode: nil,
+            modifiers: genericModifiers.rawValue,
+            specialModifiers: sortedSpecs,
+            displayString: specialDisplayString(for: sortedSpecs)
+        )
+    }
+
+    var isPureModifier: Bool {
+        kind == .special
+    }
 
     static let `default` = HotkeyCombo(
         keyCode: 49,    // Space
         modifiers: 0x80120, // Option
-        displayString: "⌥ Space"
+        displayString: "⌥ + Space"
     )
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case keyCode
+        case modifiers
+        case specialModifiers
+        case displayString
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedKind = try container.decodeIfPresent(HotkeyKind.self, forKey: .kind)
+        let decodedSpecialModifiers = try container.decodeIfPresent([HotkeyModifierSpec].self, forKey: .specialModifiers) ?? []
+        let resolvedKind: HotkeyKind = {
+            if let decodedKind {
+                return decodedKind
+            }
+            return decodedSpecialModifiers.isEmpty ? .standard : .special
+        }()
+
+        let decodedModifiers = try container.decodeIfPresent(UInt.self, forKey: .modifiers) ?? 0
+        let decodedDisplayString = try container.decodeIfPresent(String.self, forKey: .displayString)
+        let decodedKeyCode = try container.decodeIfPresent(UInt16.self, forKey: .keyCode)
+
+        kind = resolvedKind
+        modifiers = decodedModifiers
+        specialModifiers = decodedSpecialModifiers.sorted(by: Self.compareModifierSpecs)
+
+        switch resolvedKind {
+        case .standard:
+            let resolvedKeyCode = decodedKeyCode ?? HotkeyCombo.default.keyCode ?? 49
+            keyCode = resolvedKeyCode
+            let keyLabel = Self.standardKeyLabel(
+                from: decodedDisplayString,
+                fallbackKeyCode: resolvedKeyCode
+            )
+            displayString = Self.standardDisplayString(
+                modifiers: decodedModifiers,
+                physicalModifiers: decodedSpecialModifiers,
+                keyLabel: keyLabel
+            )
+        case .special:
+            keyCode = nil
+            displayString = Self.specialDisplayString(for: decodedSpecialModifiers)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encode(modifiers, forKey: .modifiers)
+        try container.encode(displayString, forKey: .displayString)
+        if !specialModifiers.isEmpty {
+            try container.encode(specialModifiers, forKey: .specialModifiers)
+        }
+        switch kind {
+        case .standard:
+            try container.encode(keyCode, forKey: .keyCode)
+        case .special:
+            break
+        }
+    }
+
+    private static func standardDisplayString(
+        modifiers: UInt,
+        physicalModifiers: [HotkeyModifierSpec],
+        keyLabel: String
+    ) -> String {
+        let sortedPhysicalModifiers = physicalModifiers.sorted(by: compareModifierSpecs)
+        let coveredKeys = Set(sortedPhysicalModifiers.map(\.key))
+        let flags = NSEvent.ModifierFlags(rawValue: modifiers)
+        var parts = sortedPhysicalModifiers.map(\.displayString)
+
+        if flags.contains(.control), !coveredKeys.contains(.control) {
+            parts.append(HotkeyModifierKey.control.shortDisplayName)
+        }
+        if flags.contains(.option), !coveredKeys.contains(.option) {
+            parts.append(HotkeyModifierKey.option.shortDisplayName)
+        }
+        if flags.contains(.shift), !coveredKeys.contains(.shift) {
+            parts.append(HotkeyModifierKey.shift.shortDisplayName)
+        }
+        if flags.contains(.command), !coveredKeys.contains(.command) {
+            parts.append(HotkeyModifierKey.command.shortDisplayName)
+        }
+        parts.append(keyLabel)
+        return parts.joined(separator: " + ")
+    }
+
+    private static func specialDisplayString(for specs: [HotkeyModifierSpec]) -> String {
+        specs
+            .sorted(by: compareModifierSpecs)
+            .map(\.displayString)
+            .joined(separator: " + ")
+    }
+
+    private static func compareModifierSpecs(_ lhs: HotkeyModifierSpec, _ rhs: HotkeyModifierSpec) -> Bool {
+        if lhs.key.sortPriority != rhs.key.sortPriority {
+            return lhs.key.sortPriority < rhs.key.sortPriority
+        }
+        let lhsSide = sidePriority(lhs.side)
+        let rhsSide = sidePriority(rhs.side)
+        if lhsSide != rhsSide {
+            return lhsSide < rhsSide
+        }
+        return lhs.key.rawValue < rhs.key.rawValue
+    }
+
+    private static func sidePriority(_ side: HotkeyModifierSide) -> Int {
+        switch side {
+        case .either:
+            0
+        case .left:
+            1
+        case .right:
+            2
+        }
+    }
+
+    private static func standardKeyLabel(from displayString: String?, fallbackKeyCode: UInt16) -> String {
+        guard let displayString else {
+            return "Key \(fallbackKeyCode)"
+        }
+
+        let trimmed = displayString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Key \(fallbackKeyCode)"
+        }
+
+        let symbolSeparated = ["⌘", "⌥", "⌃", "⇧", "+"].reduce(trimmed) { partialResult, token in
+            partialResult.replacingOccurrences(of: token, with: " \(token) ")
+        }
+
+        let modifierTokens: Set<String> = [
+            HotkeyModifierKey.command.symbol,
+            HotkeyModifierKey.option.symbol,
+            HotkeyModifierKey.control.symbol,
+            HotkeyModifierKey.shift.symbol,
+            HotkeyModifierKey.command.displayName,
+            HotkeyModifierKey.option.displayName,
+            HotkeyModifierKey.control.displayName,
+            HotkeyModifierKey.shift.displayName,
+            HotkeyModifierKey.command.shortDisplayName,
+            HotkeyModifierKey.option.shortDisplayName,
+            HotkeyModifierKey.control.shortDisplayName,
+            HotkeyModifierKey.shift.shortDisplayName,
+            "Left",
+            "Right",
+            "L",
+            "R"
+        ]
+
+        let keyTokens = symbolSeparated
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+            .filter { token in
+                token != "+"
+                    && !modifierTokens.contains(token)
+            }
+
+        guard !keyTokens.isEmpty else {
+            return "Key \(fallbackKeyCode)"
+        }
+
+        return keyTokens.joined(separator: " ")
+    }
 }

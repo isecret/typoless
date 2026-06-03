@@ -48,29 +48,28 @@ struct PersonalDictionarySettingsView: View {
                 .offset(x: Layout.footerOffset)
         }
         .onAppear { syncDraftTerms() }
-        .onChange(of: viewModel.editRevision) {
-            syncDraftTerms()
-        }
-        .onDisappear {
-            viewModel.flushPendingEdits()
-            syncDraftTerms()
+        .onChange(of: viewModel.entries) {
+            syncDraftTerms(preservingExistingDrafts: true)
         }
     }
 
     private var dictionaryContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             dictionaryList
-            controls
 
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .padding(.leading, Layout.leadingInset)
             } else if let statusMessage = viewModel.statusMessage {
                 Text(statusMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .padding(.leading, Layout.leadingInset)
             }
+
+            controls
         }
         .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
     }
@@ -123,7 +122,7 @@ struct PersonalDictionarySettingsView: View {
             Button("添加") {
                 let placeholder = makePlaceholderTerm()
                 viewModel.addPlaceholderTerm(placeholder)
-                syncDraftTerms()
+                syncDraftTerms(preservingExistingDrafts: true)
                 pendingScrollTargetID = viewModel.entries.last?.id
             }
             .help("添加词条")
@@ -145,15 +144,12 @@ struct PersonalDictionarySettingsView: View {
 
     private func dictionaryRow(for entry: DictionaryEntry) -> some View {
         HStack(spacing: Layout.rowControlSpacing) {
-            SettingsTextInputField(
-                text: Binding(
-                    get: { draftTerms[entry.id] ?? entry.term },
-                    set: { value in
-                        draftTerms[entry.id] = value
-                        viewModel.scheduleTermUpdate(id: entry.id, term: value)
-                    }
-                ),
-                width: Layout.editorWidth
+            DictionaryTermInputField(
+                text: draftTerms[entry.id] ?? entry.term,
+                width: Layout.editorWidth,
+                onCommit: { value in
+                    commitDraft(id: entry.id, term: value)
+                }
             )
             .focused($focusedEntryID, equals: entry.id)
             .frame(width: Layout.editorWidth, height: Layout.rowHeight, alignment: .leading)
@@ -190,17 +186,33 @@ struct PersonalDictionarySettingsView: View {
         }
     }
 
+    @discardableResult
+    private func commitDraft(id: String, term: String) -> Bool {
+        draftTerms[id] = term
+        if viewModel.commitTermUpdate(id: id, term: term),
+           let updatedEntry = viewModel.entries.first(where: { $0.id == id }) {
+            draftTerms[id] = updatedEntry.term
+            return true
+        }
+        return false
+    }
+
     private func removeSelection() {
         guard let selection,
               let entry = viewModel.entries.first(where: { $0.id == selection }) else { return }
         viewModel.deleteEntry(entry)
         self.selection = nil
         focusedEntryID = nil
-        syncDraftTerms()
+        syncDraftTerms(preservingExistingDrafts: true)
     }
 
-    private func syncDraftTerms() {
-        draftTerms = Dictionary(uniqueKeysWithValues: viewModel.entries.map { ($0.id, $0.term) })
+    private func syncDraftTerms(preservingExistingDrafts: Bool = false) {
+        draftTerms = Dictionary(
+            uniqueKeysWithValues: viewModel.entries.map { entry in
+                let term = preservingExistingDrafts ? draftTerms[entry.id] ?? entry.term : entry.term
+                return (entry.id, term)
+            }
+        )
     }
 
     private func importDictionary() {
@@ -246,5 +258,114 @@ struct PersonalDictionarySettingsView: View {
             index += 1
         }
         return "\(base) \(index)"
+    }
+}
+
+private struct DictionaryTermInputField: NSViewRepresentable {
+    let text: String
+    let width: CGFloat
+    let onCommit: (String) -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCommit: onCommit)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let textField = NSTextField(frame: .zero)
+        textField.delegate = context.coordinator
+        textField.isBordered = true
+        textField.isBezeled = true
+        textField.bezelStyle = .roundedBezel
+        textField.controlSize = .regular
+        textField.focusRingType = .default
+        textField.lineBreakMode = .byTruncatingTail
+        textField.maximumNumberOfLines = 1
+        textField.alignment = .natural
+        textField.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textField.stringValue = text
+        context.coordinator.resetCommittedText(text)
+        textField.target = context.coordinator
+        textField.action = #selector(Coordinator.commitFromAction(_:))
+        configureDictionaryTermField(textField, width: width)
+        return textField
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        context.coordinator.onCommit = onCommit
+        if !context.coordinator.isEditing, nsView.stringValue != text {
+            nsView.stringValue = text
+            context.coordinator.resetCommittedText(text)
+        }
+        configureDictionaryTermField(nsView, width: width)
+    }
+
+    static func dismantleNSView(_ nsView: NSTextField, coordinator: Coordinator) {
+        coordinator.commit(nsView)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var onCommit: (String) -> Bool
+        var isEditing = false
+        private var lastCommittedText: String?
+
+        init(onCommit: @escaping (String) -> Bool) {
+            self.onCommit = onCommit
+        }
+
+        func resetCommittedText(_ text: String) {
+            lastCommittedText = text
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            isEditing = true
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard let textField = obj.object as? NSTextField else { return }
+            isEditing = false
+            commit(textField)
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            if textView.hasMarkedText() {
+                return false
+            }
+            commit(control)
+            control.window?.makeFirstResponder(nil)
+            return true
+        }
+
+        @objc func commitFromAction(_ sender: NSTextField) {
+            commit(sender)
+        }
+
+        func commit(_ control: NSControl) {
+            let text = control.stringValue
+            guard text != lastCommittedText else { return }
+            if onCommit(text) {
+                lastCommittedText = text
+            }
+        }
+    }
+}
+
+@MainActor
+private func configureDictionaryTermField(_ textField: NSTextField, width: CGFloat) {
+    let identifier = "DictionaryTermFixedWidthConstraint"
+    textField.translatesAutoresizingMaskIntoConstraints = false
+    textField.lineBreakMode = .byTruncatingTail
+    textField.maximumNumberOfLines = 1
+    textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+    if let widthConstraint = textField.constraints.first(where: { $0.identifier == identifier }) {
+        widthConstraint.constant = width
+    } else {
+        let widthConstraint = textField.widthAnchor.constraint(equalToConstant: width)
+        widthConstraint.identifier = identifier
+        widthConstraint.priority = .required
+        widthConstraint.isActive = true
     }
 }

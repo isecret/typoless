@@ -156,6 +156,8 @@ final class CloudASRValidationService {
             return input.asrConfig.volcengine
         case .xunfeiSentence:
             return input.asrConfig.xunfei
+        case .xiaomiMiMoASR:
+            return input.asrConfig.xiaomiMiMo
         }
     }
 
@@ -182,6 +184,8 @@ final class CloudASRValidationService {
                 apiKey: input.asrConfig.xunfei.apiKey,
                 apiSecret: input.asrConfig.xunfei.apiSecret
             )
+        case .xiaomiMiMoASR:
+            return XiaomiMiMoASRProvider(apiKey: input.asrConfig.xiaomiMiMo.apiKey)
         }
     }
 

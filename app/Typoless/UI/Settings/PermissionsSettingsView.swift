@@ -32,7 +32,7 @@ struct PermissionsSettingsView: View {
                     .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
                 }
             } footer: {
-                Text("用于将识别结果注入到当前焦点应用的输入框。")
+                Text("用于文本注入；部分场景会读取有限上下文，敏感场景会自动脱敏。")
             }
         }
         .onAppear { permissionsManager.refreshAll() }

@@ -50,7 +50,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .ai:
             NSSize(width: SettingsFormLayout.windowContentWidth, height: 250)
         case .permissions:
-            NSSize(width: SettingsFormLayout.windowContentWidth, height: 170)
+            NSSize(width: SettingsFormLayout.windowContentWidth, height: 200)
         }
     }
 }
@@ -62,9 +62,19 @@ struct SettingsView: View {
         SettingsPaneContainer {
             switch appCoordinator.selectedSettingsTab {
             case .general:
-                GeneralSettingsView(configStore: appCoordinator.configStore, updateService: appCoordinator.updateService, onHotkeyChanged: {
-                    appCoordinator.setupHotkey()
-                })
+                GeneralSettingsView(
+                    configStore: appCoordinator.configStore,
+                    updateService: appCoordinator.updateService,
+                    onHotkeyChanged: {
+                        appCoordinator.setupHotkey()
+                    },
+                    onHotkeyRecordingChanged: { isRecording in
+                        appCoordinator.setHotkeyCaptureSuspended(isRecording)
+                    },
+                    onInteractionSoundChanged: { enabled in
+                        appCoordinator.setInteractionSoundKeepAliveEnabled(enabled)
+                    }
+                )
             case .asr:
                 ASRSettingsView(configStore: appCoordinator.configStore)
             case .dictionary:

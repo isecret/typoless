@@ -94,68 +94,6 @@ final class StructuredPolishRendererTests: XCTestCase {
         XCTAssertEqual(rendered, "也不是列表")
     }
 
-    // MARK: - message 渲染
-
-    func testMessageFullRendering() {
-        let response = makeLLMResponse(
-            mode: .message,
-            text: "张总，明天十点开会。谢谢",
-            salutation: "张总，",
-            body: ["明天十点开会。"],
-            closing: "谢谢"
-        )
-        let rendered = StructuredPolishRenderer.render(response: response)
-        XCTAssertEqual(rendered, "张总，\n明天十点开会。\n谢谢")
-    }
-
-    func testMessageWithoutSalutation() {
-        let response = makeLLMResponse(
-            mode: .message,
-            text: "明天十点开会。谢谢",
-            salutation: nil,
-            body: ["明天十点开会。"],
-            closing: "谢谢"
-        )
-        let rendered = StructuredPolishRenderer.render(response: response)
-        XCTAssertEqual(rendered, "明天十点开会。\n谢谢")
-    }
-
-    func testMessageWithoutClosing() {
-        let response = makeLLMResponse(
-            mode: .message,
-            text: "老王，下午记得带文件。",
-            salutation: "老王，",
-            body: ["下午记得带文件。"],
-            closing: nil
-        )
-        let rendered = StructuredPolishRenderer.render(response: response)
-        XCTAssertEqual(rendered, "老王，\n下午记得带文件。")
-    }
-
-    func testMessageWithMultipleBodyParagraphs() {
-        let response = makeLLMResponse(
-            mode: .message,
-            text: "李总，关于下周的安排有两点。第一，周一全体会议。第二，周三提交报告。请知悉",
-            salutation: "李总，",
-            body: ["关于下周的安排有两点。", "第一，周一全体会议。", "第二，周三提交报告。"],
-            closing: "请知悉"
-        )
-        let rendered = StructuredPolishRenderer.render(response: response)
-        XCTAssertEqual(rendered, "李总，\n关于下周的安排有两点。\n第一，周一全体会议。\n第二，周三提交报告。\n请知悉")
-    }
-
-    func testMessageWithEmptyBodyFallsBackToText() {
-        let response = makeLLMResponse(
-            mode: .message,
-            text: "直接用text",
-            salutation: "你好",
-            body: [],
-            closing: nil
-        )
-        let rendered = StructuredPolishRenderer.render(response: response)
-        XCTAssertEqual(rendered, "直接用text")
-    }
-
     // MARK: - sanitizer
 
     func testFillerWordSanitizerRemovesLeadingPureFillers() {
@@ -195,9 +133,6 @@ final class StructuredPolishRendererTests: XCTestCase {
         intro: String? = nil,
         items: [String]? = nil,
         outro: String? = nil,
-        salutation: String? = nil,
-        body: [String]? = nil,
-        closing: String? = nil,
         correctionApplied: Bool = false
     ) -> LLMStructuredResponse {
         // We need to encode and decode since LLMStructuredResponse only has Decodable
@@ -207,9 +142,6 @@ final class StructuredPolishRendererTests: XCTestCase {
             "intro": intro,
             "items": items,
             "outro": outro,
-            "salutation": salutation,
-            "body": body,
-            "closing": closing,
             "correction_applied": correctionApplied
         ]
         let filtered = dict.compactMapValues { $0 }

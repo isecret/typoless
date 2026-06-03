@@ -191,6 +191,34 @@ final class DiagnosticsLogger: Sendable {
 
     // MARK: - General Events
 
+    func windowContextCaptured(
+        sessionID: String,
+        event: WindowContextCaptureEvent,
+        rawCandidate: WindowContextCandidate
+    ) {
+        #if DEBUG
+        logger.debug(
+            """
+            [\(sessionID)] \(event.rawValue, privacy: .public) \
+            | app_name="\(rawCandidate.appName ?? "", privacy: .public)" \
+            | bundle_id="\(rawCandidate.bundleID ?? "", privacy: .public)" \
+            | window_title="\(rawCandidate.windowTitle ?? "", privacy: .public)" \
+            | role="\(rawCandidate.elementRole ?? "", privacy: .public)" \
+            | subrole="\(rawCandidate.elementSubrole ?? "", privacy: .public)" \
+            | placeholder="\(rawCandidate.placeholder ?? "", privacy: .public)" \
+            | selected_text="\(rawCandidate.selectedText ?? "", privacy: .public)" \
+            | before="\(rawCandidate.surroundingTextBefore ?? "", privacy: .public)" \
+            | after="\(rawCandidate.surroundingTextAfter ?? "", privacy: .public)" \
+            | nearby_labels="\(rawCandidate.nearbyLabels.joined(separator: " | "), privacy: .public)"
+            """
+        )
+        #else
+        _ = sessionID
+        _ = event
+        _ = rawCandidate
+        #endif
+    }
+
     func log(sessionID: String, event: String, detail: String? = nil) {
         if let detail {
             logger.info("[\(sessionID)] \(event, privacy: .public) | detail=\(detail, privacy: .public)")

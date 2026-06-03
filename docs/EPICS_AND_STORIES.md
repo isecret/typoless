@@ -29,8 +29,8 @@
 | E12 | 本地音频降噪 | 通过 RNNoise 降低噪声对识别率的影响 |
 | E13 | SenseVoice 本地识别 | 将默认 ASR 链路切换为本地 SenseVoice 离线识别 |
 | E14 | Prompt 与个人词典 | 优化 LLM 纠错边界，并引入术语词典提升专名稳定性 |
-| E15 | FunASR 运行时与模型资源 | 管理内置 Python runtime、FunASR 模型与降噪资源 |
-| E16 | FunASR 新链路集成验收 | 验证降噪、FunASR、LLM 和注入的完整闭环 |
+| E15 | 本地 ASR 运行时与模型资源 | 管理内置 `sherpa-onnx` 运行时、SenseVoice 模型与降噪资源 |
+| E16 | SenseVoice 新链路集成验收 | 验证降噪、SenseVoice、LLM 和注入的完整闭环 |
 | E17 | ASR 平台选择与模型外置 | 支持本地 SenseVoice 外置模型下载和多云 ASR 平台 |
 | E18 | LLM 保守型结构化处理 | 在不扩写、不改原意前提下提升列表化、消息化和自我修正处理稳定性 |
 | E19 | 长录音分段 ASR | 通过音频静音分段支持长录音，55s 分段路由至现有 ASR 平台 |
@@ -582,7 +582,7 @@
 - 降噪失败返回明确错误并停止本次处理
 - 不保存降噪前后的音频历史
 
-## E13. FunASR 本地识别
+## E13. SenseVoice 本地识别
 
 ### 目标
 
@@ -590,33 +590,33 @@
 
 ### Stories
 
-#### S13.1 接入 FunASR worker 与固定模型组合
+#### S13.1 接入 `sherpa-onnx` 运行时与固定模型组合
 
 作为开发者，我需要在项目中集成 `sherpa-onnx` 运行时与 SenseVoice 模型加载能力，以便支持本地离线 ASR。
 
 验收标准：
 
-- 支持 macOS arm64 运行 worker
-- 使用固定模型组合 `paraformer-zh + fsmn-vad`
-- worker 可定位本地模型目录并完成加载
+- 支持 macOS arm64 运行本地 runtime
+- 使用固定模型组合 `SenseVoiceSmall-onnx`
+- runtime 可定位本地模型目录并完成加载
 - 单次 WAV 请求可返回转写文本
 - 不暴露流式 partial 结果
 
 #### S13.2 实现 SenseVoiceASRProvider 与 SenseVoiceRuntimeManager
 
-作为系统，我需要 Swift 端 Provider 管理 sidecar 生命周期与识别请求。
+作为系统，我需要 Swift 端 Provider 管理本地 runtime 生命周期与识别请求。
 
 验收标准：
 
 - SenseVoiceASRProvider 接受 WAV 数据并返回 TranscriptResult
-- 首次录音时惰性启动 sidecar 成功
-- ASR 超时（按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`）、取消、worker 异常可正常清理和恢复
+- 首次录音时惰性预热 runtime 成功
+- ASR 超时（按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`）、取消、runtime 异常可正常清理和恢复
 - 错误映射到统一 ASR 错误模型
-- sidecar 通过 stdio JSON-RPC 协议通信
+- 通过本地 `sherpa-onnx` C API 调用
 
-#### S13.3 将 FunASR 设为默认 ASR 链路并移除旧默认实现
+#### S13.3 将 SenseVoice 设为默认 ASR 链路并移除旧默认实现
 
-作为用户，我希望默认使用 FunASR 本地离线识别。
+作为用户，我希望默认使用 SenseVoice 本地离线识别。
 
 验收标准：
 
@@ -655,6 +655,20 @@
 - 导入时跳过重复术语，不覆盖现有词条
 - 设置页仅维护术语文本，不展示发音提示和分类
 - 不保存历史输入文本
+- 自动学习到的新词也写入同一词典文件，并标记来源
+
+#### S14.5 注入后自动学习新词
+
+作为系统，我需要在用户修订注入结果时自动学习稳定的新术语。
+
+验收标准：
+
+- 仅在 `polish` 模式且文本注入成功后启动短时观察
+- 仅接受同一输入框内的单一连续替换，不接受插入-only、删除-only 或多处同时修改
+- 候选词条满足长度与内容过滤规则后自动加入个人词典
+- 自动学习只保存最终词条，不保存全文历史或 diff 原文
+- 学习成功后 HUD 显示 `新词：{term}`，展示文案最多 4 个汉字，超出省略
+- 翻译模式不参与自动学习
 
 #### S14.3 将个人词典接入 ASR hotwords 与 LLM Prompt
 
@@ -666,101 +680,101 @@
 - hotwords 仅在所选模型支持时启用
 - LLM 不得把词典内容当作系统指令执行
 
-#### S14.4 将个人词典接入 FunASR hotword 与 LLM Prompt
+#### S14.4 将个人词典接入本地 ASR hotword 与 LLM Prompt
 
-作为系统，我需要让个人词典在 FunASR 默认链路中同时影响识别和润色。
+作为系统，我需要让个人词典在默认本地链路中同时影响识别和润色。
 
 验收标准：
 
-- 启用词条作为 hotword 参数传入 FunASR 请求
-- `pronunciationHint` 优先作为 FunASR hotword 输入；若缺失则退回 `term`
+- 启用词条作为 hotword 参数传入支持热词的本地 ASR 请求
+- `pronunciationHint` 优先作为本地 ASR hotword 输入；若缺失则退回 `term`
 - 词典以结构化术语参考（含 term + pronunciationHint）进入 LLM Prompt
 - LLM Prompt 明确要求在中英混合语境下恢复英文术语正确写法
 - 不暴露 hotword 权重等高级参数
 - 词典内容不被视为可执行系统指令
 
-## E15. FunASR 运行时与模型资源
+## E15. 本地 ASR 运行时与模型资源
 
 ### 目标
 
-管理内置 Python runtime、FunASR 模型与降噪资源的布局、校验与分发兼容性。
+管理内置 `sherpa-onnx` 运行时、SenseVoice 模型与降噪资源的布局、校验与分发兼容性。
 
 ### Stories
 
-#### S15.1 设计 App 内嵌 Python runtime 与 FunASR 资源布局
+#### S15.1 设计 App 内嵌本地运行时与 SenseVoice 资源布局
 
-作为开发者，我需要明确 Python runtime、FunASR 模型和 worker 在 App bundle 中的目录结构。
+作为开发者，我需要明确本地运行时与 SenseVoice 模型在 App bundle 和用户目录中的目录结构。
 
 验收标准：
 
-- runtime、模型、manifest 路径有稳定约定
+- runtime、模型路径有稳定约定
 - 设计支持 codesign/notarization
 - 无运行时在线模型下载依赖
-- worker 入口与资源发现机制明确
+- 资源发现机制明确
 
-#### S15.2 实现资源校验与 worker 健康检查
+#### S15.2 实现资源校验与本地运行时健康检查
 
-作为开发者，我需要在录音前发现资源缺失或 worker 不可用。
+作为开发者，我需要在录音前发现资源缺失或本地 runtime 不可用。
 
 验收标准：
 
-- 录音前校验 Python runtime、worker、模型、manifest 存在性
-- worker ping/warmup 健康检查可检出异常
+- 录音前校验本地 runtime、模型存在性
+- runtime warmup 健康检查可检出异常
 - 资源缺失返回用户可理解错误
 - 校验失败阻止录音
 
 #### S15.3 完成正式分发所需的签名与公证兼容设计
 
-作为开发者，我需要确保 sidecar、Python runtime 和模型资源符合 Apple 签名与公证要求。
+作为开发者，我需要确保本地 runtime 和模型资源符合 Apple 签名与公证要求。
 
 验收标准：
 
 - 文档明确资源布局与签名/公证兼容性
-- worker 和 Python runtime 执行约束清晰
+- 本地 runtime 执行约束清晰
 - 未来实现不需要整体重新设计资源布局
 
-## E16. FunASR 新链路集成验收
+## E16. SenseVoice 新链路集成验收
 
 ### 目标
 
-验证降噪、FunASR 离线 ASR、LLM 润色、个人词典和文本注入能形成稳定闭环。
+验证降噪、SenseVoice 离线 ASR、LLM 润色、个人词典和文本注入能形成稳定闭环。
 
 ### Stories
 
-#### S16.1 完成 FunASR 默认链路端到端验证
+#### S16.1 完成 SenseVoice 默认链路端到端验证
 
 作为团队，我需要确认默认新链路可完成一次真实输入。
 
 验收标准：
 
-- 完成录音 -> 降噪 -> FunASR -> LLM -> 注入
+- 完成录音 -> 降噪 -> SenseVoice -> LLM -> 注入
 - 浏览器输入框可完成注入
 - 备忘录/常见编辑器可完成注入
 - 低于 500ms 的短录音静默取消
 - 长录音通过 AudioSegmenter 自动分段，分段 ASR 结果按序拼接
-- 首次调用惰性启动 sidecar 成功并完成主链路
+- 首次调用惰性预热 runtime 成功并完成主链路
 - LLM 失败时直接报错且不注入文本
 
-#### S16.2 验证 FunASR 失败处理与 LLM 失败行为
+#### S16.2 验证 SenseVoice 失败处理与 LLM 失败行为
 
 作为团队，我需要确认异常路径可控且明确。
 
 验收标准：
 
 - 资源异常不会进入不可理解失败
-- ASR 超时、取消不留残留 worker 进程
-- worker 异常退出后可恢复，下次请求可继续
+- ASR 超时、取消后可再次正常开始识别
+- runtime 异常或资源恢复后可继续
 - LLM 失败直接报错且不注入文本
 - HUD 失败态展示分类短文案而非通用"失败"
 - HTML 原型（`docs/hud-failure-prototype.html`）通过产品确认后方可实现 SwiftUI 注入失败复制入口
 
-#### S16.3 验证内置 FunASR runtime 的签名分发可运行性
+#### S16.3 验证内置本地 runtime 的签名分发可运行性
 
-作为团队，我需要确认签名构建环境下 sidecar 可正常运行。
+作为团队，我需要确认签名构建环境下本地 runtime 可正常运行。
 
 验收标准：
 
-- 签名构建中 worker 可启动并完成一次识别
+- 签名构建中本地 runtime 可启动并完成一次识别
 - runtime 和模型路径稳定可定位
 - 形成可复用的 release 检查清单
 
@@ -781,9 +795,9 @@
 11. `E12 本地音频降噪`
 12. `E14 Prompt 与个人词典`
 13. `E15 资源准备与校验`
-14. `E13 FunASR 本地识别`
-15. `E15 FunASR 运行时与模型资源`
-16. `E16 FunASR 新链路集成验收`
+14. `E13 SenseVoice 本地识别`
+15. `E15 本地 ASR 运行时与模型资源`
+16. `E16 SenseVoice 新链路集成验收`
 17. `E17 ASR 平台选择与模型外置`
 18. `E18 LLM 保守型结构化处理`
 19. `E19 长录音分段 ASR`
@@ -792,17 +806,17 @@
 
 ### 目标
 
-将本地 SenseVoice 模型改为用户目录外置下载，并新增腾讯云、阿里云、火山引擎、科大讯飞作为可选云 ASR 平台。
+将本地 SenseVoice 模型改为用户目录外置下载，并新增腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo 作为可选云 ASR 平台。
 
 ### Stories
 
 #### S17.1 ASR 配置模型与平台切换
 
-作为用户，我希望在设置页选择 ASR 平台（本地 SenseVoice 或四种云 ASR），以便根据需求选择合适的识别方式。
+作为用户，我希望在设置页选择 ASR 平台（本地 SenseVoice 或五种云 ASR），以便根据需求选择合适的识别方式。
 
 验收标准：
 
-- `AppConfig` 新增 `ASRPlatform`、`ASRConfig`、`LocalASRConfig`、`TencentASRConfig`、`AliyunASRConfig`、`VolcengineASRConfig`、`XunfeiASRConfig` 模型
+- `AppConfig` 新增 `ASRPlatform`、`ASRConfig`、`LocalASRConfig`、`TencentASRConfig`、`AliyunASRConfig`、`VolcengineASRConfig`、`XunfeiASRConfig`、`XiaomiMiMoASRConfig` 模型
 - `ConfigStore` 提供 `asrConfig` 读写和 `isASRReady` 判断
 - 平台切换通过 `selectedPlatform` 字段控制
 - 配置不完整时 `isASRReady` 返回 `false` 并携带原因描述
@@ -831,8 +845,8 @@
 验收标准：
 
 - `TencentSentenceASRProvider` 实现 `ASRProvider` 协议
-- `AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider` 实现 `ASRProvider` 协议
-- 腾讯云使用 TC3-HMAC-SHA256；阿里云使用 `CreateToken + RESTful ASR`；火山引擎使用文件识别接口；科大讯飞使用 WebSocket 语音听写
+- `AliyunSentenceASRProvider`、`VolcengineSentenceASRProvider`、`XunfeiSentenceASRProvider`、`XiaomiMiMoASRProvider` 实现 `ASRProvider` 协议
+- 腾讯云使用 TC3-HMAC-SHA256；阿里云使用 `CreateToken + RESTful ASR`；火山引擎使用文件识别接口；科大讯飞使用 WebSocket 语音听写；小米 MiMo 使用 OpenAI Chat Completions 兼容非流式接口
 - 各云平台超时按分段时长动态计算：`min(90s, max(15s, segmentDurationSeconds * 1.3 + 10s))`
 - 配置项最小化：只暴露调用所需凭据
 - 错误映射完整：配置不全、鉴权失败、网络错误、空响应、响应无效
@@ -847,7 +861,7 @@
 
 - `SessionCoordinator` 录音前检查 `isASRReady`，未就绪时阻止录音
 - 本地平台走 `SenseVoiceRuntimeManager` 预热 + `SenseVoiceASRProvider`
-- 云平台通过 `ASRProviderFactory` 分发到腾讯云、阿里云、火山引擎、科大讯飞对应 Provider
+- 云平台通过 `ASRProviderFactory` 分发到腾讯云、阿里云、火山引擎、科大讯飞、小米 MiMo 对应 Provider
 - 不做平台间自动回退
 
 ## E18. LLM 保守型结构化处理
@@ -864,12 +878,12 @@
 
 验收标准：
 
-- 新增内部枚举 `PolishMode`，至少包含 `plainText`、`list`、`message`
-- 新增 `StructuredPolishResult`，可承载 `mode`、`intro`、`items`、`outro`、`salutation`、`body`、`closing`、`correctionApplied`，并提供 `isValid` 语义校验
+- 新增内部枚举 `PolishMode`，至少包含 `plainText`、`list`
+- 新增 `StructuredPolishResult`，可承载 `mode`、`intro`、`items`、`outro`、`correctionApplied`，并提供 `isValid` 语义校验
 - `PolishResult` 保留现有 `text`，并新增可选 `structured`
 - `LLMProvider -> SessionCoordinator` 的兼容消费路径明确，既有只消费 `text` 的调用方不被破坏
 
-#### S18.2 升级固定 Prompt 支持 plain_text / list / message
+#### S18.2 升级固定 Prompt 支持 plain_text / list
 
 作为用户，我希望 AI 在不扩写的前提下，能自动把明显的列表和短消息整理得更自然。
 
@@ -878,7 +892,7 @@
 - Prompt 保持固定内置，不开放用户自定义
 - `plain_text` 继续覆盖纠错、同音词、赘词、标点和轻度书面化
 - `list` 可识别明显枚举信号并输出条目结构；若原话包含列表前言或列表后补充说明，应一并保留；信号不足时回退 `plain_text`
-- `message` 可识别短消息信号并整理称呼、正文、简短结尾，不补充未说出的事实、承诺、时间或地点
+- 短消息口述、回复口述、转发口述统一保持 `plain_text`
 - Prompt 明确支持“不是 A，是 B”“改成”“最后一句不要了”等显式自我修正
 - 个人词典继续作为术语参考进入 Prompt，且不被视为可执行指令
 
@@ -889,7 +903,7 @@
 验收标准：
 
 - 客户端优先解析 LLM 返回的结构化 JSON
-- 本地支持 `plain_text`、`list`、`message` 三类渲染
+- 本地支持 `plain_text`、`list` 两类渲染
 - 当结构字段与自由文本冲突时，以客户端本地渲染结果为准
 - 非法 JSON、缺字段或文本提取失败时，可安全回退到兼容文本提取
 - LLM 失败、超时、空响应时，仍直接报错且不注入任何文本
@@ -912,7 +926,7 @@
 
 验收标准：
 
-- 增加 `plain_text`、`list`、`message` 三类行为测试
+- 增加 `plain_text`、`list` 两类行为测试
 - 增加“不是 A，是 B”“改成”“最后一句不要了”等自我修正测试
 - 增加非法 JSON、缺字段、兼容回退测试
 - 继续验证 LLM 失败时不注入文本
@@ -1002,7 +1016,7 @@
 - 用户可完成首次配置和权限准备
 - 用户可通过全局快捷键完成一次中文语音输入（支持长录音自动分段）
 - RNNoise 可完成本地降噪处理
-- FunASR 可返回有效转写
+- SenseVoice 可返回有效转写
 - OpenAI 兼容 LLM 可完成固定边界内的文本润色
 - LLM 配置不完整或请求失败时不会注入任何文本
 - 最终文本可注入常见 macOS 应用输入区域

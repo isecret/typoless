@@ -306,6 +306,9 @@ final class ConfigStore {
         case .xunfeiSentence:
             updatedConfig.xunfei.validationStatus = status
             updatedConfig.xunfei.lastValidationError = error
+        case .xiaomiMiMoASR:
+            updatedConfig.xiaomiMiMo.validationStatus = status
+            updatedConfig.xiaomiMiMo.lastValidationError = error
         }
 
         var configFile = buildConfigFile()
@@ -340,7 +343,7 @@ final class ConfigStore {
 
         generalConfig = configFile.general.publicConfig
         legacyAutomaticUpdateChecksEnabled = configFile.general.automaticUpdateChecksEnabled
-        asrConfig = configFile.asr
+        asrConfig = normalizedInterruptedCloudValidationStates(in: configFile.asr)
         audioInputConfig = configFile.audio
     }
 
@@ -395,6 +398,42 @@ final class ConfigStore {
             newConfig.xunfei.validationStatus = .unvalidated
             newConfig.xunfei.lastValidationError = nil
         }
+
+        if oldConfig.xiaomiMiMo.apiKey != newConfig.xiaomiMiMo.apiKey {
+            newConfig.xiaomiMiMo.validationStatus = .unvalidated
+            newConfig.xiaomiMiMo.lastValidationError = nil
+        }
+    }
+
+    private func normalizedInterruptedCloudValidationStates(in config: ASRConfig) -> ASRConfig {
+        var normalized = config
+
+        if normalized.tencentCloud.validationStatus == .validating {
+            normalized.tencentCloud.validationStatus = .unvalidated
+            normalized.tencentCloud.lastValidationError = nil
+        }
+
+        if normalized.aliyun.validationStatus == .validating {
+            normalized.aliyun.validationStatus = .unvalidated
+            normalized.aliyun.lastValidationError = nil
+        }
+
+        if normalized.volcengine.validationStatus == .validating {
+            normalized.volcengine.validationStatus = .unvalidated
+            normalized.volcengine.lastValidationError = nil
+        }
+
+        if normalized.xunfei.validationStatus == .validating {
+            normalized.xunfei.validationStatus = .unvalidated
+            normalized.xunfei.lastValidationError = nil
+        }
+
+        if normalized.xiaomiMiMo.validationStatus == .validating {
+            normalized.xiaomiMiMo.validationStatus = .unvalidated
+            normalized.xiaomiMiMo.lastValidationError = nil
+        }
+
+        return normalized
     }
 
     private static func localModelsAvailable() -> Bool {

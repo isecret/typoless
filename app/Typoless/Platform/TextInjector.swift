@@ -16,6 +16,7 @@ struct TextInjector: Sendable {
         "com.googlecode.iterm2",
         "abnerworks.Typora"
     ]
+    private let focusedElementResolver = FocusedElementResolver()
 
     struct InjectionResult: Sendable {
         let path: InjectionPath
@@ -120,78 +121,16 @@ struct TextInjector: Sendable {
     // MARK: - AX Element Discovery
 
     private func tryGetInjectableElement(targetPID: pid_t?) -> AXUIElement? {
-        if let targetPID,
-           restoreTargetApplication(pid: targetPID),
-           let element = tryGetFocusedElement(for: targetPID) {
-            return element
-        }
-
-        let systemWide = AXUIElementCreateSystemWide()
-
-        var focusedAppRef: CFTypeRef?
-        let appResult = AXUIElementCopyAttributeValue(
-            systemWide,
-            kAXFocusedApplicationAttribute as CFString,
-            &focusedAppRef
-        )
-        guard appResult == .success else {
-            return nil
-        }
-
-        var focusedElementRef: CFTypeRef?
-        let elemResult = AXUIElementCopyAttributeValue(
-            focusedAppRef as! AXUIElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedElementRef
-        )
-        guard elemResult == .success else {
-            return nil
-        }
-
-        return (focusedElementRef as! AXUIElement)
-    }
-
-    private func tryGetFocusedElement(for pid: pid_t) -> AXUIElement? {
-        let appElement = AXUIElementCreateApplication(pid)
-
-        for interval in Self.focusRetryIntervals {
-            var focusedElementRef: CFTypeRef?
-            let result = AXUIElementCopyAttributeValue(
-                appElement,
-                kAXFocusedUIElementAttribute as CFString,
-                &focusedElementRef
-            )
-
-            if result == .success, let focusedElementRef {
-                return (focusedElementRef as! AXUIElement)
-            }
-
-            RunLoop.current.run(until: Date().addingTimeInterval(interval))
-        }
-
-        return nil
+        focusedElementResolver
+            .resolveFocusedElement(
+                targetPID: targetPID,
+                shouldRestoreTargetApplication: targetPID != nil
+            )?
+            .element
     }
 
     private func restoreTargetApplication(pid: pid_t) -> Bool {
-        guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else {
-            return false
-        }
-
-        if app.isHidden {
-            app.unhide()
-        }
-
-        _ = app.activate(options: [.activateAllWindows])
-
-        for interval in Self.frontmostRetryIntervals {
-            if app.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
-                return true
-            }
-
-            RunLoop.current.run(until: Date().addingTimeInterval(interval))
-        }
-
-        return app.isActive || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        focusedElementResolver.restoreTargetApplication(pid: pid)
     }
 
     // MARK: - AX Insertion
