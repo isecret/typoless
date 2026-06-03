@@ -253,8 +253,6 @@ final class SessionCoordinator {
 
         let recordingResult = audioRecorder.stopRecording()
         let audioData = recordingResult.data
-        lastRecordedAudio = audioData
-        onFeedbackEvent?(.recordingStopped)
 
         // 短录音静默取消（<500ms）：先取消处理任务，再清理流
         if recordingResult.isShortRecording {
@@ -272,8 +270,12 @@ final class SessionCoordinator {
             targetApplicationBundleID = nil
             cleanupSegmenterState()
             state = .idle
+            onFeedbackEvent?(.processingCancelled)
             return
         }
+
+        lastRecordedAudio = audioData
+        onFeedbackEvent?(.recordingStopped)
 
         guard !audioData.isEmpty else {
             sessionGeneration &+= 1

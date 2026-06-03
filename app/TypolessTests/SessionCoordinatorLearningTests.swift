@@ -92,6 +92,46 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         }
     }
 
+    func testQuickStartThenImmediateStopSilentlyCancelsWithoutProcessingHUD() throws {
+        let learner = MockPostInjectionLearner()
+        let coordinator = makeCoordinator(
+            dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
+            learner: learner,
+            ensureMicrophoneAuthorized: {},
+            ensureAccessibilityAuthorized: {},
+            configureConfigStore: { configStore in
+                var config = ASRConfig()
+                config.selectedPlatform = .tencentCloudSentence
+                config.tencentCloud.secretId = "test-secret-id"
+                config.tencentCloud.secretKey = "test-secret-key"
+                try! configStore.saveASRConfig(config)
+                try! configStore.updateCloudValidationState(
+                    for: .tencentCloudSentence,
+                    status: .verified
+                )
+            }
+        )
+
+        var receivedEvents: [SessionFeedbackEvent] = []
+        coordinator.onFeedbackEvent = { event in
+            receivedEvents.append(event)
+        }
+
+        coordinator.startRecording()
+        coordinator.finishRecording()
+
+        XCTAssertEqual(coordinator.state, .idle)
+        XCTAssertNil(coordinator.currentError)
+        XCTAssertNil(coordinator.lastRecordedAudio)
+        XCTAssertEqual(receivedEvents.count, 2)
+        guard case .recordingStarted = receivedEvents[0] else {
+            return XCTFail("expected recordingStarted event")
+        }
+        guard case .processingCancelled = receivedEvents[1] else {
+            return XCTFail("expected processingCancelled event")
+        }
+    }
+
     private func makeCoordinator(
         dictionaryStore: PersonalDictionaryStore?,
         learner: any PostInjectionDictionaryLearning,
@@ -100,9 +140,11 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         },
         ensureAccessibilityAuthorized: @escaping @MainActor @Sendable () throws -> Void = {
             try PermissionsManager().ensureAccessibilityAuthorized()
-        }
+        },
+        configureConfigStore: (@MainActor (ConfigStore) -> Void)? = nil
     ) -> SessionCoordinator {
         let configStore = ConfigStore(configDirectory: tempDirectory)
+        configureConfigStore?(configStore)
         let audioDeviceManager = AudioDeviceManager(configStore: configStore)
         return SessionCoordinator(
             permissionsManager: PermissionsManager(),
