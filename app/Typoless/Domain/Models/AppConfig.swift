@@ -18,6 +18,7 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
     case aliyunSentence = "aliyunSentence"
     case volcengineSentence = "volcengineSentence"
     case xunfeiSentence = "xunfeiSentence"
+    case xiaomiMiMoASR = "xiaomiMiMoASR"
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -33,6 +34,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             self = .volcengineSentence
         case "xunfeiSentence":
             self = .xunfeiSentence
+        case "xiaomiMiMoASR":
+            self = .xiaomiMiMoASR
         default:
             throw DecodingError.dataCorruptedError(
                 in: container,
@@ -58,6 +61,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             "火山引擎"
         case .xunfeiSentence:
             "科大讯飞"
+        case .xiaomiMiMoASR:
+            "小米 MiMo"
         }
     }
 
@@ -73,6 +78,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             "火山引擎模式：语音会发送到火山引擎语音识别服务。"
         case .xunfeiSentence:
             "科大讯飞模式：语音会发送到科大讯飞语音识别服务。"
+        case .xiaomiMiMoASR:
+            "小米 MiMo 模式：语音会发送到 Xiaomi MiMo ASR 服务。"
         }
     }
 
@@ -88,6 +95,8 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
             URL(string: "https://www.volcengine.com/docs/6561/1257584")!
         case .xunfeiSentence:
             URL(string: "https://www.xfyun.cn/doc/asr/voicedictation/API.html")!
+        case .xiaomiMiMoASR:
+            URL(string: "https://platform.xiaomimimo.com/docs/zh-CN/api/audio/Speech-Recognition")!
         }
     }
 }
@@ -100,6 +109,7 @@ struct ASRConfig: Codable, Equatable, Sendable {
     var aliyun: AliyunASRConfig = AliyunASRConfig()
     var volcengine: VolcengineASRConfig = VolcengineASRConfig()
     var xunfei: XunfeiASRConfig = XunfeiASRConfig()
+    var xiaomiMiMo: XiaomiMiMoASRConfig = XiaomiMiMoASRConfig()
 
     enum CodingKeys: String, CodingKey {
         case selectedPlatform
@@ -108,6 +118,7 @@ struct ASRConfig: Codable, Equatable, Sendable {
         case aliyun
         case volcengine
         case xunfei
+        case xiaomiMiMo
     }
 
     init() {}
@@ -120,6 +131,7 @@ struct ASRConfig: Codable, Equatable, Sendable {
         aliyun = try container.decodeIfPresent(AliyunASRConfig.self, forKey: .aliyun) ?? AliyunASRConfig()
         volcengine = try container.decodeIfPresent(VolcengineASRConfig.self, forKey: .volcengine) ?? VolcengineASRConfig()
         xunfei = try container.decodeIfPresent(XunfeiASRConfig.self, forKey: .xunfei) ?? XunfeiASRConfig()
+        xiaomiMiMo = try container.decodeIfPresent(XiaomiMiMoASRConfig.self, forKey: .xiaomiMiMo) ?? XiaomiMiMoASRConfig()
     }
 
     func isReady(localModelsAvailable: Bool) -> Bool {
@@ -134,6 +146,8 @@ struct ASRConfig: Codable, Equatable, Sendable {
             return volcengine.isReady
         case .xunfeiSentence:
             return xunfei.isReady
+        case .xiaomiMiMoASR:
+            return xiaomiMiMo.isReady
         }
     }
 
@@ -151,6 +165,8 @@ struct ASRConfig: Codable, Equatable, Sendable {
             return volcengine.notReadyReason(platformName: "火山引擎")
         case .xunfeiSentence:
             return xunfei.notReadyReason(platformName: "科大讯飞")
+        case .xiaomiMiMoASR:
+            return xiaomiMiMo.notReadyReason(platformName: "小米 MiMo")
         }
     }
 }
@@ -355,6 +371,43 @@ struct XunfeiASRConfig: Codable, Equatable, Sendable {
     }
 }
 
+/// 小米 MiMo ASR 配置
+struct XiaomiMiMoASRConfig: Codable, Equatable, Sendable {
+    var apiKey: String = ""
+    var language: String = "auto"
+    var validationStatus: CloudASRValidationStatus = .unvalidated
+    var lastValidationError: String?
+
+    static let supportedLanguages = ["auto", "zh", "en"]
+
+    enum CodingKeys: String, CodingKey {
+        case apiKey
+        case language
+        case validationStatus
+        case lastValidationError
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        let decodedLanguage = try container.decodeIfPresent(String.self, forKey: .language) ?? "auto"
+        language = Self.normalizedLanguage(decodedLanguage)
+        validationStatus = try container.decodeIfPresent(CloudASRValidationStatus.self, forKey: .validationStatus) ?? .unvalidated
+        lastValidationError = try container.decodeIfPresent(String.self, forKey: .lastValidationError)
+    }
+
+    var isComplete: Bool {
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func normalizedLanguage(_ language: String) -> String {
+        let normalized = language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return supportedLanguages.contains(normalized) ? normalized : "auto"
+    }
+}
+
 extension TencentASRConfig: CloudASRConfigState {
     func incompleteReason(platformName: String) -> String {
         "\(platformName) ASR 配置不完整，请填写 SecretId 和 SecretKey"
@@ -376,6 +429,12 @@ extension VolcengineASRConfig: CloudASRConfigState {
 extension XunfeiASRConfig: CloudASRConfigState {
     func incompleteReason(platformName: String) -> String {
         "\(platformName) ASR 配置不完整，请填写 AppID、API Key 和 API Secret"
+    }
+}
+
+extension XiaomiMiMoASRConfig: CloudASRConfigState {
+    func incompleteReason(platformName: String) -> String {
+        "\(platformName) ASR 配置不完整，请填写 API Key"
     }
 }
 

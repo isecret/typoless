@@ -187,6 +187,60 @@ final class CloudASRValidationServiceTests: XCTestCase {
         XCTAssertNil(service.lastErrorMessage)
     }
 
+    func testXiaomiMiMoValidationInputFingerprintIncludesLanguage() {
+        var config = ASRConfig()
+        config.xiaomiMiMo.apiKey = "mimo-key"
+        config.xiaomiMiMo.language = "zh"
+
+        let input = CloudASRValidationInput(platform: .xiaomiMiMoASR, asrConfig: config)
+
+        XCTAssertTrue(input.isCloudPlatform)
+        XCTAssertTrue(input.isComplete)
+        XCTAssertEqual(input.fingerprint, "xiaomiMiMoASR\nmimo-key\nzh")
+    }
+
+    @MainActor
+    func testSyncFromConfigRestoresXiaomiMiMoVerifiedState() throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var config = store.asrConfig
+        config.selectedPlatform = .xiaomiMiMoASR
+        config.xiaomiMiMo.apiKey = "mimo-key"
+        config.xiaomiMiMo.language = "zh"
+        try store.saveASRConfig(config)
+        try store.updateCloudValidationState(for: .xiaomiMiMoASR, status: .verified)
+
+        let service = CloudASRValidationService(configStore: store)
+        service.syncFromConfig(
+            for: CloudASRValidationInput(platform: .xiaomiMiMoASR, asrConfig: store.asrConfig)
+        )
+
+        XCTAssertEqual(service.status, .ready)
+        XCTAssertNil(service.lastErrorMessage)
+    }
+
+    @MainActor
+    func testXiaomiMiMoValidationTransitionsToReadyAndPersistsState() async throws {
+        let store = ConfigStore(configDirectory: tempDirectory)
+        var config = store.asrConfig
+        config.selectedPlatform = .xiaomiMiMoASR
+        config.xiaomiMiMo.apiKey = "mimo-key"
+        config.xiaomiMiMo.language = "en"
+        try store.saveASRConfig(config)
+
+        let service = CloudASRValidationService(
+            configStore: store,
+            validatorFactory: { _ in
+                StubCloudASRValidator {}
+            }
+        )
+
+        service.validate(CloudASRValidationInput(platform: .xiaomiMiMoASR, asrConfig: store.asrConfig))
+
+        await waitUntil { service.status == .ready }
+        XCTAssertEqual(store.asrConfig.xiaomiMiMo.validationStatus, .verified)
+        XCTAssertNil(store.asrConfig.xiaomiMiMo.lastValidationError)
+    }
+
     @MainActor
     private func waitUntil(
         timeout: Duration = .seconds(1),

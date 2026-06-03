@@ -37,6 +37,12 @@ final class ASRConfigTests: XCTestCase {
         XCTAssertFalse(config.isReady(localModelsAvailable: false))
         config.xunfei.validationStatus = .verified
         XCTAssertTrue(config.isReady(localModelsAvailable: false))
+
+        config.selectedPlatform = .xiaomiMiMoASR
+        config.xiaomiMiMo.apiKey = "mimo-key"
+        XCTAssertFalse(config.isReady(localModelsAvailable: false))
+        config.xiaomiMiMo.validationStatus = .verified
+        XCTAssertTrue(config.isReady(localModelsAvailable: false))
     }
 
     func testNotReadyReasonMatchesPlatform() {
@@ -67,6 +73,12 @@ final class ASRConfigTests: XCTestCase {
             config.notReadyReason(localModelsAvailable: false),
             "科大讯飞 ASR 配置不完整，请填写 AppID、API Key 和 API Secret"
         )
+
+        config.selectedPlatform = .xiaomiMiMoASR
+        XCTAssertEqual(
+            config.notReadyReason(localModelsAvailable: false),
+            "小米 MiMo ASR 配置不完整，请填写 API Key"
+        )
     }
 
     func testProviderFactoryRoutesToExpectedProviderType() {
@@ -89,11 +101,25 @@ final class ASRConfigTests: XCTestCase {
         config.selectedPlatform = .xunfeiSentence
         let xunfei = factory.makeProvider(for: config)
         XCTAssertEqual(String(describing: type(of: xunfei)), "XunfeiSentenceASRProvider")
+
+        config.selectedPlatform = .xiaomiMiMoASR
+        let xiaomiMiMo = factory.makeProvider(for: config)
+        XCTAssertEqual(String(describing: type(of: xiaomiMiMo)), "XiaomiMiMoASRProvider")
     }
 
     func testDecodingLegacyLocalASRValueMigratesToSenseVoice() throws {
         let data = Data(#"{"selectedPlatform":"localFunASR","local":{"modelStatus":"notDownloaded"}}"#.utf8)
         let decoded = try JSONDecoder().decode(ASRConfig.self, from: data)
         XCTAssertEqual(decoded.selectedPlatform, .localSenseVoice)
+    }
+
+    func testXiaomiMiMoLanguageNormalization() throws {
+        XCTAssertEqual(XiaomiMiMoASRConfig.normalizedLanguage(" zh "), "zh")
+        XCTAssertEqual(XiaomiMiMoASRConfig.normalizedLanguage("EN"), "en")
+        XCTAssertEqual(XiaomiMiMoASRConfig.normalizedLanguage("ja"), "auto")
+
+        let data = Data(#"{"apiKey":"key","language":"ja"}"#.utf8)
+        let decoded = try JSONDecoder().decode(XiaomiMiMoASRConfig.self, from: data)
+        XCTAssertEqual(decoded.language, "auto")
     }
 }

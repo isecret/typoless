@@ -257,6 +257,7 @@ final class ConfigStore {
 
     func saveASRConfig(_ config: ASRConfig) throws {
         var normalizedConfig = config
+        normalizedConfig.xiaomiMiMo.language = XiaomiMiMoASRConfig.normalizedLanguage(normalizedConfig.xiaomiMiMo.language)
         invalidateCloudValidationStateIfNeeded(from: asrConfig, to: &normalizedConfig)
 
         var configFile = buildConfigFile()
@@ -306,6 +307,9 @@ final class ConfigStore {
         case .xunfeiSentence:
             updatedConfig.xunfei.validationStatus = status
             updatedConfig.xunfei.lastValidationError = error
+        case .xiaomiMiMoASR:
+            updatedConfig.xiaomiMiMo.validationStatus = status
+            updatedConfig.xiaomiMiMo.lastValidationError = error
         }
 
         var configFile = buildConfigFile()
@@ -394,6 +398,12 @@ final class ConfigStore {
             || oldConfig.xunfei.apiSecret != newConfig.xunfei.apiSecret {
             newConfig.xunfei.validationStatus = .unvalidated
             newConfig.xunfei.lastValidationError = nil
+        }
+
+        if oldConfig.xiaomiMiMo.apiKey != newConfig.xiaomiMiMo.apiKey
+            || oldConfig.xiaomiMiMo.language != newConfig.xiaomiMiMo.language {
+            newConfig.xiaomiMiMo.validationStatus = .unvalidated
+            newConfig.xiaomiMiMo.lastValidationError = nil
         }
     }
 

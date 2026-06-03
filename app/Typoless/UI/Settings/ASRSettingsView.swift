@@ -103,6 +103,9 @@ struct ASRSettingsView: View {
     @State private var xunfeiAPIKey: String = ""
     @State private var xunfeiAPISecret: String = ""
 
+    @State private var xiaomiMiMoAPIKey: String = ""
+    @State private var xiaomiMiMoLanguage: String = "auto"
+
     @State private var isLoaded = false
     @State private var hasTriggeredValidation = false
     @State private var saveTask: Task<Void, Never>?
@@ -145,6 +148,8 @@ struct ASRSettingsView: View {
                 volcenginePanel
             case .xunfeiSentence:
                 xunfeiPanel
+            case .xiaomiMiMoASR:
+                xiaomiMiMoPanel
             }
         } footer: {
             Text(selectedPlatform.cloudConfigSummary)
@@ -167,6 +172,8 @@ struct ASRSettingsView: View {
         .onChange(of: xunfeiAppID) { debouncedSaveCloudConfig() }
         .onChange(of: xunfeiAPIKey) { debouncedSaveCloudConfig() }
         .onChange(of: xunfeiAPISecret) { debouncedSaveCloudConfig() }
+        .onChange(of: xiaomiMiMoAPIKey) { debouncedSaveCloudConfig() }
+        .onChange(of: xiaomiMiMoLanguage) { debouncedSaveCloudConfig() }
     }
 
     // MARK: - Panels
@@ -218,6 +225,21 @@ struct ASRSettingsView: View {
         cloudField(title: "API Key", text: $xunfeiAPIKey)
         cloudSecureField(title: "API Secret", text: $xunfeiAPISecret)
         cloudStatusRow(for: .xunfeiSentence)
+    }
+
+    @ViewBuilder
+    private var xiaomiMiMoPanel: some View {
+        cloudSecureField(title: "API Key", text: $xiaomiMiMoAPIKey)
+        SettingsFormRow(title: "Language") {
+            Picker("Language", selection: $xiaomiMiMoLanguage) {
+                ForEach(XiaomiMiMoASRConfig.supportedLanguages, id: \.self) { language in
+                    Text(language).tag(language)
+                }
+            }
+            .labelsHidden()
+            .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+        }
+        cloudStatusRow(for: .xiaomiMiMoASR)
     }
 
     // MARK: - Shared Rows
@@ -340,6 +362,9 @@ struct ASRSettingsView: View {
         xunfeiAPIKey = configStore.asrConfig.xunfei.apiKey
         xunfeiAPISecret = configStore.asrConfig.xunfei.apiSecret
 
+        xiaomiMiMoAPIKey = configStore.asrConfig.xiaomiMiMo.apiKey
+        xiaomiMiMoLanguage = configStore.asrConfig.xiaomiMiMo.language
+
         hasTriggeredValidation = false
         downloadManager = ModelDownloadManager(configStore: configStore)
         validationService = CloudASRValidationService(configStore: configStore)
@@ -362,6 +387,8 @@ struct ASRSettingsView: View {
         config.xunfei.appID = xunfeiAppID.trimmingCharacters(in: .whitespacesAndNewlines)
         config.xunfei.apiKey = xunfeiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         config.xunfei.apiSecret = xunfeiAPISecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.xiaomiMiMo.apiKey = xiaomiMiMoAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.xiaomiMiMo.language = XiaomiMiMoASRConfig.normalizedLanguage(xiaomiMiMoLanguage)
         return config
     }
 
@@ -472,6 +499,8 @@ struct ASRSettingsView: View {
             return config.volcengine.validationStatus
         case .xunfeiSentence:
             return config.xunfei.validationStatus
+        case .xiaomiMiMoASR:
+            return config.xiaomiMiMo.validationStatus
         }
     }
 
@@ -487,6 +516,8 @@ struct ASRSettingsView: View {
             return config.volcengine.lastValidationError
         case .xunfeiSentence:
             return config.xunfei.lastValidationError
+        case .xiaomiMiMoASR:
+            return config.xiaomiMiMo.lastValidationError
         }
     }
 }
