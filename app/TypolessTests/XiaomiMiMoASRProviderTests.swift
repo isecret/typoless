@@ -83,23 +83,6 @@ final class XiaomiMiMoASRProviderTests: XCTestCase {
         XCTAssertEqual(asrOptions?["language"] as? String, "auto")
     }
 
-    func testRecognizeUsesConfiguredLanguage() async throws {
-        let client = StubXiaomiMiMoHTTPClient(
-            responseData: Data(#"{"choices":[{"message":{"content":"text"}}]}"#.utf8),
-            statusCode: 200
-        )
-        let provider = XiaomiMiMoASRProvider(apiKey: "mimo-key", language: "zh", httpClient: client)
-
-        _ = try await provider.recognize(audioData: Data([1]), timeout: nil)
-
-        let lastRequest = await client.lastRequest
-        let request = try XCTUnwrap(lastRequest)
-        let body = try XCTUnwrap(request.httpBody)
-        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
-        let asrOptions = json?["asr_options"] as? [String: Any]
-        XCTAssertEqual(asrOptions?["language"] as? String, "zh")
-    }
-
     func testRecognizeThrowsConfigurationIncompleteWhenAPIKeyMissing() async {
         let client = StubXiaomiMiMoHTTPClient(
             responseData: Data(#"{"choices":[{"message":{"content":"text"}}]}"#.utf8),

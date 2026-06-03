@@ -104,9 +104,7 @@ struct ASRSettingsView: View {
     @State private var xunfeiAPISecret: String = ""
 
     @State private var xiaomiMiMoAPIKey: String = ""
-    @State private var xiaomiMiMoLanguage: String = XiaomiMiMoASRConfig.defaultLanguage
     @State private var xiaomiMiMoTokenPlanAPIKey: String = ""
-    @State private var xiaomiMiMoTokenPlanLanguage: String = XiaomiMiMoASRConfig.defaultLanguage
 
     @State private var isLoaded = false
     @State private var hasTriggeredValidation = false
@@ -151,17 +149,9 @@ struct ASRSettingsView: View {
             case .xunfeiSentence:
                 xunfeiPanel
             case .xiaomiMiMoASR:
-                xiaomiMiMoPanel(
-                    apiKey: $xiaomiMiMoAPIKey,
-                    language: $xiaomiMiMoLanguage,
-                    platform: .xiaomiMiMoASR
-                )
+                xiaomiMiMoPanel(apiKey: $xiaomiMiMoAPIKey, platform: .xiaomiMiMoASR)
             case .xiaomiMiMoTokenPlanASR:
-                xiaomiMiMoPanel(
-                    apiKey: $xiaomiMiMoTokenPlanAPIKey,
-                    language: $xiaomiMiMoTokenPlanLanguage,
-                    platform: .xiaomiMiMoTokenPlanASR
-                )
+                xiaomiMiMoPanel(apiKey: $xiaomiMiMoTokenPlanAPIKey, platform: .xiaomiMiMoTokenPlanASR)
             }
         } footer: {
             Text(selectedPlatform.cloudConfigSummary)
@@ -185,9 +175,7 @@ struct ASRSettingsView: View {
         .onChange(of: xunfeiAPIKey) { debouncedSaveCloudConfig() }
         .onChange(of: xunfeiAPISecret) { debouncedSaveCloudConfig() }
         .onChange(of: xiaomiMiMoAPIKey) { debouncedSaveCloudConfig() }
-        .onChange(of: xiaomiMiMoLanguage) { debouncedSaveCloudConfig() }
         .onChange(of: xiaomiMiMoTokenPlanAPIKey) { debouncedSaveCloudConfig() }
-        .onChange(of: xiaomiMiMoTokenPlanLanguage) { debouncedSaveCloudConfig() }
     }
 
     // MARK: - Panels
@@ -244,11 +232,9 @@ struct ASRSettingsView: View {
     @ViewBuilder
     private func xiaomiMiMoPanel(
         apiKey: Binding<String>,
-        language: Binding<String>,
         platform: ASRPlatform
     ) -> some View {
         cloudSecureField(title: "API Key", text: apiKey)
-        xiaomiMiMoLanguageRow(language: language)
         cloudStatusRow(for: platform)
     }
 
@@ -263,18 +249,6 @@ struct ASRSettingsView: View {
     private func cloudSecureField(title: String, text: Binding<String>) -> some View {
         SettingsFormRow(title: title) {
             SettingsSecureInputField(text: text)
-        }
-    }
-
-    private func xiaomiMiMoLanguageRow(language: Binding<String>) -> some View {
-        SettingsFormRow(title: "识别语言") {
-            Picker("识别语言", selection: language) {
-                Text("自动").tag("auto")
-                Text("中文").tag("zh")
-                Text("英文").tag("en")
-            }
-            .labelsHidden()
-            .fixedSize()
         }
     }
 
@@ -385,9 +359,7 @@ struct ASRSettingsView: View {
         xunfeiAPISecret = configStore.asrConfig.xunfei.apiSecret
 
         xiaomiMiMoAPIKey = configStore.asrConfig.xiaomiMiMo.apiKey
-        xiaomiMiMoLanguage = configStore.asrConfig.xiaomiMiMo.language
         xiaomiMiMoTokenPlanAPIKey = configStore.asrConfig.xiaomiMiMoTokenPlan.apiKey
-        xiaomiMiMoTokenPlanLanguage = configStore.asrConfig.xiaomiMiMoTokenPlan.language
 
         hasTriggeredValidation = false
         downloadManager = ModelDownloadManager(configStore: configStore)
@@ -412,9 +384,7 @@ struct ASRSettingsView: View {
         config.xunfei.apiKey = xunfeiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         config.xunfei.apiSecret = xunfeiAPISecret.trimmingCharacters(in: .whitespacesAndNewlines)
         config.xiaomiMiMo.apiKey = xiaomiMiMoAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        config.xiaomiMiMo.language = XiaomiMiMoASRConfig.normalizedLanguage(xiaomiMiMoLanguage)
         config.xiaomiMiMoTokenPlan.apiKey = xiaomiMiMoTokenPlanAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        config.xiaomiMiMoTokenPlan.language = XiaomiMiMoASRConfig.normalizedLanguage(xiaomiMiMoTokenPlanLanguage)
         return config
     }
 

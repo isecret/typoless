@@ -402,14 +402,12 @@ final class ConfigStore {
             newConfig.xunfei.lastValidationError = nil
         }
 
-        if oldConfig.xiaomiMiMo.apiKey != newConfig.xiaomiMiMo.apiKey
-            || oldConfig.xiaomiMiMo.language != newConfig.xiaomiMiMo.language {
+        if oldConfig.xiaomiMiMo.apiKey != newConfig.xiaomiMiMo.apiKey {
             newConfig.xiaomiMiMo.validationStatus = .unvalidated
             newConfig.xiaomiMiMo.lastValidationError = nil
         }
 
-        if oldConfig.xiaomiMiMoTokenPlan.apiKey != newConfig.xiaomiMiMoTokenPlan.apiKey
-            || oldConfig.xiaomiMiMoTokenPlan.language != newConfig.xiaomiMiMoTokenPlan.language {
+        if oldConfig.xiaomiMiMoTokenPlan.apiKey != newConfig.xiaomiMiMoTokenPlan.apiKey {
             newConfig.xiaomiMiMoTokenPlan.validationStatus = .unvalidated
             newConfig.xiaomiMiMoTokenPlan.lastValidationError = nil
         }

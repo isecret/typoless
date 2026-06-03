@@ -17,18 +17,15 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
     private static let defaultTimeout: TimeInterval = 15
 
     private let apiKey: String
-    private let language: String
     private let recognizeURL: URL
     private let httpClient: any XiaomiMiMoASRHTTPClient
 
     init(
         apiKey: String,
-        language: String = XiaomiMiMoASRProvider.defaultLanguage,
         baseURL: URL = XiaomiMiMoASRProvider.defaultBaseURL,
         httpClient: any XiaomiMiMoASRHTTPClient = URLSession.shared
     ) {
         self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.language = XiaomiMiMoASRConfig.normalizedLanguage(language)
         self.recognizeURL = Self.chatCompletionsURL(for: baseURL)
         self.httpClient = httpClient
     }
@@ -60,7 +57,7 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
                     ]
                 ),
             ],
-            asrOptions: XiaomiMiMoASROptions(language: language),
+            asrOptions: XiaomiMiMoASROptions(language: Self.defaultLanguage),
             stream: false
         )
 

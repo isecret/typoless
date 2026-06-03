@@ -189,13 +189,11 @@ final class CloudASRValidationService {
         case .xiaomiMiMoASR:
             return XiaomiMiMoASRProvider(
                 apiKey: input.asrConfig.xiaomiMiMo.apiKey,
-                language: input.asrConfig.xiaomiMiMo.language,
                 baseURL: XiaomiMiMoASRProvider.defaultBaseURL
             )
         case .xiaomiMiMoTokenPlanASR:
             return XiaomiMiMoASRProvider(
                 apiKey: input.asrConfig.xiaomiMiMoTokenPlan.apiKey,
-                language: input.asrConfig.xiaomiMiMoTokenPlan.language,
                 baseURL: XiaomiMiMoASRProvider.tokenPlanBaseURL
             )
         }
