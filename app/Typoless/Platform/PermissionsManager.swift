@@ -33,16 +33,23 @@ enum PermissionError: LocalizedError, Equatable, Sendable {
     }
 }
 
+@MainActor
+protocol VoiceInputPermissionPreparing: AnyObject {
+    var isPreparingVoiceInputPermissions: Bool { get }
+    func prepareForVoiceInputStart() async throws
+}
+
 // MARK: - PermissionsManager
 
 /// 管理麦克风与辅助功能权限的检测、申请与引导
 @MainActor
 @Observable
-final class PermissionsManager {
+final class PermissionsManager: VoiceInputPermissionPreparing {
 
     private(set) var microphoneStatus: MicrophonePermission = .notDetermined
     private(set) var accessibilityStatus: AccessibilityPermission = .requiresManualEnable
     private(set) var isRequestingMicrophonePermission = false
+    private(set) var isPreparingVoiceInputPermissions = false
 
     init() {
         refreshAll()
@@ -84,6 +91,47 @@ final class PermissionsManager {
         }
         isRequestingMicrophonePermission = false
         checkMicrophonePermission()
+    }
+
+    /// 首次语音输入启动前的权限编排。
+    ///
+    /// 麦克风优先：未决定时弹系统授权；已拒绝/受限时打开隐私设置。
+    /// 辅助功能随后检查：未授权时触发系统引导。任何缺失都会阻止本次录音。
+    func prepareForVoiceInputStart() async throws {
+        if isPreparingVoiceInputPermissions {
+            while isPreparingVoiceInputPermissions {
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            try ensureMicrophoneAuthorized()
+            try ensureAccessibilityAuthorized()
+            return
+        }
+
+        isPreparingVoiceInputPermissions = true
+        defer {
+            isPreparingVoiceInputPermissions = false
+            refreshAll()
+        }
+
+        checkMicrophonePermission()
+        switch microphoneStatus {
+        case .notDetermined:
+            await requestMicrophonePermission()
+            guard microphoneStatus == .granted else {
+                throw PermissionError.microphonePermissionDenied
+            }
+        case .granted:
+            break
+        case .denied, .restricted:
+            openMicrophoneSettings()
+            throw PermissionError.microphonePermissionDenied
+        }
+
+        checkAccessibilityPermission()
+        guard accessibilityStatus == .granted else {
+            promptAndOpenAccessibilitySettings()
+            throw PermissionError.accessibilityPermissionDenied
+        }
     }
 
     // MARK: - Enforcement APIs (供 E4/E7/E8 使用)

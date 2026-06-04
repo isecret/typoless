@@ -29,6 +29,21 @@ final class HUDLayoutTests: XCTestCase {
         XCTAssertEqual(HUDLayout.windowSize.height, 52.8, accuracy: 0.001)
     }
 
+    func testHUDWindowCanContainAllScaledCapsuleWidths() {
+        let widths = [
+            HUDLayout.hiddenWidth,
+            HUDLayout.activeWidth,
+            HUDLayout.resultWidth,
+            HUDLayout.noticeWidth(for: "客户成功…"),
+            HUDLayout.noticeWidth(for: "迁移平台…")
+        ]
+
+        for width in widths {
+            XCTAssertLessThanOrEqual(width, HUDLayout.windowSize.width)
+        }
+        XCTAssertLessThanOrEqual(HUDLayout.capsuleHeight, HUDLayout.windowSize.height)
+    }
+
     func testHUDBottomReservedHeightUsesOnlyBottomOccupiedSpace() {
         let screenFrame = NSRect(x: 0, y: 0, width: 1440, height: 900)
 
@@ -99,5 +114,10 @@ final class HUDLayoutTests: XCTestCase {
         for color in colors {
             XCTAssertEqual(color.alphaComponent, 1, accuracy: 0.001)
         }
+    }
+
+    func testAllHUDStatesShareOneOpaqueCapsuleBaseColor() {
+        XCTAssertEqual(HUDLayout.capsuleBackgroundColor.alphaComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(HUDLayout.capsuleBackgroundColor, HUDLayout.sharedCapsuleBackgroundColor)
     }
 }
