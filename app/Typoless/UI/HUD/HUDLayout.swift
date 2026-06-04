@@ -48,7 +48,8 @@ enum HUDLayout {
     static let waveformMinHeight = scaled(1.2)
     static let waveformMaxHeight = scaled(12.6)
 
-    static let capsuleBackgroundColor = NSColor(white: 0.07, alpha: 1)
+    static let sharedCapsuleBackgroundColor = NSColor(white: 0.07, alpha: 1)
+    static let capsuleBackgroundColor = sharedCapsuleBackgroundColor
     static let capsuleInnerStrokeColor = NSColor(white: 0.16, alpha: 1)
     static let capsuleOuterStrokeColor = NSColor(white: 0.24, alpha: 1)
     static let primaryForegroundColor = NSColor(white: 1, alpha: 1)

@@ -66,13 +66,12 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         XCTAssertEqual(term, "朴邻")
     }
 
-    func testStartRecordingFailsBeforeHUDWhenAccessibilityPermissionMissing() {
+    func testStartRecordingFailsBeforeHUDWhenAccessibilityPermissionMissing() async {
         let learner = MockPostInjectionLearner()
         let coordinator = makeCoordinator(
             dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
             learner: learner,
-            ensureMicrophoneAuthorized: {},
-            ensureAccessibilityAuthorized: {
+            prepareForVoiceInputStart: {
                 throw PermissionError.accessibilityPermissionDenied
             }
         )
@@ -83,6 +82,7 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         }
 
         coordinator.startRecording()
+        try? await Task.sleep(for: .milliseconds(50))
 
         XCTAssertEqual(coordinator.state, .error)
         XCTAssertEqual(coordinator.currentError, .accessibilityPermissionDenied)
@@ -92,23 +92,13 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         }
     }
 
-    func testQuickStartThenImmediateStopSilentlyCancelsWithoutProcessingHUD() throws {
+    func testStartRecordingFailsBeforeHUDWhenMicrophonePermissionMissing() async {
         let learner = MockPostInjectionLearner()
         let coordinator = makeCoordinator(
             dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
             learner: learner,
-            ensureMicrophoneAuthorized: {},
-            ensureAccessibilityAuthorized: {},
-            configureConfigStore: { configStore in
-                var config = ASRConfig()
-                config.selectedPlatform = .tencentCloudSentence
-                config.tencentCloud.secretId = "test-secret-id"
-                config.tencentCloud.secretKey = "test-secret-key"
-                try! configStore.saveASRConfig(config)
-                try! configStore.updateCloudValidationState(
-                    for: .tencentCloudSentence,
-                    status: .verified
-                )
+            prepareForVoiceInputStart: {
+                throw PermissionError.microphonePermissionDenied
             }
         )
 
@@ -118,6 +108,106 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         }
 
         coordinator.startRecording()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(coordinator.state, .error)
+        XCTAssertEqual(coordinator.currentError, .microphonePermissionDenied)
+        XCTAssertEqual(receivedEvents.count, 1)
+        guard case .processingFailed(.permissionDenied) = receivedEvents.first else {
+            return XCTFail("expected permission failure event")
+        }
+    }
+
+    func testStartRecordingRunsPermissionPreparationBeforeResourceValidation() async {
+        let learner = MockPostInjectionLearner()
+        let tracker = PermissionPreparationTracker()
+        let coordinator = makeCoordinator(
+            dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
+            learner: learner,
+            prepareForVoiceInputStart: {
+                await tracker.prepare()
+            }
+        )
+
+        coordinator.startRecording()
+        try? await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(await tracker.callCount, 1)
+        XCTAssertNotEqual(coordinator.state, .preparing)
+        XCTAssertNotEqual(coordinator.currentError, .microphonePermissionDenied)
+        XCTAssertNotEqual(coordinator.currentError, .accessibilityPermissionDenied)
+    }
+
+    func testStartRecordingEntersRecordingWhenPermissionsAndResourcesAreReady() async throws {
+        let learner = MockPostInjectionLearner()
+        let tracker = PermissionPreparationTracker()
+        var asrConfig = ASRConfig()
+        asrConfig.selectedPlatform = .tencentCloudSentence
+        asrConfig.tencentCloud.secretId = "id"
+        asrConfig.tencentCloud.secretKey = "key"
+        asrConfig.tencentCloud.validationStatus = .verified
+        let coordinator = makeCoordinator(
+            dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
+            learner: learner,
+            asrConfig: asrConfig,
+            prepareForVoiceInputStart: {
+                await tracker.prepare()
+            },
+            validateDenoiseResources: {},
+            validateASRResources: {},
+            recordingStartDelay: .seconds(5)
+        )
+
+        var receivedEvents: [SessionFeedbackEvent] = []
+        coordinator.onFeedbackEvent = { event in
+            receivedEvents.append(event)
+        }
+
+        coordinator.startRecording()
+        await waitUntil {
+            coordinator.state == .recording
+        }
+
+        XCTAssertEqual(await tracker.callCount, 1)
+        XCTAssertEqual(coordinator.state, .recording)
+        XCTAssertNil(coordinator.currentError)
+        XCTAssertEqual(receivedEvents.count, 1)
+        guard case .recordingStarted = receivedEvents.first else {
+            return XCTFail("expected recordingStarted event")
+        }
+
+        coordinator.cancel()
+    }
+
+    func testQuickStartThenImmediateStopSilentlyCancelsWithoutProcessingHUD() async throws {
+        let learner = MockPostInjectionLearner()
+        let tracker = PermissionPreparationTracker()
+        var asrConfig = ASRConfig()
+        asrConfig.selectedPlatform = .tencentCloudSentence
+        asrConfig.tencentCloud.secretId = "test-secret-id"
+        asrConfig.tencentCloud.secretKey = "test-secret-key"
+        asrConfig.tencentCloud.validationStatus = .verified
+        let coordinator = makeCoordinator(
+            dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
+            learner: learner,
+            asrConfig: asrConfig,
+            prepareForVoiceInputStart: {
+                await tracker.prepare()
+            },
+            validateDenoiseResources: {},
+            validateASRResources: {},
+            recordingStartDelay: .seconds(5)
+        )
+
+        var receivedEvents: [SessionFeedbackEvent] = []
+        coordinator.onFeedbackEvent = { event in
+            receivedEvents.append(event)
+        }
+
+        coordinator.startRecording()
+        await waitUntil {
+            coordinator.state == .recording
+        }
         coordinator.finishRecording()
 
         XCTAssertEqual(coordinator.state, .idle)
@@ -132,19 +222,51 @@ final class SessionCoordinatorLearningTests: XCTestCase {
         }
     }
 
+    func testStartRecordingDoesNotLaunchMultiplePermissionPreparations() async {
+        let learner = MockPostInjectionLearner()
+        let gate = PermissionPreparationGate()
+        let coordinator = makeCoordinator(
+            dictionaryStore: PersonalDictionaryStore(directoryURL: tempDirectory),
+            learner: learner,
+            prepareForVoiceInputStart: {
+                await gate.prepare()
+            }
+        )
+
+        coordinator.startRecording()
+        coordinator.startRecording()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(coordinator.state, .preparing)
+        XCTAssertEqual(await gate.callCount, 1)
+
+        await gate.release()
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+
     private func makeCoordinator(
         dictionaryStore: PersonalDictionaryStore?,
         learner: any PostInjectionDictionaryLearning,
-        ensureMicrophoneAuthorized: @escaping @MainActor @Sendable () throws -> Void = {
-            try PermissionsManager().ensureMicrophoneAuthorized()
+        asrConfig: ASRConfig? = nil,
+        prepareForVoiceInputStart: @escaping @MainActor @Sendable () async throws -> Void = {
+            try await PermissionsManager().prepareForVoiceInputStart()
         },
-        ensureAccessibilityAuthorized: @escaping @MainActor @Sendable () throws -> Void = {
-            try PermissionsManager().ensureAccessibilityAuthorized()
+        ensureMicrophoneAuthorized: (@MainActor @Sendable () throws -> Void)? = nil,
+        ensureAccessibilityAuthorized: (@MainActor @Sendable () throws -> Void)? = nil,
+        configureConfigStore: (@MainActor (ConfigStore) -> Void)? = nil,
+        validateDenoiseResources: @escaping @MainActor @Sendable () throws -> Void = {
+            try ResourceValidator.validateDenoiseResources()
         },
-        configureConfigStore: (@MainActor (ConfigStore) -> Void)? = nil
+        validateASRResources: @escaping @MainActor @Sendable () throws -> Void = {
+            try ResourceValidator.validateASRResources()
+        },
+        recordingStartDelay: Duration = .milliseconds(16)
     ) -> SessionCoordinator {
         let configStore = ConfigStore(configDirectory: tempDirectory)
         configureConfigStore?(configStore)
+        if let asrConfig {
+            try? configStore.saveASRConfig(asrConfig)
+        }
         let audioDeviceManager = AudioDeviceManager(configStore: configStore)
         return SessionCoordinator(
             permissionsManager: PermissionsManager(),
@@ -152,9 +274,48 @@ final class SessionCoordinatorLearningTests: XCTestCase {
             audioDeviceManager: audioDeviceManager,
             dictionaryStore: dictionaryStore,
             postInjectionLearner: learner,
+            prepareForVoiceInputStart: prepareForVoiceInputStart,
             ensureMicrophoneAuthorized: ensureMicrophoneAuthorized,
-            ensureAccessibilityAuthorized: ensureAccessibilityAuthorized
+            ensureAccessibilityAuthorized: ensureAccessibilityAuthorized,
+            validateDenoiseResources: validateDenoiseResources,
+            validateASRResources: validateASRResources,
+            recordingStartDelay: recordingStartDelay
         )
+    }
+
+    private func waitUntil(
+        timeout: Duration = .milliseconds(250),
+        condition: @escaping @MainActor () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    private actor PermissionPreparationTracker {
+        private(set) var callCount = 0
+
+        func prepare() {
+            callCount += 1
+        }
+    }
+
+    private actor PermissionPreparationGate {
+        private(set) var callCount = 0
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        func prepare() async {
+            callCount += 1
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+            }
+        }
+
+        func release() {
+            continuation?.resume()
+            continuation = nil
+        }
     }
 
     private final class MockPostInjectionLearner: PostInjectionDictionaryLearning, @unchecked Sendable {
