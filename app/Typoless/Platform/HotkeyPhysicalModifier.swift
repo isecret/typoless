@@ -11,6 +11,8 @@ enum HotkeyPhysicalModifier: UInt16, CaseIterable, Hashable, Sendable {
     case rightControl = 62
     case leftShift = 56
     case rightShift = 60
+    /// MacBook Fn／🌐 键（kVK_Function）。无左右侧。
+    case function = 63
 
     static let modifierKeyCodes: Set<UInt16> = Set(Self.allCases.map(\.rawValue))
 
@@ -32,6 +34,8 @@ enum HotkeyPhysicalModifier: UInt16, CaseIterable, Hashable, Sendable {
             HotkeyModifierSpec(key: .shift, side: .left)
         case .rightShift:
             HotkeyModifierSpec(key: .shift, side: .right)
+        case .function:
+            HotkeyModifierSpec(key: .function, side: .either)
         }
     }
 
@@ -57,6 +61,9 @@ enum HotkeyPhysicalModifier: UInt16, CaseIterable, Hashable, Sendable {
             0x00000040
         case .rightControl:
             0x00002000
+        // Fn 无 device-dependent 位，modifierFlags 的 .function 位即按住状态。
+        case .function:
+            0x00800000
         }
     }
 
