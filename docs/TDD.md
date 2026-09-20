@@ -122,15 +122,18 @@
 
 - 标准快捷键继续使用 Carbon `RegisterEventHotKey` 注册，覆盖包含普通键的组合
 - 纯修饰键和左右侧修饰键组合通过 `flagsChanged` 事件监听实现，不依赖普通 hotkey 库
+- MacBook `Fn`／🌐 键通过 `flagsChanged` 的 `.function` 位（0x800000）判定按住状态；录制控件通过物理键码 `kVK_Function`（63）过滤 `keyDown`，避免把 `Fn` 当普通键提交
+- 纯 `Fn` 及含 `Fn` 的组合走特殊修饰键／物理按键路径；Carbon 路径不涉及 `Fn`
 - 设置页录制控件直接采集按键事件，支持：
   - `Right Command` 单键
   - `Left Command + Option`
   - `Control + Option`
+  - `Fn` 单键及 `Fn` 与修饰键的组合
   - 其他左右侧修饰键组合
 - 快捷键配置模型同时兼容：
   - 旧版 `keyCode + modifiers + displayString` 普通组合键结构
   - 新版纯修饰键 `specialModifiers` 结构
-- 特殊修饰键匹配要求物理按键组合精确一致；存在额外修饰键时不触发
+- 特殊修饰键匹配要求物理按键组合精确一致；存在额外修饰键时不触发（该语义同样适用于 `Fn`，按住 `Fn` 再按 F1–F12 等功能键不会误触发纯 `Fn` 快捷键）
 
 ### 5.2 SessionCoordinator
 
@@ -446,7 +449,7 @@ Segment 级诊断字段（每段独立记录）：
 
 - `openai_base_url`
 - `openai_model`
-- `global_hotkey`
+- `global_hotkey`（`specialModifiers` 可含 `function` 修饰键编码，旧 JSON 结构不变）
 
 ### 8.2 敏感配置
 

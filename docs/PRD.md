@@ -90,6 +90,8 @@ Typoless 是一款面向 macOS 的语音 + AI 输入助手。用户通过全局�
 
 - 首版仅支持单一全局快捷键。
 - 快捷键录制支持普通组合键、纯修饰键，以及区分左右侧修饰键的组合。
+- 支持 MacBook 的 `Fn`／🌐 键（含单键 `Fn`，以及 `Fn` 与其他修饰键的组合）；录制与触发基于 `flagsChanged` 物理按键状态监听实现。
+- 若 macOS 系统设置中「按下 🌐 键时」已配置切换输入源、显示表情等动作，用户需在系统设置中改为「无操作」，否则系统动作会与快捷键同时触发；全局 `NSEvent` 监听只能观察事件，不能拦截系统动作。设置页在选中 `Fn` 时提示此限制。
 - 录音触发方式固定为按下切换：按一次开始录音，再按一次结束录音。
 - 在 `识别中 / 润色中 / 注入中` 阶段再次按快捷键时忽略，不作为取消入口。
 - 不支持多快捷键动作体系。
@@ -183,7 +185,7 @@ HUD 复制入口（待 HTML 原型验证）：
 #### B. 快捷键配置
 
 - 全局快捷键设置入口
-- 允许将 `Right Command`、`Left Command + Option`、`Control + Option` 等纯修饰键组合作为全局快捷键
+- 允许将 `Right Command`、`Left Command + Option`、`Control + Option`、`Fn` 等纯修饰键组合作为全局快捷键
 - 设置页需明确支持左右侧修饰键的区分录制
 
 #### C. 权限状态
@@ -340,7 +342,7 @@ LLM 文本处理边界如下：
 - `openai_base_url`
 - `openai_api_key`
 - `openai_model`
-- `global_hotkey`
+- `global_hotkey`：`specialModifiers` 可包含 `function`（`Fn`／🌐 键）修饰键；旧配置不含该值，结构向后兼容
 - `audio.selectedDeviceID`
 - `audio.selectedDeviceName`
 
@@ -424,6 +426,7 @@ HUD 短错误分类映射：
 
 - 首次启动自动打开设置页。
 - 用户可完成 LLM、快捷键、权限配置。
+- 用户可将 `Fn`／🌐 键录制为全局快捷键，在其他应用前台时正常触发。
 - 应用可常驻菜单栏并正常响应全局快捷键。
 
 ### 14.2 主链路可用
