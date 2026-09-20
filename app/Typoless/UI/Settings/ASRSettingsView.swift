@@ -129,8 +129,8 @@ struct ASRSettingsView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .frame(width: 18, height: 18)
-                    .accessibilityLabel("打开\(selectedPlatform.displayName)文档")
-                    .help("打开\(selectedPlatform.displayName)文档")
+                    .accessibilityLabel("查看 \(selectedPlatform.displayName) 的使用文档")
+                    .help("查看 \(selectedPlatform.displayName) 的使用文档")
 
                     Spacer(minLength: 0)
                 }

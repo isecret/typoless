@@ -7,7 +7,7 @@ final class PersonalDictionaryViewModel {
         case empty = "请输入词条"
         case duplicate = "词条已存在"
         case saveFailed = "保存失败"
-        case importFailed = "导入失败，请选择有效的 JSON 词典文件"
+        case importFailed = "导入失败，请检查词典文件格式或访问权限"
         case exportFailed = "导出失败"
     }
 
@@ -53,7 +53,7 @@ final class PersonalDictionaryViewModel {
             let summary = try store.importEntries(from: fileURL)
             clearError()
             if summary.importedCount == 0 {
-                statusMessage = summary.skippedDuplicateCount > 0 ? "没有新增词条，重复词条已跳过" : "没有可导入的词条"
+                statusMessage = summary.skippedDuplicateCount > 0 ? "没有导入新词条，重复词条已跳过" : "没有可导入的词条"
             } else if summary.skippedDuplicateCount > 0 {
                 statusMessage = "已导入 \(summary.importedCount) 个词条，跳过 \(summary.skippedDuplicateCount) 个重复词条"
             } else {
