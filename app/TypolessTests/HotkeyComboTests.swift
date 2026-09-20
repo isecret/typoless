@@ -143,4 +143,63 @@ final class HotkeyComboTests: XCTestCase {
         XCTAssertTrue(flags.contains(.option))
         XCTAssertFalse(flags.contains(.command))
     }
+
+    func testFnHotkeyDisplayString() {
+        let combo = HotkeyCombo.special(
+            modifiers: [HotkeyModifierSpec(key: .function)]
+        )
+
+        XCTAssertEqual(combo.displayString, "Fn")
+        XCTAssertTrue(combo.isPureModifier)
+        XCTAssertEqual(combo.modifiers, 0x800000)
+    }
+
+    func testFnHotkeyRoundTripsThroughCodable() throws {
+        let original = HotkeyCombo.special(
+            modifiers: [HotkeyModifierSpec(key: .function)]
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let json = String(data: data, encoding: .utf8) ?? ""
+        XCTAssertTrue(json.contains("\"function\""))
+
+        let decoded = try JSONDecoder().decode(HotkeyCombo.self, from: data)
+        XCTAssertEqual(decoded, original)
+        XCTAssertEqual(decoded.displayString, "Fn")
+    }
+
+    func testFnHotkeyMatchesPressedFunctionOnly() {
+        let combo = HotkeyCombo.special(
+            modifiers: [HotkeyModifierSpec(key: .function)]
+        )
+
+        XCTAssertTrue(combo.matchesSpecialPressedModifiers([.function]))
+        XCTAssertFalse(combo.matchesSpecialPressedModifiers([.function, .leftCommand]))
+        XCTAssertFalse(combo.matchesSpecialPressedModifiers([]))
+    }
+
+    func testFnSortsAfterOtherModifiersInDisplayString() {
+        let combo = HotkeyCombo.special(
+            modifiers: [
+                HotkeyModifierSpec(key: .function),
+                HotkeyModifierSpec(key: .command, side: .left),
+            ]
+        )
+
+        XCTAssertEqual(combo.displayString, "L ⌘ + Fn")
+    }
+
+    func testPhysicalFunctionModifierBuildsGenericFlags() {
+        let flags = Set<HotkeyPhysicalModifier>([.function]).genericFlags
+
+        XCTAssertEqual(flags.rawValue, 0x800000)
+    }
+
+    func testPressedSetIncludesFunctionFromFlagBit() {
+        let pressed = HotkeyPhysicalModifier.pressedSet(
+            from: NSEvent.ModifierFlags(rawValue: 0x800000)
+        )
+
+        XCTAssertEqual(pressed, [.function])
+    }
 }

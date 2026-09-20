@@ -17,6 +17,10 @@ struct GeneralSettingsView: View {
     @State private var launchAtLogin = false
     @State private var isLoaded = false
 
+    private var hotkeyIncludesFunction: Bool {
+        hotkey.specialModifiers.contains { $0.key == .function }
+    }
+
     var body: some View {
         Group {
             SettingsPaneSection {
@@ -30,7 +34,12 @@ struct GeneralSettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                 }
             } footer: {
-                Text("点击后按下快捷键。只按修饰键时，松开后保存；左右侧可分别录制。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("点击后按下快捷键。只按修饰键时，松开后保存；左右侧可分别录制。")
+                    if hotkeyIncludesFunction {
+                        Text("已使用 Fn 键：若系统的“按下 🌐 键时”设置了切换输入法、显示表情等动作，请在 系统设置 → 键盘 中改为“无操作”，否则会同时触发系统动作。")
+                    }
+                }
             }
 
             SettingsPaneSection {

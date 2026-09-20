@@ -495,6 +495,10 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
     case option
     case control
     case shift
+    case function
+
+    /// Fn／🌐 键的按住状态位；`NSEvent.ModifierFlags.function` 在新版 SDK 已废弃，改用原始值。
+    static let functionFlag = NSEvent.ModifierFlags(rawValue: 0x800000)
 
     var genericFlags: NSEvent.ModifierFlags {
         switch self {
@@ -506,6 +510,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             .control
         case .shift:
             .shift
+        case .function:
+            Self.functionFlag
         }
     }
 
@@ -519,6 +525,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             "⌃"
         case .shift:
             "⇧"
+        case .function:
+            "Fn"
         }
     }
 
@@ -532,6 +540,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             "Control"
         case .shift:
             "Shift"
+        case .function:
+            "Fn"
         }
     }
 
@@ -549,6 +559,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             2
         case .command:
             3
+        case .function:
+            4
         }
     }
 }
