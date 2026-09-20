@@ -35,6 +35,7 @@ final class AliyunSentenceASRProvider: ASRProvider, CloudASRValidating, @uncheck
         guard let url = components?.url else {
             throw TypolessError.cloudASRInvalidResponse(detail: "阿里云 ASR 请求地址无效")
         }
+        let endpoint = "\(url.host ?? "unknown")\(url.path)"
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -43,31 +44,94 @@ final class AliyunSentenceASRProvider: ASRProvider, CloudASRValidating, @uncheck
         request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
         request.setValue(token, forHTTPHeaderField: "X-NLS-Token")
 
+        CloudASRRequestLogger.requestPrepared(
+            CloudASRRequestMetrics(
+                provider: "aliyun",
+                endpoint: endpoint,
+                transport: "binary_wav_http_body",
+                audioBytes: audioData.count,
+                uploadBytes: audioData.count,
+                timeoutMs: Int(effectiveTimeout * 1000),
+                base64Bytes: nil,
+                frameCount: nil,
+                minFrameBytes: nil,
+                maxFrameBytes: nil,
+                extra: nil
+            )
+        )
+
         let startTime = Date()
         let (responseData, response): (Data, URLResponse)
         do {
             (responseData, response) = try await URLSession.shared.data(for: request)
         } catch let error as URLError {
+            CloudASRRequestLogger.requestFailed(
+                provider: "aliyun",
+                endpoint: endpoint,
+                phase: "network",
+                message: error.localizedDescription
+            )
             throw TypolessError.cloudASRNetworkFailure(message: error.localizedDescription)
         } catch {
+            CloudASRRequestLogger.requestFailed(
+                provider: "aliyun",
+                endpoint: endpoint,
+                phase: "network",
+                message: error.localizedDescription
+            )
             throw TypolessError.cloudASRNetworkFailure(message: error.localizedDescription)
         }
 
         let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode
 
         if let httpResponse = response as? HTTPURLResponse {
             switch httpResponse.statusCode {
             case 200:
                 break
             case 401, 403:
+                CloudASRRequestLogger.requestFailed(
+                    provider: "aliyun",
+                    endpoint: endpoint,
+                    phase: "http",
+                    statusCode: httpResponse.statusCode,
+                    message: "authentication_failed"
+                )
                 throw TypolessError.cloudASRAuthenticationFailure
             default:
                 let body = String(data: responseData, encoding: .utf8) ?? ""
+                CloudASRRequestLogger.requestFailed(
+                    provider: "aliyun",
+                    endpoint: endpoint,
+                    phase: "http",
+                    statusCode: httpResponse.statusCode,
+                    message: body
+                )
                 throw TypolessError.cloudASRNetworkFailure(message: "HTTP \(httpResponse.statusCode): \(body)")
             }
         }
 
-        return try parseRecognitionResponse(responseData, durationMs: durationMs)
+        do {
+            let result = try parseRecognitionResponse(responseData, durationMs: durationMs)
+            CloudASRRequestLogger.requestCompleted(
+                provider: "aliyun",
+                endpoint: endpoint,
+                durationMs: durationMs,
+                responseBytes: responseData.count,
+                statusCode: httpStatus,
+                requestID: result.requestId
+            )
+            return result
+        } catch {
+            CloudASRRequestLogger.requestFailed(
+                provider: "aliyun",
+                endpoint: endpoint,
+                phase: "parse",
+                statusCode: httpStatus,
+                message: error.localizedDescription
+            )
+            throw error
+        }
     }
 
     func validateCredentials() async throws {

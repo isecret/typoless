@@ -42,6 +42,7 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
             throw TypolessError.cloudASRConfigurationIncomplete
         }
 
+        let base64Audio = audioData.base64EncodedString()
         let requestBody = XiaomiMiMoASRRequest(
             model: Self.modelID,
             messages: [
@@ -51,7 +52,7 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
                         XiaomiMiMoASRContent(
                             type: "input_audio",
                             inputAudio: XiaomiMiMoASRInputAudio(
-                                data: "data:audio/wav;base64,\(audioData.base64EncodedString())"
+                                data: "data:audio/wav;base64,\(base64Audio)"
                             )
                         ),
                     ]
@@ -62,6 +63,23 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
         )
 
         let bodyData = try JSONEncoder().encode(requestBody)
+        let endpoint = "\(recognizeURL.host ?? "unknown")\(recognizeURL.path)"
+
+        CloudASRRequestLogger.requestPrepared(
+            CloudASRRequestMetrics(
+                provider: "xiaomi_mimo",
+                endpoint: endpoint,
+                transport: "json_base64_wav",
+                audioBytes: audioData.count,
+                uploadBytes: bodyData.count,
+                timeoutMs: Int((timeout ?? Self.defaultTimeout) * 1000),
+                base64Bytes: base64Audio.utf8.count,
+                frameCount: nil,
+                minFrameBytes: nil,
+                maxFrameBytes: nil,
+                extra: "base_url=\(recognizeURL.deletingLastPathComponent().deletingLastPathComponent().absoluteString)"
+            )
+        )
 
         var request = URLRequest(url: recognizeURL)
         request.httpMethod = "POST"
@@ -77,17 +95,44 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
         do {
             (responseData, response) = try await httpClient.data(for: request)
         } catch let error as URLError {
+            CloudASRRequestLogger.requestFailed(
+                provider: "xiaomi_mimo",
+                endpoint: endpoint,
+                phase: "network",
+                message: error.localizedDescription
+            )
             throw TypolessError.cloudASRNetworkFailure(message: error.localizedDescription)
         } catch {
+            CloudASRRequestLogger.requestFailed(
+                provider: "xiaomi_mimo",
+                endpoint: endpoint,
+                phase: "network",
+                message: error.localizedDescription
+            )
             throw TypolessError.cloudASRNetworkFailure(message: error.localizedDescription)
         }
 
         let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
         let httpResponse = response as? HTTPURLResponse
+        let httpStatus = httpResponse?.statusCode
         if let httpStatus = httpResponse?.statusCode, !(200...299).contains(httpStatus) {
             if httpStatus == 401 || httpStatus == 403 {
+                CloudASRRequestLogger.requestFailed(
+                    provider: "xiaomi_mimo",
+                    endpoint: endpoint,
+                    phase: "http",
+                    statusCode: httpStatus,
+                    message: "authentication_failed"
+                )
                 throw TypolessError.cloudASRAuthenticationFailure
             }
+            CloudASRRequestLogger.requestFailed(
+                provider: "xiaomi_mimo",
+                endpoint: endpoint,
+                phase: "http",
+                statusCode: httpStatus,
+                message: "HTTP \(httpStatus)"
+            )
             throw TypolessError.cloudASRNetworkFailure(message: "HTTP \(httpStatus)")
         }
 
@@ -95,19 +140,49 @@ final class XiaomiMiMoASRProvider: ASRProvider, CloudASRValidating, @unchecked S
         do {
             decodedResponse = try JSONDecoder().decode(XiaomiMiMoASRResponse.self, from: responseData)
         } catch {
+            CloudASRRequestLogger.requestFailed(
+                provider: "xiaomi_mimo",
+                endpoint: endpoint,
+                phase: "parse",
+                statusCode: httpStatus,
+                message: "invalid_json"
+            )
             throw TypolessError.cloudASRInvalidResponse(detail: "小米 MiMo ASR 响应 JSON 无法解析")
         }
 
         guard let text = decodedResponse.choices.first?.message.content
             .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            CloudASRRequestLogger.requestFailed(
+                provider: "xiaomi_mimo",
+                endpoint: endpoint,
+                phase: "parse",
+                statusCode: httpStatus,
+                message: "missing_text"
+            )
             throw TypolessError.cloudASRInvalidResponse(detail: "小米 MiMo ASR 响应缺少识别文本")
         }
 
         guard !text.isEmpty else {
+            CloudASRRequestLogger.requestFailed(
+                provider: "xiaomi_mimo",
+                endpoint: endpoint,
+                phase: "parse",
+                statusCode: httpStatus,
+                message: "empty_text"
+            )
             throw TypolessError.cloudASREmptyResponse
         }
 
-        return TranscriptResult(text: text, requestId: decodedResponse.id, durationMs: durationMs)
+        let transcript = TranscriptResult(text: text, requestId: decodedResponse.id, durationMs: durationMs)
+        CloudASRRequestLogger.requestCompleted(
+            provider: "xiaomi_mimo",
+            endpoint: endpoint,
+            durationMs: durationMs,
+            responseBytes: responseData.count,
+            statusCode: httpStatus,
+            requestID: transcript.requestId
+        )
+        return transcript
     }
 
     func validateCredentials() async throws {
