@@ -3,6 +3,7 @@ import Foundation
 /// 主链路会话状态，驱动菜单栏图标与菜单内容
 enum SessionState: String, Equatable, Sendable {
     case idle
+    case preparing
     case recording
     case transcribing
     case polishing
@@ -15,6 +16,7 @@ enum SessionState: String, Equatable, Sendable {
     var iconName: String {
         switch self {
         case .idle: "mic"
+        case .preparing: "lock.shield"
         case .recording: "mic.fill"
         case .transcribing: "text.bubble"
         case .polishing: "sparkles"
@@ -29,6 +31,7 @@ enum SessionState: String, Equatable, Sendable {
     var displayText: String {
         switch self {
         case .idle: "空闲"
+        case .preparing: "准备中"
         case .recording: "录音中"
         case .transcribing: "识别中"
         case .polishing: "润色中"
@@ -50,7 +53,7 @@ enum SessionState: String, Equatable, Sendable {
     /// 是否处于活跃处理中
     var isProcessing: Bool {
         switch self {
-        case .recording, .transcribing, .polishing, .injecting: true
+        case .preparing, .recording, .transcribing, .polishing, .injecting: true
         default: false
         }
     }

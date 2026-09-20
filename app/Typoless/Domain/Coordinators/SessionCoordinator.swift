@@ -52,8 +52,10 @@ final class SessionCoordinator {
     /// 录音时长（毫秒），finishRecording 写入，processSegmentedAudio 读取
     private var recordingDurationMs: Int = 0
     private var capturedWindowContext: WindowContextSnapshot?
-    private let ensureMicrophoneAuthorized: @MainActor @Sendable () throws -> Void
-    private let ensureAccessibilityAuthorized: @MainActor @Sendable () throws -> Void
+    private let prepareForVoiceInputStart: @MainActor @Sendable () async throws -> Void
+    private let validateDenoiseResources: @MainActor @Sendable () throws -> Void
+    private let validateASRResources: @MainActor @Sendable () throws -> Void
+    private let recordingStartDelay: Duration
 
     init(
         permissionsManager: PermissionsManager,
@@ -61,17 +63,40 @@ final class SessionCoordinator {
         audioDeviceManager: AudioDeviceManager,
         dictionaryStore: PersonalDictionaryStore? = nil,
         postInjectionLearner: (any PostInjectionDictionaryLearning)? = nil,
+        prepareForVoiceInputStart: (@MainActor @Sendable () async throws -> Void)? = nil,
         ensureMicrophoneAuthorized: (@MainActor @Sendable () throws -> Void)? = nil,
-        ensureAccessibilityAuthorized: (@MainActor @Sendable () throws -> Void)? = nil
+        ensureAccessibilityAuthorized: (@MainActor @Sendable () throws -> Void)? = nil,
+        validateDenoiseResources: (@MainActor @Sendable () throws -> Void)? = nil,
+        validateASRResources: (@MainActor @Sendable () throws -> Void)? = nil,
+        recordingStartDelay: Duration = .milliseconds(16)
     ) {
         self.permissionsManager = permissionsManager
         self.configStore = configStore
         self.audioDeviceManager = audioDeviceManager
         self.dictionaryStore = dictionaryStore
-        self.ensureMicrophoneAuthorized = ensureMicrophoneAuthorized
-            ?? { try permissionsManager.ensureMicrophoneAuthorized() }
-        self.ensureAccessibilityAuthorized = ensureAccessibilityAuthorized
-            ?? { try permissionsManager.ensureAccessibilityAuthorized() }
+        self.recordingStartDelay = recordingStartDelay
+        self.validateDenoiseResources = validateDenoiseResources ?? {
+            try ResourceValidator.validateDenoiseResources()
+        }
+        self.validateASRResources = validateASRResources ?? {
+            try ResourceValidator.validateASRResources()
+        }
+        if let prepareForVoiceInputStart {
+            self.prepareForVoiceInputStart = prepareForVoiceInputStart
+        } else if ensureMicrophoneAuthorized != nil || ensureAccessibilityAuthorized != nil {
+            self.prepareForVoiceInputStart = {
+                try (ensureMicrophoneAuthorized ?? {
+                    try permissionsManager.ensureMicrophoneAuthorized()
+                })()
+                try (ensureAccessibilityAuthorized ?? {
+                    try permissionsManager.ensureAccessibilityAuthorized()
+                })()
+            }
+        } else {
+            self.prepareForVoiceInputStart = {
+                try await permissionsManager.prepareForVoiceInputStart()
+            }
+        }
         self.postInjectionLearner = postInjectionLearner ?? PostInjectionDictionaryLearner(
             termEvaluator: LLMProperNounTermEvaluator(
                 providerFactory: {
@@ -117,49 +142,60 @@ final class SessionCoordinator {
         targetApplicationBundleID = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         sessionGeneration &+= 1
         currentSessionID = Self.generateSessionID()
-        let selectedPlatform = configStore.asrConfig.selectedPlatform
-        let sessionID = currentSessionID
-        let targetBundleID = targetApplicationBundleID
+        let generation = sessionGeneration
+        state = .preparing
+
+        recordingStartTask?.cancel()
+        recordingStartTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.prepareAndStartRecording(generation: generation)
+            if !Task.isCancelled, self.sessionGeneration == generation {
+                self.recordingStartTask = nil
+            }
+        }
+    }
+
+    private func prepareAndStartRecording(generation: UInt64) async {
+        guard generation == sessionGeneration, state == .preparing else { return }
 
         do {
+            try await prepareForVoiceInputStart()
+            guard !Task.isCancelled, generation == sessionGeneration, state == .preparing else { return }
+
             configStore.refreshLocalModelStatusFromDisk()
-            try ensureMicrophoneAuthorized()
-            try ensureAccessibilityAuthorized()
-            try ResourceValidator.validateDenoiseResources()
-            // 录音前检查 ASR 平台可用性
+            try validateDenoiseResources()
             guard configStore.isASRReady else {
                 throw TypolessError.asrPlatformNotReady(detail: configStore.asrNotReadyReason ?? "未知")
             }
-            // 本地 SenseVoice 额外校验运行时资源
-            if configStore.asrConfig.selectedPlatform == .localSenseVoice {
-                try ResourceValidator.validateASRResources()
+
+            let selectedPlatform = configStore.asrConfig.selectedPlatform
+            if selectedPlatform == .localSenseVoice {
+                try validateASRResources()
             }
+
+            let sessionID = currentSessionID
+            let targetBundleID = targetApplicationBundleID
             state = .recording
             processingMode = .polish
             onFeedbackEvent?(.recordingStarted)
 
-            let generation = sessionGeneration
             beginWindowContextCapture(
                 generation: generation,
                 sessionID: sessionID,
                 targetPID: targetApplicationPID,
                 targetBundleID: targetBundleID
             )
-            recordingStartTask?.cancel()
-            recordingStartTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .milliseconds(16))
-                guard !Task.isCancelled, let self else { return }
-                await self.beginRecording(
-                    generation: generation,
-                    sessionID: sessionID,
-                    targetBundleID: targetBundleID,
-                    selectedPlatform: selectedPlatform
-                )
-                if !Task.isCancelled, self.sessionGeneration == generation {
-                    self.recordingStartTask = nil
-                }
-            }
+
+            try? await Task.sleep(for: recordingStartDelay)
+            guard !Task.isCancelled, generation == sessionGeneration, state == .recording else { return }
+            await beginRecording(
+                generation: generation,
+                sessionID: sessionID,
+                targetBundleID: targetBundleID,
+                selectedPlatform: selectedPlatform
+            )
         } catch {
+            guard !Task.isCancelled, generation == sessionGeneration else { return }
             handleError(mapError(error))
         }
     }

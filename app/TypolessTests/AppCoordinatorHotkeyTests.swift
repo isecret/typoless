@@ -23,7 +23,7 @@ final class AppCoordinatorHotkeyTests: XCTestCase {
     }
 
     func testHotkeyDoesNotInterruptProcessingStates() {
-        let activeStates: [SessionState] = [.transcribing, .polishing, .injecting]
+        let activeStates: [SessionState] = [.preparing, .transcribing, .polishing, .injecting]
 
         for state in activeStates {
             XCTAssertNil(AppCoordinator.hotkeyAction(for: state))
