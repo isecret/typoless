@@ -1,7 +1,5 @@
 import CommonCrypto
 import Foundation
-import os.log
-
 /// 腾讯云一句话识别 Provider
 ///
 /// 直接调用腾讯云 Cloud API，不依赖 SDK。
@@ -19,7 +17,6 @@ final class TencentSentenceASRProvider: ASRProvider, CloudASRValidating, @unchec
     // `16k_zh-PY` is the closest supported engine for Chinese-first mixed-language input.
     private static let engineModelType = "16k_zh-PY"
 
-    private let logger = Logger(subsystem: "com.isecret.typoless", category: "TencentASR")
     private let secretId: String
     private let secretKey: String
 
@@ -52,6 +49,23 @@ final class TencentSentenceASRProvider: ASRProvider, CloudASRValidating, @unchec
 
         let bodyData = try JSONSerialization.data(withJSONObject: requestBody)
         let bodyString = String(data: bodyData, encoding: .utf8)!
+        let endpoint = Self.host
+
+        CloudASRRequestLogger.requestPrepared(
+            CloudASRRequestMetrics(
+                provider: "tencent",
+                endpoint: endpoint,
+                transport: "json_base64_wav",
+                audioBytes: audioData.count,
+                uploadBytes: bodyData.count,
+                timeoutMs: Int(effectiveTimeout * 1000),
+                base64Bytes: base64Audio.utf8.count,
+                frameCount: nil,
+                minFrameBytes: nil,
+                maxFrameBytes: nil,
+                extra: "data_len=\(dataLen)"
+            )
+        )
 
         let timestamp = Int(Date().timeIntervalSince1970)
         let dateString = Self.utcDateString(timestamp: timestamp)
@@ -80,26 +94,73 @@ final class TencentSentenceASRProvider: ASRProvider, CloudASRValidating, @unchec
         do {
             (responseData, response) = try await URLSession.shared.data(for: request)
         } catch let error as URLError {
+            CloudASRRequestLogger.requestFailed(
+                provider: "tencent",
+                endpoint: endpoint,
+                phase: "network",
+                message: error.localizedDescription
+            )
             throw TypolessError.cloudASRNetworkFailure(message: error.localizedDescription)
         } catch {
+            CloudASRRequestLogger.requestFailed(
+                provider: "tencent",
+                endpoint: endpoint,
+                phase: "network",
+                message: error.localizedDescription
+            )
             throw TypolessError.cloudASRNetworkFailure(message: error.localizedDescription)
         }
 
         let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
+        let httpStatus = (response as? HTTPURLResponse)?.statusCode
 
         if let httpResponse = response as? HTTPURLResponse {
             switch httpResponse.statusCode {
             case 200:
                 break
             case 401, 403:
+                CloudASRRequestLogger.requestFailed(
+                    provider: "tencent",
+                    endpoint: endpoint,
+                    phase: "http",
+                    statusCode: httpResponse.statusCode,
+                    message: "authentication_failed"
+                )
                 throw TypolessError.cloudASRAuthenticationFailure
             default:
                 let body = String(data: responseData, encoding: .utf8) ?? ""
+                CloudASRRequestLogger.requestFailed(
+                    provider: "tencent",
+                    endpoint: endpoint,
+                    phase: "http",
+                    statusCode: httpResponse.statusCode,
+                    message: body
+                )
                 throw TypolessError.cloudASRNetworkFailure(message: "HTTP \(httpResponse.statusCode): \(body)")
             }
         }
 
-        return try parseResponse(responseData, durationMs: durationMs)
+        do {
+            let result = try parseResponse(responseData, durationMs: durationMs)
+            CloudASRRequestLogger.requestCompleted(
+                provider: "tencent",
+                endpoint: endpoint,
+                durationMs: durationMs,
+                responseBytes: responseData.count,
+                statusCode: httpStatus,
+                requestID: result.requestId
+            )
+            return result
+        } catch {
+            CloudASRRequestLogger.requestFailed(
+                provider: "tencent",
+                endpoint: endpoint,
+                phase: "parse",
+                statusCode: httpStatus,
+                message: error.localizedDescription
+            )
+            throw error
+        }
     }
 
     func validateCredentials() async throws {

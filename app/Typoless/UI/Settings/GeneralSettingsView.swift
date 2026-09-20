@@ -17,6 +17,10 @@ struct GeneralSettingsView: View {
     @State private var launchAtLogin = false
     @State private var isLoaded = false
 
+    private var hotkeyIncludesFunction: Bool {
+        hotkey.specialModifiers.contains { $0.key == .function }
+    }
+
     var body: some View {
         Group {
             SettingsPaneSection {
@@ -30,7 +34,12 @@ struct GeneralSettingsView: View {
                     .fixedSize(horizontal: true, vertical: false)
                 }
             } footer: {
-                Text("支持纯修饰键；按下后松开即可完成录制。")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("点击后按下快捷键。只按修饰键时，松开后保存；左右侧可分别录制。")
+                    if hotkeyIncludesFunction {
+                        Text("已使用 Fn 键：若系统的“按下 🌐 键时”设置了切换输入法、显示表情等动作，请在 系统设置 → 键盘 中改为“无操作”，否则会同时触发系统动作。")
+                    }
+                }
             }
 
             SettingsPaneSection {
@@ -39,7 +48,7 @@ struct GeneralSettingsView: View {
                         .labelsHidden()
                 }
             } footer: {
-                Text("开始录音和结束录音时播放提示音")
+                Text("开始和结束录音时播放提示音。")
             }
 
             SettingsPaneSection {
@@ -58,7 +67,7 @@ struct GeneralSettingsView: View {
                     }
                 }
             } footer: {
-                Text("按下 Shift+Tab 切换至翻译模式将文本翻译为目标语言")
+                Text("录音时按 Shift+Tab 可切换到翻译模式，译文将使用这里选择的语言。")
             }
 
             SettingsPaneSection {
@@ -67,7 +76,7 @@ struct GeneralSettingsView: View {
                         .labelsHidden()
                 }
             } footer: {
-                Text("启用后将随 macOS 登录时自启动")
+                Text("登录 macOS 后自动启动。")
             }
 
             SettingsPaneSection {

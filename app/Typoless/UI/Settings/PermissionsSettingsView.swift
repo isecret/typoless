@@ -32,7 +32,7 @@ struct PermissionsSettingsView: View {
                     .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
                 }
             } footer: {
-                Text("用于文本注入；部分场景会读取有限上下文，敏感场景会自动脱敏。")
+                Text("用于向其他应用写入文字，也可能读取输入框附近的少量文字；密码框等敏感场景不会发送输入内容。")
             }
         }
         .onAppear { permissionsManager.refreshAll() }
@@ -55,13 +55,13 @@ struct PermissionsSettingsView: View {
     private var microphoneDescription: String {
         switch permissionsManager.microphoneStatus {
         case .notDetermined:
-            "用于录制语音并发送至 ASR 服务进行识别。"
+            "用于录音。选择云端语音引擎时，录音会发送到对应服务识别。"
         case .denied:
-            "系统当前已拒绝 Typoless 的麦克风权限。请前往系统设置恢复授权后再返回应用。"
+            "麦克风权限已关闭。请在系统设置中为 Typoless 开启麦克风权限。"
         case .restricted:
-            "麦克风权限受系统策略控制，Typoless 无法直接发起授权。"
+            "系统限制了麦克风权限，无法在 Typoless 中开启。"
         case .granted:
-            "用于录制语音并发送至 ASR 服务进行识别。"
+            "用于录音。选择云端语音引擎时，录音会发送到对应服务识别。"
         }
     }
 

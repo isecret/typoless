@@ -141,6 +141,25 @@ final class ConfigStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testSaveAndReloadFnHotkeyConfig() throws {
+        let firstStore = ConfigStore(configDirectory: tempDirectory)
+        let fnHotkey = HotkeyCombo.special(
+            modifiers: [HotkeyModifierSpec(key: .function)]
+        )
+
+        try firstStore.saveGeneralConfig(
+            GeneralConfig(
+                hotkey: fnHotkey,
+                interactionSoundEnabled: true
+            )
+        )
+
+        let secondStore = ConfigStore(configDirectory: tempDirectory)
+        XCTAssertEqual(secondStore.generalConfig.hotkey, fnHotkey)
+        XCTAssertEqual(secondStore.generalConfig.hotkey.displayString, "Fn")
+    }
+
+    @MainActor
     func testMissingAudioInputConfigDefaultsToSystemDefault() throws {
         let configURL = tempDirectory.appendingPathComponent("config.json")
         let legacyJSON = """

@@ -74,19 +74,19 @@ enum ASRPlatform: String, Codable, Equatable, Sendable, CaseIterable {
     var cloudConfigSummary: String {
         switch self {
         case .localSenseVoice:
-            "本地模式：语音数据仅在本机处理，不会发送到云端 ASR 服务。"
+            "语音在本机识别，不会发送到云端语音识别服务。"
         case .tencentCloudSentence:
-            "腾讯云模式：语音会发送到腾讯云一句话识别服务。"
+            "语音会发送到腾讯云一句话识别服务。"
         case .aliyunSentence:
-            "阿里云模式：语音会发送到阿里云语音识别服务。"
+            "语音会发送到阿里云语音识别服务。"
         case .volcengineSentence:
-            "火山引擎模式：语音会发送到火山引擎语音识别服务。"
+            "语音会发送到火山引擎语音识别服务。"
         case .xunfeiSentence:
-            "科大讯飞模式：语音会发送到科大讯飞语音识别服务。"
+            "语音会发送到科大讯飞语音识别服务。"
         case .xiaomiMiMoASR:
-            "小米 MiMo 模式：语音会发送到 Xiaomi MiMo ASR 服务。"
+            "语音会发送到小米 MiMo 语音识别服务。"
         case .xiaomiMiMoTokenPlanASR:
-            "小米 MiMo Token Plan 模式：语音会发送到 Xiaomi MiMo Token Plan ASR 服务。"
+            "语音会发送到小米 MiMo Token Plan 语音识别服务。"
         }
     }
 
@@ -495,6 +495,10 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
     case option
     case control
     case shift
+    case function
+
+    /// Fn／🌐 键的按住状态位；`NSEvent.ModifierFlags.function` 在新版 SDK 已废弃，改用原始值。
+    static let functionFlag = NSEvent.ModifierFlags(rawValue: 0x800000)
 
     var genericFlags: NSEvent.ModifierFlags {
         switch self {
@@ -506,6 +510,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             .control
         case .shift:
             .shift
+        case .function:
+            Self.functionFlag
         }
     }
 
@@ -519,6 +525,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             "⌃"
         case .shift:
             "⇧"
+        case .function:
+            "Fn"
         }
     }
 
@@ -532,6 +540,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             "Control"
         case .shift:
             "Shift"
+        case .function:
+            "Fn"
         }
     }
 
@@ -549,6 +559,8 @@ enum HotkeyModifierKey: String, Codable, Equatable, Hashable, Sendable, CaseIter
             2
         case .command:
             3
+        case .function:
+            4
         }
     }
 }

@@ -40,20 +40,54 @@ final class XunfeiSentenceASRProvider: ASRProvider, CloudASRValidating, @uncheck
         let requestURL = try buildAuthorizedURL()
         let websocket = URLSession.shared.webSocketTask(with: requestURL)
         websocket.resume()
+        let framePayloads = try buildFramePayloads(from: pcmData)
+        let frameSizes = framePayloads.map { $0.utf8.count }
+        let endpoint = "\(requestURL.host ?? Self.host)\(requestURL.path)"
+
+        CloudASRRequestLogger.requestPrepared(
+            CloudASRRequestMetrics(
+                provider: "xunfei",
+                endpoint: endpoint,
+                transport: "websocket_base64_pcm_frames",
+                audioBytes: audioData.count,
+                uploadBytes: frameSizes.reduce(0, +),
+                timeoutMs: Int(Self.timeoutSeconds * 1000),
+                base64Bytes: nil,
+                frameCount: framePayloads.count,
+                minFrameBytes: frameSizes.min(),
+                maxFrameBytes: frameSizes.max(),
+                extra: "pcm_bytes=\(pcmData.count)"
+            )
+        )
 
         let accumulator = XunfeiTranscriptAccumulator()
         let startTime = Date()
 
         async let receivedText: String = receiveMessages(from: websocket, accumulator: accumulator)
         do {
-            try await sendAudioFrames(pcmData, over: websocket)
+            try await sendFramePayloads(framePayloads, over: websocket)
             let text = try await receivedText
             let durationMs = Int(Date().timeIntervalSince(startTime) * 1000)
             let requestID = await accumulator.requestID
             websocket.cancel(with: .normalClosure, reason: nil)
-            return TranscriptResult(text: text, requestId: requestID, durationMs: durationMs)
+            let transcript = TranscriptResult(text: text, requestId: requestID, durationMs: durationMs)
+            CloudASRRequestLogger.requestCompleted(
+                provider: "xunfei",
+                endpoint: endpoint,
+                durationMs: durationMs,
+                responseBytes: 0,
+                statusCode: nil,
+                requestID: transcript.requestId
+            )
+            return transcript
         } catch {
             websocket.cancel(with: .goingAway, reason: nil)
+            CloudASRRequestLogger.requestFailed(
+                provider: "xunfei",
+                endpoint: endpoint,
+                phase: "stream",
+                message: error.localizedDescription
+            )
             throw mapWebSocketError(error)
         }
     }
@@ -81,11 +115,14 @@ final class XunfeiSentenceASRProvider: ASRProvider, CloudASRValidating, @uncheck
         return url
     }
 
-    private func sendAudioFrames(_ pcmData: Data, over websocket: URLSessionWebSocketTask) async throws {
+    private func buildFramePayloads(from pcmData: Data) throws -> [String] {
         let chunks = pcmData.chunked(into: Self.chunkSize)
         guard !chunks.isEmpty else {
             throw TypolessError.cloudASREmptyResponse
         }
+
+        var payloads: [String] = []
+        payloads.reserveCapacity(chunks.count)
 
         for (index, chunk) in chunks.enumerated() {
             let status: Int
@@ -98,9 +135,17 @@ final class XunfeiSentenceASRProvider: ASRProvider, CloudASRValidating, @uncheck
             }
 
             let payload = try buildFramePayload(chunk: chunk, status: status, isFirstFrame: index == 0)
+            payloads.append(payload)
+        }
+
+        return payloads
+    }
+
+    private func sendFramePayloads(_ payloads: [String], over websocket: URLSessionWebSocketTask) async throws {
+        for (index, payload) in payloads.enumerated() {
             try await websocket.send(.string(payload))
 
-            if status != 2 {
+            if index != payloads.count - 1 {
                 try await Task.sleep(for: .milliseconds(Self.frameIntervalMs))
             }
         }

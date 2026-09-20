@@ -47,7 +47,7 @@ struct LLMSettingsView: View {
                 }
             }
         } footer: {
-            Text("支持 OpenAI 兼容接口；模型处理时可能附带窗口上下文，敏感场景将脱敏。")
+            Text("支持 OpenAI 兼容接口。润色或翻译时，可能发送输入框附近的少量文字；密码框等敏感场景只发送窗口元数据。")
         }
         .onAppear {
             loadDraft()
@@ -172,7 +172,7 @@ struct LLMSettingsView: View {
             HStack(spacing: 6) {
                 ProgressView()
                     .controlSize(.small)
-                Text("正在获取模型列表")
+                Text("正在获取模型列表…")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -276,7 +276,7 @@ private struct ModelListPickerButton: NSViewRepresentable {
             let menu = NSMenu()
 
             if models.isEmpty {
-                let item = NSMenuItem(title: "暂未获取到模型列表", action: nil, keyEquivalent: "")
+                let item = NSMenuItem(title: "未获取到模型列表，可手动输入模型名称", action: nil, keyEquivalent: "")
                 item.isEnabled = false
                 menu.addItem(item)
             } else {

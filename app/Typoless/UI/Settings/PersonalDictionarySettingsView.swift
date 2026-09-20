@@ -44,7 +44,7 @@ struct PersonalDictionarySettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
         } footer: {
-            Text("词典将辅助语音识别和模型处理文本提高识别率。")
+            Text("语音识别和 AI 润色会参考这里的词条，尽量保留专有名词的写法。")
                 .offset(x: Layout.footerOffset)
         }
         .onAppear { syncDraftTerms() }
@@ -78,9 +78,7 @@ struct PersonalDictionarySettingsView: View {
         ScrollViewReader { proxy in
             Group {
                 if viewModel.entries.isEmpty {
-                    Text("暂无词条")
-                        .foregroundStyle(.secondary)
-                        .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+                    dictionaryEmptyState
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: Layout.rowSpacing) {
@@ -117,6 +115,21 @@ struct PersonalDictionarySettingsView: View {
         }
     }
 
+    /// 空词典占位：与词条列表共用同一区域，保持设置窗口高度稳定
+    private var dictionaryEmptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "text.book.closed")
+                .font(.system(size: 28))
+                .foregroundStyle(.secondary)
+            Text("还没有词条")
+            Text("添加常用人名或术语，也可以导入已有词典。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(width: SettingsFormLayout.controlWidth, height: Layout.listHeight)
+    }
+
     private var controls: some View {
         HStack {
             Button("添加") {
@@ -129,12 +142,12 @@ struct PersonalDictionarySettingsView: View {
 
             Spacer()
 
-            Button("导入...") {
+            Button("导入…") {
                 importDictionary()
             }
             .help("从 JSON 文件导入词典")
 
-            Button("导出...") {
+            Button("导出…") {
                 exportDictionary()
             }
             .help("导出词典为 JSON 文件")

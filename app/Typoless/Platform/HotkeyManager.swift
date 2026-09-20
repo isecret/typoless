@@ -2,6 +2,13 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
+/// 纯修饰键快捷键对一次 flagsChanged 事件的判定结果
+enum SpecialHotkeyAction: Equatable {
+    case press
+    case release
+    case none
+}
+
 /// 全局快捷键管理器，使用 Carbon Event API 注册和监听全局热键按下/松开
 final class HotkeyManager: @unchecked Sendable {
 
@@ -182,11 +189,33 @@ final class HotkeyManager: @unchecked Sendable {
 
     private func handleSpecialFlagsChanged(_ event: NSEvent, hotkey: HotkeyCombo) {
         let pressed = HotkeyPhysicalModifier.pressedSet(from: event.modifierFlags)
-        if hotkey.matchesSpecialPressedModifiers(pressed) {
+        switch Self.resolveSpecialEventAction(
+            pressed: pressed,
+            hotkey: hotkey,
+            isKeyDown: isKeyDown,
+            isSuspended: isSuspended
+        ) {
+        case .press:
             handlePress()
-        } else {
+        case .release:
             handleRelease()
+        case .none:
+            break
         }
+    }
+
+    /// 纯修饰键快捷键的事件判定：封装挂起、防重复触发与匹配语义，便于单元测试。
+    static func resolveSpecialEventAction(
+        pressed: Set<HotkeyPhysicalModifier>,
+        hotkey: HotkeyCombo,
+        isKeyDown: Bool,
+        isSuspended: Bool
+    ) -> SpecialHotkeyAction {
+        guard !isSuspended else { return .none }
+        if hotkey.matchesSpecialPressedModifiers(pressed) {
+            return isKeyDown ? .none : .press
+        }
+        return isKeyDown ? .release : .none
     }
 
     private func handlePhysicalStandardEvent(_ event: NSEvent, hotkey: HotkeyCombo) {
