@@ -22,13 +22,10 @@ struct LLMSettingsView: View {
                 SettingsSecureInputField(text: $apiKey)
             }
             SettingsFormRow(title: "Model") {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        SettingsTextInputField(text: $model, width: 334)
-                        modelListPickerButton
-                    }
-
-                    modelListStatusView
+                HStack(spacing: 8) {
+                    SettingsTextInputField(text: $model, width: 334)
+                    modelListAccessory
+                        .frame(width: 18, height: 18)
                 }
             }
             SettingsFormRow(title: "模型状态") {
@@ -139,32 +136,19 @@ struct LLMSettingsView: View {
     }
 
     @ViewBuilder
-    private var modelListPickerButton: some View {
-        ModelListPickerButton(
-            models: modelListService.models,
-            help: "选择模型",
-            onSelect: { model = $0 }
-        )
-        .frame(width: 18, height: 18)
-    }
-
-    @ViewBuilder
-    private var modelListStatusView: some View {
+    private var modelListAccessory: some View {
         switch modelListService.status {
-        case .incomplete:
-            EmptyView()
         case .loading:
-            HStack(spacing: 6) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("正在获取模型列表…")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        case .loaded:
-            EmptyView()
-        case .unavailable:
-            EmptyView()
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("正在获取模型列表")
+                .help("正在获取模型列表")
+        case .incomplete, .loaded, .unavailable:
+            ModelListPickerButton(
+                models: modelListService.models,
+                help: "选择模型",
+                onSelect: { model = $0 }
+            )
         }
     }
 
