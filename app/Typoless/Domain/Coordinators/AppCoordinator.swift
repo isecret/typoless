@@ -11,6 +11,43 @@ final class AppCoordinator {
         case finishRecording
     }
 
+    enum SpecialHotkeyEffect: Equatable {
+        case none
+        case showPendingHUD
+        case dismissPendingHUD
+        case perform(HotkeyAction)
+    }
+
+    @MainActor
+    struct SpecialHotkeyInteraction {
+        private(set) var pendingAction: HotkeyAction?
+
+        mutating func handle(
+            _ gestureAction: SpecialHotkeyGestureAction,
+            sessionState: SessionState
+        ) -> SpecialHotkeyEffect {
+            switch gestureAction {
+            case .none:
+                return .none
+
+            case .began:
+                let action = AppCoordinator.hotkeyAction(for: sessionState)
+                pendingAction = action
+                return action == .startRecording ? .showPendingHUD : .none
+
+            case .confirmed:
+                guard let action = pendingAction else { return .none }
+                pendingAction = nil
+                return .perform(action)
+
+            case .cancelled:
+                let action = pendingAction
+                pendingAction = nil
+                return action == .startRecording ? .dismissPendingHUD : .none
+            }
+        }
+    }
+
     let configStore: ConfigStore
     let permissionsManager: PermissionsManager
     let audioDeviceManager: AudioDeviceManager
@@ -30,6 +67,7 @@ final class AppCoordinator {
     private var settingsToolbarCoordinator: SettingsToolbarCoordinator?
     private var settingsContentSizes: [SettingsTab: NSSize] = [:]
     private var pendingSettingsResize: DispatchWorkItem?
+    private var specialHotkeyInteraction = SpecialHotkeyInteraction()
 
     init() {
         let store = ConfigStore()
@@ -189,6 +227,9 @@ final class AppCoordinator {
             self?.handleHotkeyEvent()
         }
         hotkeyManager.onKeyUp = nil
+        hotkeyManager.onSpecialGestureAction = { [weak self] action in
+            self?.handleSpecialHotkeyGestureAction(action)
+        }
     }
 
     static func hotkeyAction(for sessionState: SessionState) -> HotkeyAction? {
@@ -207,6 +248,28 @@ final class AppCoordinator {
             return
         }
 
+        performHotkeyAction(action)
+    }
+
+    private func handleSpecialHotkeyGestureAction(_ gestureAction: SpecialHotkeyGestureAction) {
+        let effect = specialHotkeyInteraction.handle(
+            gestureAction,
+            sessionState: sessionCoordinator.state
+        )
+
+        switch effect {
+        case .none:
+            break
+        case .showPendingHUD:
+            hudFeedbackController.presentHotkeyCandidate()
+        case .dismissPendingHUD:
+            hudFeedbackController.dismissHotkeyCandidate()
+        case .perform(let action):
+            performHotkeyAction(action)
+        }
+    }
+
+    private func performHotkeyAction(_ action: HotkeyAction) {
         switch action {
         case .startRecording:
             sessionCoordinator.startRecording()

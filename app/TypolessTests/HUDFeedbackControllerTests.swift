@@ -58,6 +58,23 @@ final class HUDFeedbackControllerTests: XCTestCase {
         }
     }
 
+    func testResultTransitionClearsInterruptedRecordingLayer() {
+        var layers = HUDLayerState(
+            recordingOpacity: 1,
+            processingOpacity: 0.14,
+            resultOpacity: 0,
+            recordingControlsOpacity: 0,
+            recordingWaveOpacity: 0.18
+        )
+
+        layers.prepareForTransition(to: .failure(.notHeard))
+
+        XCTAssertEqual(layers.recordingOpacity, 0)
+        XCTAssertEqual(layers.recordingControlsOpacity, 0)
+        XCTAssertEqual(layers.recordingWaveOpacity, 0)
+        XCTAssertEqual(layers.processingOpacity, 0.14)
+    }
+
     func testFailureEventPresentsHUDWhenHidden() {
         let controller = HUDFeedbackController()
 
@@ -68,6 +85,53 @@ final class HUDFeedbackControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.hudState, .failure(.permissionDenied))
         XCTAssertTrue(controller.isHUDPresented)
+    }
+
+    func testHotkeyCandidatePresentsIdleHUDWithoutRecordingSideEffects() {
+        let soundPlayer = MockFeedbackSoundPlayer()
+        let controller = HUDFeedbackController(soundPlayer: soundPlayer)
+        controller.audioLevelProvider = { 1 }
+
+        controller.presentHotkeyCandidate()
+
+        XCTAssertEqual(controller.hudState, .hotkeyPending)
+        XCTAssertTrue(controller.isHUDPresented)
+        XCTAssertEqual(controller.barHeights, Array(repeating: HUDLayout.resetBarHeight, count: 7))
+        XCTAssertEqual(soundPlayer.startCount, 0)
+    }
+
+    func testCancellingHotkeyCandidateDismissesHUD() async {
+        let controller = HUDFeedbackController()
+        controller.presentHotkeyCandidate()
+
+        controller.dismissHotkeyCandidate()
+        await waitForHUDToHide(controller)
+
+        XCTAssertEqual(controller.hudState, .hidden)
+        XCTAssertFalse(controller.isHUDPresented)
+    }
+
+    func testRecordingCanStartFromHotkeyCandidateHUD() {
+        let controller = HUDFeedbackController()
+        controller.presentHotkeyCandidate()
+
+        controller.handleEvent(.recordingStarted)
+
+        XCTAssertEqual(controller.hudState, .recording)
+        XCTAssertTrue(controller.isHUDPresented)
+        controller.handleEvent(.processingCancelled)
+    }
+
+    func testLateCandidateCancellationDoesNotDismissRecordingHUD() {
+        let controller = HUDFeedbackController()
+        controller.presentHotkeyCandidate()
+        controller.handleEvent(.recordingStarted)
+
+        controller.dismissHotkeyCandidate()
+
+        XCTAssertEqual(controller.hudState, .recording)
+        XCTAssertTrue(controller.isHUDPresented)
+        controller.handleEvent(.processingCancelled)
     }
 
     func testFailureEventStopsRecordingPresentationSideEffects() {

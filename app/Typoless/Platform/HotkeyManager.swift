@@ -2,11 +2,41 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
-/// 纯修饰键快捷键对一次 flagsChanged 事件的判定结果
-enum SpecialHotkeyAction: Equatable {
-    case press
-    case release
+enum SpecialHotkeyGestureState: Equatable {
+    case idle
+    case armed
+    case cancelled
+}
+
+enum SpecialHotkeyGestureEvent: Equatable {
+    case modifierFlagsChanged(Set<HotkeyPhysicalModifier>)
+    case keyDown(UInt16)
+    case systemDefined
+}
+
+enum SpecialHotkeyGestureAction: Equatable, Sendable {
     case none
+    case began
+    case confirmed
+    case cancelled
+}
+
+struct SpecialHotkeyTransition: Equatable {
+    let state: SpecialHotkeyGestureState
+    let action: SpecialHotkeyGestureAction
+
+    var shouldTrigger: Bool {
+        action == .confirmed
+    }
+
+    init(state: SpecialHotkeyGestureState, action: SpecialHotkeyGestureAction) {
+        self.state = state
+        self.action = action
+    }
+
+    init(state: SpecialHotkeyGestureState, shouldTrigger: Bool) {
+        self.init(state: state, action: shouldTrigger ? .confirmed : .none)
+    }
 }
 
 enum HotkeyRegistrationResult: Equatable {
@@ -33,6 +63,7 @@ final class HotkeyManager: @unchecked Sendable {
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
     private var isKeyDown = false
+    private var specialHotkeyGestureState: SpecialHotkeyGestureState = .idle
     private(set) var registeredHotkey: HotkeyCombo?
     private var isSuspended = false
     var testInstallHandler: ((HotkeyCombo) -> HotkeyRegistrationResult)?
@@ -41,6 +72,8 @@ final class HotkeyManager: @unchecked Sendable {
     var onKeyDown: (@MainActor @Sendable () -> Void)?
     /// 快捷键松开回调
     var onKeyUp: (@MainActor @Sendable () -> Void)?
+    /// 纯修饰键手势阶段回调：按下候选、干净释放确认或组合键取消
+    var onSpecialGestureAction: (@MainActor @Sendable (SpecialHotkeyGestureAction) -> Void)?
 
     private static let hotkeySignature: FourCharCode = 0x5459504C // "TYPL"
     private static let hotkeyID: UInt32 = 1
@@ -140,14 +173,23 @@ final class HotkeyManager: @unchecked Sendable {
     }
 
     private func installSpecialHotkey(_ hotkey: HotkeyCombo) -> HotkeyRegistrationResult {
-        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            self?.handleSpecialFlagsChanged(event, hotkey: hotkey)
+        let keyActivityMask: NSEvent.EventTypeMask = [.keyDown, .systemDefined]
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: keyActivityMask) { [weak self] event in
+            self?.handleSpecialEvent(event, hotkey: hotkey)
         }
-        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            self?.handleSpecialFlagsChanged(event, hotkey: hotkey)
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: keyActivityMask) { [weak self] event in
+            self?.handleSpecialEvent(event, hotkey: hotkey)
             return event
         }
-        guard globalFlagsMonitor != nil, localFlagsMonitor != nil else {
+        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            self?.handleSpecialEvent(event, hotkey: hotkey)
+        }
+        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            self?.handleSpecialEvent(event, hotkey: hotkey)
+            return event
+        }
+        guard globalKeyMonitor != nil, localKeyMonitor != nil,
+              globalFlagsMonitor != nil, localFlagsMonitor != nil else {
             unregister()
             return .failure("无法监听该修饰键组合。")
         }
@@ -180,6 +222,7 @@ final class HotkeyManager: @unchecked Sendable {
 
     /// 注销当前注册的快捷键
     func unregister() {
+        cancelPendingSpecialGesture()
         registeredHotkey = nil
         if let ref = hotKeyRef {
             UnregisterEventHotKey(ref)
@@ -212,6 +255,7 @@ final class HotkeyManager: @unchecked Sendable {
         isSuspended = suspended
         if suspended {
             isKeyDown = false
+            cancelPendingSpecialGesture()
         }
     }
 
@@ -250,35 +294,94 @@ final class HotkeyManager: @unchecked Sendable {
         return carbon
     }
 
-    private func handleSpecialFlagsChanged(_ event: NSEvent, hotkey: HotkeyCombo) {
-        let pressed = HotkeyPhysicalModifier.pressedSet(from: event.modifierFlags)
-        switch Self.resolveSpecialEventAction(
-            pressed: pressed,
+    private func handleSpecialEvent(_ event: NSEvent, hotkey: HotkeyCombo) {
+        let gestureEvent: SpecialHotkeyGestureEvent
+        switch event.type {
+        case .flagsChanged:
+            gestureEvent = .modifierFlagsChanged(
+                HotkeyPhysicalModifier.pressedSet(from: event.modifierFlags)
+            )
+        case .keyDown:
+            gestureEvent = .keyDown(UInt16(event.keyCode))
+        case .systemDefined:
+            gestureEvent = .systemDefined
+        default:
+            return
+        }
+
+        consumeSpecialGestureEvent(gestureEvent, hotkey: hotkey)
+    }
+
+    @discardableResult
+    func consumeSpecialGestureEvent(
+        _ gestureEvent: SpecialHotkeyGestureEvent,
+        hotkey: HotkeyCombo
+    ) -> Bool {
+        let transition = Self.resolveSpecialGestureEvent(
+            gestureEvent,
             hotkey: hotkey,
-            isKeyDown: isKeyDown,
+            state: specialHotkeyGestureState,
             isSuspended: isSuspended
-        ) {
-        case .press:
-            handlePress()
-        case .release:
-            handleRelease()
-        case .none:
-            break
+        )
+        specialHotkeyGestureState = transition.state
+
+        publishSpecialGestureAction(transition.action)
+
+        return transition.shouldTrigger
+    }
+
+    /// 纯修饰键按下时进入候选态；未参与其他组合键的完整释放才确认触发。
+    static func resolveSpecialGestureEvent(
+        _ event: SpecialHotkeyGestureEvent,
+        hotkey: HotkeyCombo,
+        state: SpecialHotkeyGestureState,
+        isSuspended: Bool
+    ) -> SpecialHotkeyTransition {
+        guard !isSuspended else {
+            return SpecialHotkeyTransition(
+                state: .idle,
+                action: state == .idle ? .none : .cancelled
+            )
+        }
+
+        switch (state, event) {
+        case (.idle, .modifierFlagsChanged(let pressed))
+            where hotkey.matchesSpecialPressedModifiers(pressed):
+            return SpecialHotkeyTransition(state: .armed, action: .began)
+        case (.idle, .modifierFlagsChanged(let pressed))
+            where hotkey.pressedModifiersAreSubsetOfRecordedSpecialModifiers(pressed):
+            return SpecialHotkeyTransition(state: .idle, shouldTrigger: false)
+        case (.idle, .modifierFlagsChanged):
+            return SpecialHotkeyTransition(state: .cancelled, shouldTrigger: false)
+        case (.armed, .keyDown(let keyCode))
+            where !HotkeyPhysicalModifier.modifierKeyCodes.contains(keyCode):
+            return SpecialHotkeyTransition(state: .cancelled, shouldTrigger: false)
+        case (.armed, .systemDefined):
+            return SpecialHotkeyTransition(state: .cancelled, shouldTrigger: false)
+        case (.armed, .modifierFlagsChanged(let pressed)) where pressed.isEmpty:
+            return SpecialHotkeyTransition(state: .idle, action: .confirmed)
+        case (.armed, .modifierFlagsChanged(let pressed))
+            where hotkey.matchesSpecialPressedModifiers(pressed)
+                || hotkey.pressedModifiersAreSubsetOfRecordedSpecialModifiers(pressed):
+            return SpecialHotkeyTransition(state: .armed, shouldTrigger: false)
+        case (.armed, .modifierFlagsChanged):
+            return SpecialHotkeyTransition(state: .cancelled, shouldTrigger: false)
+        case (.cancelled, .modifierFlagsChanged(let pressed)) where pressed.isEmpty:
+            return SpecialHotkeyTransition(state: .idle, action: .cancelled)
+        default:
+            return SpecialHotkeyTransition(state: state, shouldTrigger: false)
         }
     }
 
-    /// 纯修饰键快捷键的事件判定：封装挂起、防重复触发与匹配语义，便于单元测试。
-    static func resolveSpecialEventAction(
-        pressed: Set<HotkeyPhysicalModifier>,
-        hotkey: HotkeyCombo,
-        isKeyDown: Bool,
-        isSuspended: Bool
-    ) -> SpecialHotkeyAction {
-        guard !isSuspended else { return .none }
-        if hotkey.matchesSpecialPressedModifiers(pressed) {
-            return isKeyDown ? .none : .press
-        }
-        return isKeyDown ? .release : .none
+    private func cancelPendingSpecialGesture() {
+        guard specialHotkeyGestureState != .idle else { return }
+        specialHotkeyGestureState = .idle
+        publishSpecialGestureAction(.cancelled)
+    }
+
+    private func publishSpecialGestureAction(_ action: SpecialHotkeyGestureAction) {
+        guard action != .none, let callback = onSpecialGestureAction else { return }
+        Task { @MainActor in callback(action) }
     }
 
     private func handlePhysicalStandardEvent(_ event: NSEvent, hotkey: HotkeyCombo) {

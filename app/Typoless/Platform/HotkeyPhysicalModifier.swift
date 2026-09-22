@@ -104,6 +104,25 @@ extension HotkeyCombo {
         return matchesRecordedModifiers(pressed)
     }
 
+    func pressedModifiersAreSubsetOfRecordedSpecialModifiers(
+        _ pressed: Set<HotkeyPhysicalModifier>
+    ) -> Bool {
+        guard kind == .special else { return false }
+        var unmatchedExpected = normalizedRecordedModifiers
+
+        for physical in pressed {
+            guard let index = unmatchedExpected.firstIndex(where: { spec in
+                spec.key == physical.spec.key
+                    && (spec.side == .either || spec.side == physical.spec.side)
+            }) else {
+                return false
+            }
+            unmatchedExpected.remove(at: index)
+        }
+
+        return true
+    }
+
     func matchesStandardPressedModifiers(
         keyCode: UInt16,
         pressed: Set<HotkeyPhysicalModifier>

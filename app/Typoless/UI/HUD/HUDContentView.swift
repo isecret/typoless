@@ -1,8 +1,32 @@
 import SwiftUI
 
+struct HUDLayerState: Equatable {
+    var recordingOpacity: Double
+    var processingOpacity: Double
+    var resultOpacity: Double
+    var recordingControlsOpacity: Double
+    var recordingWaveOpacity: Double
+
+    static let hidden = HUDLayerState(
+        recordingOpacity: 0,
+        processingOpacity: 0,
+        resultOpacity: 0,
+        recordingControlsOpacity: 0,
+        recordingWaveOpacity: 0
+    )
+
+    /// 结果态可能在上一段异步转场完成前到达，必须先清掉录音层以避免声波残影。
+    mutating func prepareForTransition(to state: HUDState) {
+        guard state.isResult else { return }
+        recordingOpacity = 0
+        recordingControlsOpacity = 0
+        recordingWaveOpacity = 0
+    }
+}
+
 /// HUD 内容视图 — 极简胶囊条
 ///
-/// 录音态：`X + 声波 + ✓`
+/// 快捷键候选态：静态声波；录音态：`X + 声波 + ✓`
 /// 处理态：Thinking 黑白灰渐变动画
 /// 结果态：失败短文案或新词提示
 struct HUDContentView: View {
@@ -14,11 +38,7 @@ struct HUDContentView: View {
     @State private var capsuleWidth: CGFloat = HUDLayout.hiddenWidth
     @State private var capsuleScale: CGFloat = 1
     @State private var capsuleYOffset: CGFloat = 0
-    @State private var recordingOpacity: Double = 0
-    @State private var processingOpacity: Double = 0
-    @State private var resultOpacity: Double = 0
-    @State private var recordingControlsOpacity: Double = 0
-    @State private var recordingWaveOpacity: Double = 0
+    @State private var layers = HUDLayerState.hidden
     @State private var resultOffsetY: CGFloat = HUDLayout.resultOffset
     @State private var resultState: HUDState?
     @State private var transitionTask: Task<Void, Never>?
@@ -30,17 +50,17 @@ struct HUDContentView: View {
             if phase != .hidden {
                 ZStack {
                     recordingCapsule
-                        .opacity(controller.modeCueLabel == nil ? recordingOpacity : 0)
+                        .opacity(controller.modeCueLabel == nil ? layers.recordingOpacity : 0)
                     thinkingCapsule
-                        .opacity(processingOpacity)
+                        .opacity(layers.processingOpacity)
                     if let label = controller.modeCueLabel, controller.hudState == .recording {
                         modeCueCapsule(label: label)
-                            .opacity(recordingOpacity)
+                            .opacity(layers.recordingOpacity)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
                     }
                     if let resultState {
                         resultCapsule(for: resultState)
-                            .opacity(resultOpacity)
+                            .opacity(layers.resultOpacity)
                             .offset(y: resultOffsetY)
                     }
                 }
@@ -68,12 +88,12 @@ struct HUDContentView: View {
     private var recordingCapsule: some View {
         HStack(spacing: HUDLayout.recordingSpacing) {
             hudButton(icon: .xMark) { onCancel() }
-                .opacity(recordingControlsOpacity)
-                .offset(x: recordingControlsOpacity == 0 ? HUDLayout.hiddenControlOffset : -HUDLayout.visibleControlOffset)
+                .opacity(layers.recordingControlsOpacity)
+                .offset(x: layers.recordingControlsOpacity == 0 ? HUDLayout.hiddenControlOffset : -HUDLayout.visibleControlOffset)
             waveformView
             hudButton(icon: .checkMark, isConfirm: true) { onConfirm() }
-                .opacity(recordingControlsOpacity)
-                .offset(x: recordingControlsOpacity == 0 ? -HUDLayout.hiddenControlOffset : HUDLayout.visibleControlOffset)
+                .opacity(layers.recordingControlsOpacity)
+                .offset(x: layers.recordingControlsOpacity == 0 ? -HUDLayout.hiddenControlOffset : HUDLayout.visibleControlOffset)
         }
         .padding(.vertical, HUDLayout.compactVerticalPadding)
         .padding(.horizontal, HUDLayout.compactHorizontalPadding)
@@ -134,8 +154,8 @@ struct HUDContentView: View {
         }
         .frame(width: HUDLayout.waveformWidth, height: capsuleHeight - HUDLayout.scaled(6))
         .clipped()
-        .opacity(recordingWaveOpacity)
-        .scaleEffect(x: 1, y: 0.88 + 0.12 * recordingWaveOpacity, anchor: .center)
+        .opacity(layers.recordingWaveOpacity)
+        .scaleEffect(x: 1, y: 0.88 + 0.12 * layers.recordingWaveOpacity, anchor: .center)
     }
 
     // MARK: - Button
@@ -186,11 +206,21 @@ struct HUDContentView: View {
             capsuleWidth = HUDLayout.hiddenWidth
             capsuleScale = 1
             capsuleYOffset = 0
-            recordingOpacity = 0
-            processingOpacity = 0
-            resultOpacity = 0
-            recordingControlsOpacity = 0
-            recordingWaveOpacity = 0
+            layers = .hidden
+            resultOffsetY = HUDLayout.resultOffset
+
+        case .hotkeyPending:
+            phase = .recording
+            capsuleWidth = HUDLayout.activeWidth
+            capsuleScale = 1
+            capsuleYOffset = 0
+            layers = HUDLayerState(
+                recordingOpacity: 1,
+                processingOpacity: 0,
+                resultOpacity: 0,
+                recordingControlsOpacity: 0,
+                recordingWaveOpacity: 0.45
+            )
             resultOffsetY = HUDLayout.resultOffset
 
         case .recording:
@@ -198,11 +228,13 @@ struct HUDContentView: View {
             capsuleWidth = HUDLayout.activeWidth
             capsuleScale = 1
             capsuleYOffset = 0
-            recordingOpacity = 1
-            processingOpacity = 0
-            resultOpacity = 0
-            recordingControlsOpacity = 1
-            recordingWaveOpacity = 1
+            layers = HUDLayerState(
+                recordingOpacity: 1,
+                processingOpacity: 0,
+                resultOpacity: 0,
+                recordingControlsOpacity: 1,
+                recordingWaveOpacity: 1
+            )
             resultOffsetY = HUDLayout.resultOffset
 
         case .processing:
@@ -210,11 +242,13 @@ struct HUDContentView: View {
             capsuleWidth = HUDLayout.activeWidth
             capsuleScale = 1
             capsuleYOffset = 0
-            recordingOpacity = 0
-            processingOpacity = 1
-            resultOpacity = 0
-            recordingControlsOpacity = 0
-            recordingWaveOpacity = 0
+            layers = HUDLayerState(
+                recordingOpacity: 0,
+                processingOpacity: 1,
+                resultOpacity: 0,
+                recordingControlsOpacity: 0,
+                recordingWaveOpacity: 0
+            )
             resultOffsetY = HUDLayout.resultOffset
 
         case .failure, .notice:
@@ -222,34 +256,46 @@ struct HUDContentView: View {
             capsuleWidth = resultCapsuleWidth(for: state)
             capsuleScale = 1
             capsuleYOffset = 0
-            recordingOpacity = 0
-            processingOpacity = 0
-            resultOpacity = 1
-            recordingControlsOpacity = 0
-            recordingWaveOpacity = 0
+            layers = HUDLayerState(
+                recordingOpacity: 0,
+                processingOpacity: 0,
+                resultOpacity: 1,
+                recordingControlsOpacity: 0,
+                recordingWaveOpacity: 0
+            )
             resultOffsetY = 0
         }
     }
 
     private func animateStateHandoff(from oldValue: HUDState, to newValue: HUDState) async {
+        layers.prepareForTransition(to: newValue)
+
         switch (oldValue, newValue) {
         case (_, .hidden):
             withAnimation(.easeOut(duration: 0.18)) {
-                recordingOpacity = 0
-                processingOpacity = 0
-                resultOpacity = 0
+                layers.recordingOpacity = 0
+                layers.processingOpacity = 0
+                layers.resultOpacity = 0
                 capsuleScale = 0.985
             }
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
             syncImmediately(to: .hidden)
 
+        case (.hotkeyPending, .recording):
+            phase = .recording
+            resultState = nil
+            withAnimation(.easeOut(duration: 0.16)) {
+                layers.recordingControlsOpacity = 1
+                layers.recordingWaveOpacity = 1
+            }
+
         case (.recording, .processing):
             phase = .recording
             resultState = nil
             withAnimation(.easeOut(duration: 0.12)) {
-                recordingControlsOpacity = 0
-                recordingWaveOpacity = 0.18
+                layers.recordingControlsOpacity = 0
+                layers.recordingWaveOpacity = 0.18
                 capsuleWidth = HUDLayout.activeWidth
                 capsuleScale = 0.985
                 capsuleYOffset = HUDLayout.transitionYOffset
@@ -258,22 +304,20 @@ struct HUDContentView: View {
             guard !Task.isCancelled else { return }
             phase = .processing
             withAnimation(.easeOut(duration: 0.16)) {
-                recordingOpacity = 0
-                processingOpacity = 1
+                layers.recordingOpacity = 0
+                layers.processingOpacity = 1
                 capsuleScale = 1
                 capsuleYOffset = 0
             }
             try? await Task.sleep(for: .milliseconds(160))
             guard !Task.isCancelled else { return }
-            recordingControlsOpacity = 1
-            recordingWaveOpacity = 1
 
         case (.processing, let next) where next.isResult:
             resultState = next
             phase = .processing
             withAnimation(.easeOut(duration: 0.12)) {
-                processingOpacity = 0.14
-                capsuleWidth = HUDLayout.resultWidth
+                layers.processingOpacity = 0.14
+                capsuleWidth = resultCapsuleWidth(for: next)
                 capsuleScale = 0.992
             }
             try? await Task.sleep(for: .milliseconds(80))
@@ -281,8 +325,8 @@ struct HUDContentView: View {
             phase = .result
             resultOffsetY = HUDLayout.processingResultOffset
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                processingOpacity = 0
-                resultOpacity = 1
+                layers.processingOpacity = 0
+                layers.resultOpacity = 1
                 resultOffsetY = 0
                 capsuleScale = 1
             }

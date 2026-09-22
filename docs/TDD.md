@@ -122,6 +122,8 @@
 
 - 标准快捷键继续使用 Carbon `RegisterEventHotKey` 注册，覆盖包含普通键的组合；必须检查 `OSStatus`，失败不得视为已生效
 - 纯修饰键和左右侧修饰键组合通过 `flagsChanged` 事件监听实现，不依赖普通 hotkey 库；监听器创建失败时回滚原快捷键
+- 纯修饰键运行时按完整手势判定：精确按下目标组合后进入候选并显示静态 HUD，但不创建录音 session、不采集音频、不播放录音音效；全部释放且期间未出现普通键、系统功能键或额外修饰键时才确认触发开始/结束动作
+- 若候选期间参与 `Right Command + M` 等其他组合，本次候选进入取消态；修饰键释放后关闭候选 HUD，不改变 `SessionCoordinator` 状态。已有录音不会被该组合键误结束
 - `HotkeyManager.replace(with:)` 先尝试新监听，成功后由设置页持久化；失败则恢复原监听且不改配置
 - 设置页展示使用 `HotkeyPresentation` 键帽 token 与无障碍描述，不把 `displayString` 当作 UI 唯一数据源；`displayString` 仅保留 JSON 兼容
 - MacBook `Fn`／🌐 键通过 `flagsChanged` 的 `.function` 位（0x800000）判定按住状态；录制控件通过物理键码 `kVK_Function`（63）过滤 `keyDown`，避免把 `Fn` 当普通键提交

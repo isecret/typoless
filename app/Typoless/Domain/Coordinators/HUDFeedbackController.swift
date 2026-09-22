@@ -65,6 +65,39 @@ final class HUDFeedbackController {
         soundPlayer.setSilentKeepAliveEnabled(enabled)
     }
 
+    /// 纯修饰键按下后的候选反馈。此时只显示 HUD，不启动录音相关副作用。
+    func presentHotkeyCandidate() {
+        dismissTask?.cancel()
+        dismissTask = nil
+        presentationGeneration &+= 1
+        cancelPendingStartSound()
+        clearModeCue()
+        stopLevelPolling()
+        stopEscMonitor()
+        resetBars()
+        hudState = .hotkeyPending
+
+        if isHUDPresented {
+            updateMouseInteraction()
+        } else {
+            showHUD()
+        }
+    }
+
+    /// 仅关闭仍处于候选态的 HUD，避免组合键误伤已经开始的录音。
+    func dismissHotkeyCandidate() {
+        guard hudState == .hotkeyPending else { return }
+        dismissTask?.cancel()
+        dismissTask = nil
+        presentationGeneration &+= 1
+        cancelPendingStartSound()
+        clearModeCue()
+        stopLevelPolling()
+        stopEscMonitor()
+        resetBars()
+        dismissHUD()
+    }
+
     /// 处理来自 SessionCoordinator 的反馈事件
     func handleEvent(_ event: SessionFeedbackEvent) {
         Self.logger.info("handleEvent | \(String(describing: event))")
@@ -77,7 +110,11 @@ final class HUDFeedbackController {
             cancelPendingStartSound()
             clearModeCue()
             hudState = .recording
-            showHUD()
+            if isHUDPresented {
+                updateMouseInteraction()
+            } else {
+                showHUD()
+            }
             startLevelPolling()
             startEscMonitor()
 
