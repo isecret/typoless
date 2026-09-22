@@ -107,7 +107,7 @@ enum SettingsFormLayout {
     static let rowSpacing: CGFloat = 12
     static let rowMinHeight: CGFloat = 26
     static let controlWidth: CGFloat = 360
-    static let footerWidth: CGFloat = contentWidth - labelWidth - rowSpacing
+    static let footerWidth: CGFloat = controlWidth
     static let sectionSpacing: CGFloat = 0
     static let sectionVerticalPadding: CGFloat = 9
 }
