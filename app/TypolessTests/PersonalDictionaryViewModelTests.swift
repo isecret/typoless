@@ -17,21 +17,62 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testAddPlaceholderCreatesTermWithNilOptionalFields() {
+    func testAddTermCreatesTermWithNilOptionalFields() {
         let viewModel = makeViewModel()
 
-        viewModel.addPlaceholderTerm("Typoless")
+        XCTAssertTrue(viewModel.addTerm("  Typoless  "))
 
         XCTAssertEqual(viewModel.entries.count, 1)
         XCTAssertEqual(viewModel.entries[0].term, "Typoless")
         XCTAssertNil(viewModel.entries[0].pronunciationHint)
         XCTAssertNil(viewModel.entries[0].category)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    @MainActor
+    func testAddTermRejectsEmptyAndDuplicateTerms() {
+        let viewModel = makeViewModel()
+
+        XCTAssertFalse(viewModel.addTerm(" "))
+        XCTAssertEqual(viewModel.errorMessage, PersonalDictionaryViewModel.ValidationError.empty.rawValue)
+        XCTAssertTrue(viewModel.entries.isEmpty)
+
+        XCTAssertTrue(viewModel.addTerm("Typoless"))
+        XCTAssertFalse(viewModel.addTerm("  Typoless  "))
+        XCTAssertEqual(viewModel.errorMessage, PersonalDictionaryViewModel.ValidationError.duplicate.rawValue)
+        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless"])
+    }
+
+    @MainActor
+    func testAddTermSaveFailureKeepsEntriesUnchangedAndShowsError() throws {
+        let dictionaryURL = tempDirectory.appendingPathComponent("dictionary.json")
+        try FileManager.default.createDirectory(at: dictionaryURL, withIntermediateDirectories: true)
+        let viewModel = makeViewModel()
+
+        XCTAssertFalse(viewModel.addTerm("Typoless"))
+        XCTAssertTrue(viewModel.entries.isEmpty)
+        XCTAssertEqual(viewModel.errorMessage, PersonalDictionaryViewModel.ValidationError.saveFailed.rawValue)
+    }
+
+    @MainActor
+    func testSearchIsCaseInsensitiveAndDoesNotChangePersistedOrder() {
+        let viewModel = makeViewModel()
+        XCTAssertTrue(viewModel.addTerm("Typoless"))
+        XCTAssertTrue(viewModel.addTerm("SenseVoice"))
+        XCTAssertTrue(viewModel.addTerm("企业微信"))
+
+        XCTAssertEqual(viewModel.filteredEntries(matching: "typo").map(\.term), ["Typoless"])
+        XCTAssertEqual(viewModel.filteredEntries(matching: "VOICE").map(\.term), ["SenseVoice"])
+        XCTAssertEqual(viewModel.filteredEntries(matching: "  ").map(\.term), ["Typoless", "SenseVoice", "企业微信"])
+        XCTAssertEqual(viewModel.filteredEntries(matching: "不存在").map(\.term), [])
+        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless", "SenseVoice", "企业微信"])
+        XCTAssertEqual(viewModel.totalCount, 3)
     }
 
     @MainActor
     func testCommittedEditPersistsImmediately() {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("旧词")
+        viewModel.addTerm("旧词")
         let id = viewModel.entries[0].id
 
         let didCommit = viewModel.commitTermUpdate(id: id, term: " 新词 ")
@@ -44,8 +85,8 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testEditRejectsEmptyAndDuplicateTerms() {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("Typoless")
-        viewModel.addPlaceholderTerm("SenseVoice")
+        viewModel.addTerm("Typoless")
+        viewModel.addTerm("SenseVoice")
         let editedID = viewModel.entries[0].id
 
         XCTAssertFalse(viewModel.commitTermUpdate(id: editedID, term: " "))
@@ -61,12 +102,12 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testDeleteEntryRemovesPersistedTerm() {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("Typoless")
+        viewModel.addTerm("Typoless")
         let entry = viewModel.entries[0]
 
         XCTAssertEqual(viewModel.entries.count, 1)
 
-        viewModel.deleteEntry(entry)
+        XCTAssertTrue(viewModel.deleteEntry(entry))
         XCTAssertTrue(viewModel.entries.isEmpty)
 
         let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
@@ -74,24 +115,44 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     }
 
     @MainActor
-    func testEmptyEditKeepsPlaceholderTerm() {
+    func testNeighboringSelectionAfterDeletingFirstMiddleAndLastEntries() {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("新词条")
+        XCTAssertTrue(viewModel.addTerm("甲"))
+        XCTAssertTrue(viewModel.addTerm("乙"))
+        XCTAssertTrue(viewModel.addTerm("丙"))
+        let firstID = viewModel.entries[0].id
+        let middleID = viewModel.entries[1].id
+        let lastID = viewModel.entries[2].id
+
+        XCTAssertEqual(viewModel.neighboringEntryID(afterDeleting: firstID), middleID)
+        XCTAssertEqual(viewModel.neighboringEntryID(afterDeleting: middleID), lastID)
+        XCTAssertEqual(viewModel.neighboringEntryID(afterDeleting: lastID), middleID)
+
+        XCTAssertTrue(viewModel.deleteEntry(viewModel.entries[1]))
+        XCTAssertEqual(viewModel.neighboringEntryID(afterDeleting: viewModel.entries[0].id), viewModel.entries[1].id)
+        XCTAssertTrue(viewModel.deleteEntry(viewModel.entries[0]))
+        XCTAssertEqual(viewModel.neighboringEntryID(afterDeleting: viewModel.entries[0].id), nil)
+    }
+
+    @MainActor
+    func testEmptyEditKeepsOriginalTerm() {
+        let viewModel = makeViewModel()
+        viewModel.addTerm("Typoless")
         let id = viewModel.entries[0].id
 
         XCTAssertFalse(viewModel.commitTermUpdate(id: id, term: " "))
 
         XCTAssertEqual(viewModel.errorMessage, PersonalDictionaryViewModel.ValidationError.empty.rawValue)
-        XCTAssertEqual(viewModel.entries.map(\.term), ["新词条"])
+        XCTAssertEqual(viewModel.entries.map(\.term), ["Typoless"])
 
         let reloaded = PersonalDictionaryStore(directoryURL: tempDirectory)
-        XCTAssertEqual(reloaded.entries.map(\.term), ["新词条"])
+        XCTAssertEqual(reloaded.entries.map(\.term), ["Typoless"])
     }
 
     @MainActor
     func testImportEntriesUpdatesListAndStatusMessage() throws {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("Typoless")
+        viewModel.addTerm("Typoless")
 
         let importURL = tempDirectory.appendingPathComponent("import.json")
         let importJSON = """
@@ -118,7 +179,7 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testImportInvalidJSONShowsError() throws {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("Typoless")
+        viewModel.addTerm("Typoless")
 
         let importURL = tempDirectory.appendingPathComponent("invalid.json")
         try "{ invalid".write(to: importURL, atomically: true, encoding: .utf8)
@@ -133,7 +194,7 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testExportEntriesWritesFileAndStatusMessage() throws {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("Typoless")
+        viewModel.addTerm("Typoless")
 
         let exportURL = tempDirectory.appendingPathComponent("export.json")
         viewModel.exportEntries(to: exportURL)
@@ -147,7 +208,7 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testValidEditAfterEmptyEditPersistsAndClearsError() {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("新词条")
+        viewModel.addTerm("新词条")
         let id = viewModel.entries[0].id
 
         XCTAssertFalse(viewModel.commitTermUpdate(id: id, term: " "))
@@ -164,7 +225,7 @@ final class PersonalDictionaryViewModelTests: XCTestCase {
     @MainActor
     func testRepeatedCommitsKeepLatestTerm() {
         let viewModel = makeViewModel()
-        viewModel.addPlaceholderTerm("旧词")
+        viewModel.addTerm("旧词")
         let id = viewModel.entries[0].id
 
         XCTAssertTrue(viewModel.commitTermUpdate(id: id, term: "第一次"))

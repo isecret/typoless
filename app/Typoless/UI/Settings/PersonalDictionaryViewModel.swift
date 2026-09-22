@@ -28,23 +28,49 @@ final class PersonalDictionaryViewModel {
         entries.count
     }
 
-    func addPlaceholderTerm(_ term: String) {
+    func filteredEntries(matching query: String) -> [DictionaryEntry] {
+        let query = normalizedTerm(query)
+        guard !query.isEmpty else { return entries }
+        return entries.filter { $0.term.localizedCaseInsensitiveContains(query) }
+    }
+
+    @discardableResult
+    func addTerm(_ term: String) -> Bool {
+        let term = normalizedTerm(term)
+        guard validateTerm(term, editingID: nil) else { return false }
+
         do {
             try store.addEntry(DictionaryEntry(term: term))
             statusMessage = nil
             clearError()
+            return true
         } catch {
             showError(.saveFailed)
+            return false
         }
     }
 
-    func deleteEntry(_ entry: DictionaryEntry) {
+    func neighboringEntryID(afterDeleting id: String) -> String? {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return nil }
+        if index + 1 < entries.count {
+            return entries[index + 1].id
+        }
+        if index > 0 {
+            return entries[index - 1].id
+        }
+        return nil
+    }
+
+    @discardableResult
+    func deleteEntry(_ entry: DictionaryEntry) -> Bool {
         do {
             try store.removeEntry(id: entry.id)
             statusMessage = nil
             clearError()
+            return true
         } catch {
             showError(.saveFailed)
+            return false
         }
     }
 
@@ -74,8 +100,6 @@ final class PersonalDictionaryViewModel {
         }
     }
 
-    func flushPendingEdits() {}
-
     @discardableResult
     func commitTermUpdate(id: String, term: String) -> Bool {
         let term = normalizedTerm(term)
@@ -90,7 +114,7 @@ final class PersonalDictionaryViewModel {
             return false
         }
 
-        guard validateEditedTerm(term, editingID: id) else { return false }
+        guard validateTerm(term, editingID: id) else { return false }
 
         var updated = entry
         updated.term = term
@@ -104,10 +128,6 @@ final class PersonalDictionaryViewModel {
             showError(.saveFailed)
             return false
         }
-    }
-
-    private func validateEditedTerm(_ term: String, editingID: String) -> Bool {
-        validateTerm(term, editingID: editingID)
     }
 
     private func validateTerm(_ term: String, editingID: String?) -> Bool {

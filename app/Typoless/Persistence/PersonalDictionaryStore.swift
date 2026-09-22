@@ -31,8 +31,14 @@ final class PersonalDictionaryStore {
     // MARK: - CRUD
 
     func addEntry(_ entry: DictionaryEntry) throws {
+        let previousEntries = entries
         entries.append(entry)
-        try save()
+        do {
+            try save()
+        } catch {
+            entries = previousEntries
+            throw error
+        }
     }
 
     @discardableResult
@@ -49,14 +55,26 @@ final class PersonalDictionaryStore {
     }
 
     func removeEntry(id: String) throws {
+        let previousEntries = entries
         entries.removeAll { $0.id == id }
-        try save()
+        do {
+            try save()
+        } catch {
+            entries = previousEntries
+            throw error
+        }
     }
 
     func updateEntry(_ entry: DictionaryEntry) throws {
         guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        let previousEntries = entries
         entries[index] = entry
-        try save()
+        do {
+            try save()
+        } catch {
+            entries = previousEntries
+            throw error
+        }
     }
 
     @discardableResult

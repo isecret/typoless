@@ -46,7 +46,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .asr:
             NSSize(width: SettingsFormLayout.windowContentWidth, height: 270)
         case .dictionary:
-            NSSize(width: SettingsFormLayout.windowContentWidth, height: 330)
+            NSSize(width: SettingsFormLayout.windowContentWidth, height: 410)
         case .ai:
             NSSize(width: SettingsFormLayout.windowContentWidth, height: 250)
         case .permissions:

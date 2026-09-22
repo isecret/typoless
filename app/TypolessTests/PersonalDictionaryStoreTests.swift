@@ -215,4 +215,16 @@ final class PersonalDictionaryStoreTests: XCTestCase {
             [DictionaryEntry(id: "legacy-entry", term: "Typoless", source: .manual)]
         )
     }
+
+    @MainActor
+    func testAddEntryRollsBackWhenSaveFails() throws {
+        let store = PersonalDictionaryStore(directoryURL: tempDirectory)
+        if FileManager.default.fileExists(atPath: dictionaryFileURL.path) {
+            try FileManager.default.removeItem(at: dictionaryFileURL)
+        }
+        try FileManager.default.createDirectory(at: dictionaryFileURL, withIntermediateDirectories: true)
+
+        XCTAssertThrowsError(try store.addEntry(DictionaryEntry(term: "Typoless")))
+        XCTAssertTrue(store.entries.isEmpty)
+    }
 }

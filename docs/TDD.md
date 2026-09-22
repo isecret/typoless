@@ -331,6 +331,7 @@
 ### 5.10 PersonalDictionaryStore
 
 - 使用 `~/.typoless/dictionary.json` 存储用户维护和自动学习到的个人词典。
+- 新增、更新、删除在写入文件失败时回滚内存中的词条列表，避免界面与文件不一致。
 - 词条至少包含 `term`，可选 `pronunciationHint`、`category`、`enabled`、`source`；旧版 `enabled` 字段仅用于读取迁移。
 - `source` 取值为 `manual` 或 `auto_learned`，用于区分手动维护和自动学习来源。
 - 个人词典导入、导出均使用 JSON 文件；导入时跳过重复术语，不覆盖现有词条。
@@ -501,8 +502,16 @@ Segment 级诊断字段（每段独立记录）：
 - 存储位置：`~/.typoless/dictionary.json`
 - 字段：`term`、`pronunciationHint`、`category`
 - 设置页首版仅维护 `term`；新增词条的 `pronunciationHint`、`category` 保存为 `nil`
-- 设置页支持从 JSON 文件导入个人词典，并导出当前个人词典为 JSON 文件
-- 导入格式与 `dictionary.json` 一致，兼容旧版 `enabled` 字段；导入时按 `term` 去重并跳过重复词条，不覆盖现有词条
+- 设置页使用原生可选择列表浏览词条；词典工作区固定 `440pt` 并在设置内容区居中，不使用两列表单行
+- 页头只保留标题和搜索；说明位于操作栏下方，与工作区左边缘对齐
+- 列表高度 `280pt`，使用 SwiftUI `List(selection:)` 与系统 inset 样式承载浏览和选择；关闭交替行背景，分割线与选中态由系统绘制
+- 列表容器使用 `6pt` 连续圆角外框；首次点击词条后列表取得焦点，以显示系统强调色选中态
+- 底部 `＋ / － / ···` 使用单个三段式 `NSSegmentedControl`
+- 新增和编辑通过同一 Sheet 完成，只有校验通过后才调用 Store 写入，不创建 placeholder 词条
+- 底部操作栏提供添加、删除和更多菜单；未选中时删除不可用；删除后选中相邻词条
+- 设置页提供词条计数和本地搜索（大小写不敏感的包含匹配）；搜索只影响当前显示结果，不改变持久化顺序
+- 导入、导出入口收纳在底部更多菜单中；导入格式与 `dictionary.json` 一致，兼容旧版 `enabled` 字段；导入时按 `term` 去重并跳过重复词条，不覆盖现有词条
+- 添加/编辑校验错误显示在 Sheet 内；导入导出成功在底栏短暂显示且不改变高度，失败用 alert
 - 不存储历史输入文本或 ASR/LLM 响应正文
 
 ### 8.4 校验策略

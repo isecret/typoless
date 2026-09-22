@@ -3,235 +3,275 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct PersonalDictionarySettingsView: View {
-    private static let dictionaryListBottomAnchorID = "dictionary-list-bottom-anchor"
-
     private enum Layout {
-        static let listHeight: CGFloat = 315
-        static let rowHeight: CGFloat = 28
-        static let rowSpacing: CGFloat = 6
-        static let leadingInset: CGFloat = 4
-        static let trailingInset: CGFloat = 0
-        static let scrollbarReserve: CGFloat = 20
-        static let deleteButtonWidth: CGFloat = 22
-        static let rowControlSpacing: CGFloat = 3
-        static let footerOffset: CGFloat =
-            (SettingsFormLayout.contentWidth - SettingsFormLayout.controlWidth) / 2
-            - (SettingsFormLayout.labelWidth + SettingsFormLayout.rowSpacing)
-            + leadingInset
-        static let editorWidth: CGFloat =
-            SettingsFormLayout.controlWidth
-            - leadingInset
-            - trailingInset
-            - scrollbarReserve
-            - deleteButtonWidth
-            - rowControlSpacing
+        static let workspaceWidth: CGFloat = 440
+        static let listHeight: CGFloat = 280
+        static let accessoryHeight: CGFloat = 30
+        static let searchWidth: CGFloat = 180
+        static let headerSpacing: CGFloat = 12
+        static let stackSpacing: CGFloat = 7
+        static let listCornerRadius: CGFloat = 6
     }
 
     @State private var viewModel: PersonalDictionaryViewModel
-    @State private var draftTerms: [String: String] = [:]
-    @State private var selection: String?
+    @State private var searchText = ""
+    @State private var selectedEntryID: String?
+    @FocusState private var isListFocused: Bool
+    @State private var editorMode: DictionaryEditorMode?
     @State private var pendingScrollTargetID: String?
-    @FocusState private var focusedEntryID: String?
+    @State private var statusMessage: String?
+    @State private var alertMessage: String?
+    @State private var statusTask: Task<Void, Never>?
 
     init(dictionaryStore: PersonalDictionaryStore) {
         _viewModel = State(wrappedValue: PersonalDictionaryViewModel(store: dictionaryStore))
     }
 
     var body: some View {
-        SettingsPaneSection {
-            VStack(alignment: .leading, spacing: 0) {
-                dictionaryContent
+        VStack(alignment: .leading, spacing: Layout.headerSpacing) {
+            header
+            VStack(alignment: .leading, spacing: Layout.stackSpacing) {
+                listContainer
+                toolbar
+                footer
             }
-            .frame(maxWidth: .infinity, alignment: .center)
-        } footer: {
-            Text("语音识别和 AI 润色会参考这里的词条，尽量保留专有名词的写法。")
-                .offset(x: Layout.footerOffset)
         }
-        .onAppear { syncDraftTerms() }
+        .frame(width: Layout.workspaceWidth)
+        .frame(width: SettingsFormLayout.contentWidth, alignment: .center)
+        .sheet(item: $editorMode, onDismiss: { viewModel.errorMessage = nil }) { mode in
+            DictionaryEntryEditorSheet(
+                mode: mode,
+                errorMessage: viewModel.errorMessage,
+                onSubmit: { submitEditor(mode: mode, term: $0) },
+                onDismiss: { editorMode = nil }
+            )
+        }
+        .alert("词典操作失败", isPresented: Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { alertMessage = nil } }
+        )) {
+            Button("好", role: .cancel) { alertMessage = nil }
+        } message: {
+            Text(alertMessage ?? "")
+        }
         .onChange(of: viewModel.entries) {
-            syncDraftTerms(preservingExistingDrafts: true)
+            reconcileSelection()
+        }
+        .onDisappear {
+            statusTask?.cancel()
         }
     }
 
-    private var dictionaryContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            dictionaryList
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("常用词")
+                .accessibilityAddTraits(.isHeader)
 
-            if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.leading, Layout.leadingInset)
-            } else if let statusMessage = viewModel.statusMessage {
-                Text(statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, Layout.leadingInset)
-            }
+            Spacer(minLength: 8)
 
-            controls
+            SettingsTextInputField(
+                text: $searchText,
+                width: Layout.searchWidth,
+                placeholder: "搜索词条…"
+            )
+            .help("搜索词条")
+            .accessibilityLabel("搜索词条")
         }
-        .frame(width: SettingsFormLayout.controlWidth, alignment: .leading)
+        .frame(width: Layout.workspaceWidth, alignment: .leading)
     }
 
-    private var dictionaryList: some View {
+    private var listContainer: some View {
         ScrollViewReader { proxy in
-            Group {
+            List(selection: $selectedEntryID) {
+                ForEach(displayedEntries) { entry in
+                    Text(entry.term)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .tag(entry.id)
+                        .id(entry.id)
+                        .simultaneousGesture(
+                            TapGesture(count: 2).onEnded {
+                                editorMode = .edit(entry)
+                            }
+                        )
+                        .contextMenu {
+                            Button("编辑") {
+                                editorMode = .edit(entry)
+                            }
+                            Button("删除", role: .destructive) {
+                                delete(entry)
+                            }
+                        }
+                        .accessibilityLabel(entry.term)
+                }
+            }
+            .listStyle(.inset(alternatesRowBackgrounds: false))
+            .environment(\.defaultMinListRowHeight, 28)
+            .focused($isListFocused)
+            .onChange(of: selectedEntryID) {
+                if selectedEntryID != nil {
+                    isListFocused = true
+                }
+            }
+            .frame(width: Layout.workspaceWidth, height: Layout.listHeight)
+            .clipShape(
+                RoundedRectangle(cornerRadius: Layout.listCornerRadius, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: Layout.listCornerRadius, style: .continuous)
+                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .onDeleteCommand(perform: deleteSelection)
+            .onKeyPress(.return) { handleReturnKey() }
+            .overlay {
                 if viewModel.entries.isEmpty {
                     dictionaryEmptyState
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: Layout.rowSpacing) {
-                            ForEach(viewModel.entries) { entry in
-                                dictionaryRow(for: entry)
-                                    .id(entry.id)
-                            }
-
-                            Color.clear
-                                .frame(height: 1)
-                                .id(Self.dictionaryListBottomAnchorID)
-                        }
-                        .padding(.vertical, 2)
-                        .padding(.leading, Layout.leadingInset)
-                        .padding(.trailing, Layout.trailingInset + Layout.scrollbarReserve)
-                    }
-                    .frame(width: SettingsFormLayout.controlWidth, height: Layout.listHeight)
+                        .allowsHitTesting(false)
+                } else if displayedEntries.isEmpty {
+                    searchEmptyState
+                        .allowsHitTesting(false)
                 }
             }
             .onChange(of: pendingScrollTargetID) {
                 guard let targetID = pendingScrollTargetID else { return }
                 DispatchQueue.main.async {
-                    withAnimation(.easeOut(duration: 0.16)) {
-                        proxy.scrollTo(Self.dictionaryListBottomAnchorID, anchor: .bottom)
-                    }
-                    focusedEntryID = targetID
-                    selection = targetID
+                    proxy.scrollTo(targetID, anchor: .center)
                     pendingScrollTargetID = nil
                 }
             }
-        }
-        .onDeleteCommand {
-            removeSelection()
+            .accessibilityLabel("词条列表")
         }
     }
 
-    /// 空词典占位：与词条列表共用同一区域，保持设置窗口高度稳定
+    private var toolbar: some View {
+        HStack(spacing: 0) {
+            DictionaryAccessoryControl(
+                canRemove: selectedEntryID != nil,
+                onAdd: {
+                    viewModel.errorMessage = nil
+                    editorMode = .add
+                },
+                onRemove: deleteSelection,
+                onImport: importDictionary,
+                onExport: exportDictionary
+            )
+
+            ZStack {
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            Text("\(viewModel.totalCount) 个词条")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("\(viewModel.totalCount) 个词条")
+        }
+        .frame(height: Layout.accessoryHeight)
+    }
+
+    private var footer: some View {
+        Text("添加人名、产品名和专业术语，Typoless 会尽量保留这些写法。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(width: Layout.workspaceWidth, alignment: .leading)
+    }
+
     private var dictionaryEmptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "text.book.closed")
                 .font(.system(size: 28))
                 .foregroundStyle(.secondary)
             Text("还没有词条")
-            Text("添加常用人名或术语，也可以导入已有词典。")
-                .font(.subheadline)
+            Text("点击添加常用人名、产品名或专业术语，也可以从文件导入。")
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .frame(maxWidth: Layout.workspaceWidth - 48)
         }
-        .frame(width: SettingsFormLayout.controlWidth, height: Layout.listHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 
-    private var controls: some View {
-        HStack {
-            Button("添加") {
-                let placeholder = makePlaceholderTerm()
-                viewModel.addPlaceholderTerm(placeholder)
-                syncDraftTerms(preservingExistingDrafts: true)
-                pendingScrollTargetID = viewModel.entries.last?.id
-            }
-            .help("添加词条")
-
-            Spacer()
-
-            Button("导入…") {
-                importDictionary()
-            }
-            .help("从 JSON 文件导入词典")
-
-            Button("导出…") {
-                exportDictionary()
-            }
-            .help("导出词典为 JSON 文件")
-        }
-        .padding(.leading, Layout.leadingInset)
+    private var searchEmptyState: some View {
+        Text("未找到词条")
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("未找到词条")
     }
 
-    private func dictionaryRow(for entry: DictionaryEntry) -> some View {
-        HStack(spacing: Layout.rowControlSpacing) {
-            DictionaryTermInputField(
-                text: draftTerms[entry.id] ?? entry.term,
-                width: Layout.editorWidth,
-                onCommit: { value in
-                    commitDraft(id: entry.id, term: value)
-                }
-            )
-            .focused($focusedEntryID, equals: entry.id)
-            .frame(width: Layout.editorWidth, height: Layout.rowHeight, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                selection = entry.id
-                if focusedEntryID != entry.id {
-                    focusedEntryID = entry.id
-                }
-            }
+    private var displayedEntries: [DictionaryEntry] {
+        viewModel.filteredEntries(matching: searchText)
+    }
 
-            Button {
-                viewModel.deleteEntry(entry)
-                draftTerms.removeValue(forKey: entry.id)
-                if selection == entry.id {
-                    selection = nil
-                }
-                if focusedEntryID == entry.id {
-                    focusedEntryID = nil
-                }
-            } label: {
-                Image(systemName: "xmark.circle")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .frame(width: Layout.deleteButtonWidth, height: Layout.rowHeight)
-            .help("删除词条")
-        }
-        .onChange(of: focusedEntryID) {
-            if focusedEntryID == entry.id {
-                selection = entry.id
-            }
-        }
+    private var selectedEntry: DictionaryEntry? {
+        guard let selectedEntryID else { return nil }
+        return displayedEntries.first(where: { $0.id == selectedEntryID })
+            ?? viewModel.entries.first(where: { $0.id == selectedEntryID })
+    }
+
+    private func handleReturnKey() -> KeyPress.Result {
+        guard editorMode == nil, let selectedEntry else { return .ignored }
+        editorMode = .edit(selectedEntry)
+        return .handled
     }
 
     @discardableResult
-    private func commitDraft(id: String, term: String) -> Bool {
-        draftTerms[id] = term
-        if viewModel.commitTermUpdate(id: id, term: term),
-           let updatedEntry = viewModel.entries.first(where: { $0.id == id }) {
-            draftTerms[id] = updatedEntry.term
+    private func submitEditor(mode: DictionaryEditorMode, term: String) -> Bool {
+        switch mode {
+        case .add:
+            guard viewModel.addTerm(term) else { return false }
+            revealEntry(matching: term)
+            return true
+        case .edit(let entry):
+            guard viewModel.commitTermUpdate(id: entry.id, term: term) else { return false }
+            revealEntry(id: entry.id, matching: term)
             return true
         }
-        return false
     }
 
-    private func removeSelection() {
-        guard let selection,
-              let entry = viewModel.entries.first(where: { $0.id == selection }) else { return }
-        viewModel.deleteEntry(entry)
-        self.selection = nil
-        focusedEntryID = nil
-        syncDraftTerms(preservingExistingDrafts: true)
+    private func revealEntry(id: String? = nil, matching term: String) {
+        let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty, !normalized.localizedCaseInsensitiveContains(query) {
+            searchText = ""
+        }
+
+        let targetID = id ?? viewModel.entries.first(where: { $0.term == normalized })?.id
+        selectedEntryID = targetID
+        pendingScrollTargetID = targetID
     }
 
-    private func syncDraftTerms(preservingExistingDrafts: Bool = false) {
-        draftTerms = Dictionary(
-            uniqueKeysWithValues: viewModel.entries.map { entry in
-                let term = preservingExistingDrafts ? draftTerms[entry.id] ?? entry.term : entry.term
-                return (entry.id, term)
-            }
-        )
+    private func deleteSelection() {
+        guard let selectedEntryID,
+              let entry = viewModel.entries.first(where: { $0.id == selectedEntryID }) else { return }
+        delete(entry)
+    }
+
+    private func delete(_ entry: DictionaryEntry) {
+        let nextSelection = viewModel.neighboringEntryID(afterDeleting: entry.id)
+        guard viewModel.deleteEntry(entry) else {
+            presentAlert(viewModel.errorMessage ?? PersonalDictionaryViewModel.ValidationError.saveFailed.rawValue)
+            return
+        }
+        selectedEntryID = nextSelection
+    }
+
+    private func reconcileSelection() {
+        if let selectedEntryID, viewModel.entries.contains(where: { $0.id == selectedEntryID }) == false {
+            self.selectedEntryID = nil
+        }
     }
 
     private func importDictionary() {
-        viewModel.flushPendingEdits()
-        syncDraftTerms()
-
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -242,13 +282,10 @@ struct PersonalDictionarySettingsView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         viewModel.importEntries(from: url)
-        syncDraftTerms()
+        presentOperationResult()
     }
 
     private func exportDictionary() {
-        viewModel.flushPendingEdits()
-        syncDraftTerms()
-
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.canCreateDirectories = true
@@ -258,127 +295,34 @@ struct PersonalDictionarySettingsView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
         viewModel.exportEntries(to: url)
+        presentOperationResult()
     }
 
-    private func makePlaceholderTerm() -> String {
-        let base = "新词条"
-        guard viewModel.entries.contains(where: { $0.term == base }) else {
-            return base
+    private func presentOperationResult() {
+        if let errorMessage = viewModel.errorMessage {
+            presentAlert(errorMessage)
+            return
         }
-
-        var index = 2
-        while viewModel.entries.contains(where: { $0.term == "\(base) \(index)" }) {
-            index += 1
-        }
-        return "\(base) \(index)"
-    }
-}
-
-private struct DictionaryTermInputField: NSViewRepresentable {
-    let text: String
-    let width: CGFloat
-    let onCommit: (String) -> Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onCommit: onCommit)
+        showStatus(viewModel.statusMessage)
     }
 
-    func makeNSView(context: Context) -> NSTextField {
-        let textField = NSTextField(frame: .zero)
-        textField.delegate = context.coordinator
-        textField.isBordered = true
-        textField.isBezeled = true
-        textField.bezelStyle = .roundedBezel
-        textField.controlSize = .regular
-        textField.focusRingType = .default
-        textField.lineBreakMode = .byTruncatingTail
-        textField.maximumNumberOfLines = 1
-        textField.alignment = .natural
-        textField.font = .systemFont(ofSize: NSFont.systemFontSize)
-        textField.stringValue = text
-        context.coordinator.resetCommittedText(text)
-        textField.target = context.coordinator
-        textField.action = #selector(Coordinator.commitFromAction(_:))
-        configureDictionaryTermField(textField, width: width)
-        return textField
+    private func presentAlert(_ message: String) {
+        alertMessage = message
+        statusMessage = nil
     }
 
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        context.coordinator.onCommit = onCommit
-        if !context.coordinator.isEditing, nsView.stringValue != text {
-            nsView.stringValue = text
-            context.coordinator.resetCommittedText(text)
+    private func showStatus(_ message: String?) {
+        statusTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.16)) {
+            statusMessage = message
         }
-        configureDictionaryTermField(nsView, width: width)
-    }
-
-    static func dismantleNSView(_ nsView: NSTextField, coordinator: Coordinator) {
-        coordinator.commit(nsView)
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var onCommit: (String) -> Bool
-        var isEditing = false
-        private var lastCommittedText: String?
-
-        init(onCommit: @escaping (String) -> Bool) {
-            self.onCommit = onCommit
-        }
-
-        func resetCommittedText(_ text: String) {
-            lastCommittedText = text
-        }
-
-        func controlTextDidBeginEditing(_ obj: Notification) {
-            isEditing = true
-        }
-
-        func controlTextDidEndEditing(_ obj: Notification) {
-            guard let textField = obj.object as? NSTextField else { return }
-            isEditing = false
-            commit(textField)
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
-            if textView.hasMarkedText() {
-                return false
-            }
-            commit(control)
-            control.window?.makeFirstResponder(nil)
-            return true
-        }
-
-        @objc func commitFromAction(_ sender: NSTextField) {
-            commit(sender)
-        }
-
-        func commit(_ control: NSControl) {
-            let text = control.stringValue
-            guard text != lastCommittedText else { return }
-            if onCommit(text) {
-                lastCommittedText = text
+        guard message != nil else { return }
+        statusTask = Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.16)) {
+                statusMessage = nil
             }
         }
-    }
-}
-
-@MainActor
-private func configureDictionaryTermField(_ textField: NSTextField, width: CGFloat) {
-    let identifier = "DictionaryTermFixedWidthConstraint"
-    textField.translatesAutoresizingMaskIntoConstraints = false
-    textField.lineBreakMode = .byTruncatingTail
-    textField.maximumNumberOfLines = 1
-    textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-    textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-    if let widthConstraint = textField.constraints.first(where: { $0.identifier == identifier }) {
-        widthConstraint.constant = width
-    } else {
-        let widthConstraint = textField.widthAnchor.constraint(equalToConstant: width)
-        widthConstraint.identifier = identifier
-        widthConstraint.priority = .required
-        widthConstraint.isActive = true
     }
 }
