@@ -107,6 +107,7 @@ enum SettingsFormLayout {
     static let rowSpacing: CGFloat = 12
     static let rowMinHeight: CGFloat = 26
     static let controlWidth: CGFloat = 360
+    static let footerWidth: CGFloat = contentWidth - labelWidth - rowSpacing
     static let sectionSpacing: CGFloat = 0
     static let sectionVerticalPadding: CGFloat = 9
 }
@@ -156,7 +157,7 @@ struct SettingsPaneSection<Content: View, Footer: View>: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(
-                    width: SettingsFormLayout.contentWidth - SettingsFormLayout.labelWidth - SettingsFormLayout.rowSpacing,
+                    width: SettingsFormLayout.footerWidth,
                     alignment: .leading
                 )
                 .padding(.leading, SettingsFormLayout.labelWidth + SettingsFormLayout.rowSpacing)
