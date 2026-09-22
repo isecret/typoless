@@ -65,8 +65,8 @@ struct SettingsView: View {
                 GeneralSettingsView(
                     configStore: appCoordinator.configStore,
                     updateService: appCoordinator.updateService,
-                    onHotkeyChanged: {
-                        appCoordinator.setupHotkey()
+                    onHotkeyCommit: { combo in
+                        appCoordinator.applyHotkey(combo).errorMessage
                     },
                     onHotkeyRecordingChanged: { isRecording in
                         appCoordinator.setHotkeyCaptureSuspended(isRecording)

@@ -120,8 +120,10 @@
 
 ### 5.1.1 HotkeyManager
 
-- 标准快捷键继续使用 Carbon `RegisterEventHotKey` 注册，覆盖包含普通键的组合
-- 纯修饰键和左右侧修饰键组合通过 `flagsChanged` 事件监听实现，不依赖普通 hotkey 库
+- 标准快捷键继续使用 Carbon `RegisterEventHotKey` 注册，覆盖包含普通键的组合；必须检查 `OSStatus`，失败不得视为已生效
+- 纯修饰键和左右侧修饰键组合通过 `flagsChanged` 事件监听实现，不依赖普通 hotkey 库；监听器创建失败时回滚原快捷键
+- `HotkeyManager.replace(with:)` 先尝试新监听，成功后由设置页持久化；失败则恢复原监听且不改配置
+- 设置页展示使用 `HotkeyPresentation` 键帽 token 与无障碍描述，不把 `displayString` 当作 UI 唯一数据源；`displayString` 仅保留 JSON 兼容
 - MacBook `Fn`／🌐 键通过 `flagsChanged` 的 `.function` 位（0x800000）判定按住状态；录制控件通过物理键码 `kVK_Function`（63）过滤 `keyDown`，避免把 `Fn` 当普通键提交
 - 纯 `Fn` 及含 `Fn` 的组合走特殊修饰键／物理按键路径；Carbon 路径不涉及 `Fn`
 - 设置页录制控件直接采集按键事件，支持：

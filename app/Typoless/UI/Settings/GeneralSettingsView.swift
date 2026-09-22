@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct GeneralSettingsView: View {
@@ -7,7 +8,7 @@ struct GeneralSettingsView: View {
 
     let configStore: ConfigStore
     let updateService: AppUpdateService
-    var onHotkeyChanged: (() -> Void)?
+    var onHotkeyCommit: ((HotkeyCombo) -> String?)?
     var onHotkeyRecordingChanged: ((Bool) -> Void)?
     var onInteractionSoundChanged: ((Bool) -> Void)?
 
@@ -16,6 +17,8 @@ struct GeneralSettingsView: View {
     @State private var translationTargetLanguage: TranslationTargetLanguage = .english
     @State private var launchAtLogin = false
     @State private var isLoaded = false
+    @State private var recordingPhase: HotkeyRecordingPhase = .idle
+    @State private var hotkeyError: String?
 
     private var hotkeyIncludesFunction: Bool {
         hotkey.specialModifiers.contains { $0.key == .function }
@@ -25,19 +28,40 @@ struct GeneralSettingsView: View {
         Group {
             SettingsPaneSection {
                 SettingsFormRow(title: "全局快捷键") {
-                    HotkeyRecorderView(
-                        hotkey: $hotkey,
-                        onRecordingStateChanged: { isRecording in
-                            onHotkeyRecordingChanged?(isRecording)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HotkeyRecorderView(
+                            hotkey: hotkey,
+                            onCommit: commitHotkey,
+                            onPhaseChanged: { recordingPhase = $0 },
+                            onRecordingStateChanged: { isRecording in
+                                if isRecording {
+                                    hotkeyError = nil
+                                }
+                                onHotkeyRecordingChanged?(isRecording)
+                            }
+                        )
+
+                        if let hotkeyError {
+                            Text(hotkeyError)
+                                .font(.caption)
+                                .foregroundStyle(Color.red)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                    )
-                    .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("点击后按下快捷键。只按修饰键时，松开后保存；左右侧可分别录制。")
-                    if hotkeyIncludesFunction {
-                        Text("已使用 Fn 键：若系统的“按下 🌐 键时”设置了切换输入法、显示表情等动作，请在 系统设置 → 键盘 中改为“无操作”，否则会同时触发系统动作。")
+                    Text(hotkeyFooterText)
+                    if let conflict = HotkeySystemConflict.warning(for: hotkey), recordingPhase == .idle {
+                        Text(conflict)
+                    }
+                    if hotkeyIncludesFunction, recordingPhase == .idle {
+                        Text("已使用 Fn 键：若系统的“按下 🌐 键时”设置了切换输入法、显示表情等动作，请改为“无操作”，否则会同时触发系统动作。")
+                        Button("打开键盘设置…") {
+                            openKeyboardSettings()
+                        }
+                        .buttonStyle(.link)
+                        .controlSize(.small)
                     }
                 }
             }
@@ -106,10 +130,43 @@ struct GeneralSettingsView: View {
             loadDraft()
             isLoaded = true
         }
-        .onChange(of: hotkey) { immediateSaveWithHotkey() }
         .onChange(of: interactionSoundEnabled) { immediateSaveInteractionSound() }
         .onChange(of: translationTargetLanguage) { immediateSaveGeneralConfig() }
         .onChange(of: launchAtLogin) { immediateSaveGeneralConfig() }
+    }
+
+    private var hotkeyFooterText: String {
+        switch recordingPhase {
+        case .idle:
+            "按一次开始录音，再按一次结束。"
+        case .waiting:
+            "Esc 取消并保留原快捷键。"
+        case .previewingModifiers:
+            "松开即可保存。"
+        }
+    }
+
+    @discardableResult
+    private func commitHotkey(_ combo: HotkeyCombo) -> Bool {
+        if let errorMessage = onHotkeyCommit?(combo) {
+            hotkeyError = errorMessage
+            return false
+        }
+        hotkey = combo
+        hotkeyError = nil
+        return true
+    }
+
+    private func openKeyboardSettings() {
+        let urls = [
+            "x-apple.systempreferences:com.apple.Keyboard-Settings.extension",
+            "x-apple.systempreferences:com.apple.preference.keyboard",
+        ]
+        for urlString in urls {
+            if let url = URL(string: urlString), NSWorkspace.shared.open(url) {
+                return
+            }
+        }
     }
 
     private func loadDraft() {
@@ -117,12 +174,6 @@ struct GeneralSettingsView: View {
         interactionSoundEnabled = configStore.generalConfig.interactionSoundEnabled
         translationTargetLanguage = configStore.generalConfig.translationTargetLanguage
         launchAtLogin = configStore.generalConfig.launchAtLogin
-    }
-
-    private func immediateSaveWithHotkey() {
-        guard isLoaded else { return }
-        immediateSaveGeneralConfig()
-        onHotkeyChanged?()
     }
 
     private func immediateSaveInteractionSound() {

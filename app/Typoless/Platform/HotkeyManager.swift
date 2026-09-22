@@ -9,6 +9,20 @@ enum SpecialHotkeyAction: Equatable {
     case none
 }
 
+enum HotkeyRegistrationResult: Equatable {
+    case success
+    case failure(String)
+
+    var errorMessage: String? {
+        switch self {
+        case .success:
+            nil
+        case .failure(let message):
+            message
+        }
+    }
+}
+
 /// 全局快捷键管理器，使用 Carbon Event API 注册和监听全局热键按下/松开
 final class HotkeyManager: @unchecked Sendable {
 
@@ -19,8 +33,9 @@ final class HotkeyManager: @unchecked Sendable {
     private var globalKeyMonitor: Any?
     private var localKeyMonitor: Any?
     private var isKeyDown = false
-    private var registeredHotkey: HotkeyCombo?
+    private(set) var registeredHotkey: HotkeyCombo?
     private var isSuspended = false
+    var testInstallHandler: ((HotkeyCombo) -> HotkeyRegistrationResult)?
 
     /// 快捷键按下回调
     var onKeyDown: (@MainActor @Sendable () -> Void)?
@@ -34,21 +49,45 @@ final class HotkeyManager: @unchecked Sendable {
         unregister()
     }
 
-    /// 注册全局快捷键
-    func register(hotkey: HotkeyCombo) {
+    /// 注册全局快捷键。失败时当前没有任何已注册快捷键。
+    @discardableResult
+    func register(hotkey: HotkeyCombo) -> HotkeyRegistrationResult {
         unregister()
-        registeredHotkey = hotkey
+        let result = install(hotkey)
+        if case .success = result {
+            registeredHotkey = hotkey
+        }
+        return result
+    }
+
+    /// 尝试切换到新快捷键；失败时恢复原来的监听。
+    @discardableResult
+    func replace(with newHotkey: HotkeyCombo) -> HotkeyRegistrationResult {
+        let previous = registeredHotkey
+        let result = register(hotkey: newHotkey)
+        if case .failure = result, let previous {
+            _ = register(hotkey: previous)
+        }
+        return result
+    }
+
+    private func install(_ hotkey: HotkeyCombo) -> HotkeyRegistrationResult {
+        if let testInstallHandler {
+            return testInstallHandler(hotkey)
+        }
 
         if hotkey.isPureModifier {
-            registerSpecialHotkey(hotkey)
-            return
+            return installSpecialHotkey(hotkey)
         }
 
         if hotkey.hasPhysicalStandardModifiers {
-            registerPhysicalStandardHotkey(hotkey)
-            return
+            return installPhysicalStandardHotkey(hotkey)
         }
 
+        return installCarbonHotkey(hotkey)
+    }
+
+    private func installCarbonHotkey(_ hotkey: HotkeyCombo) -> HotkeyRegistrationResult {
         let carbonMods = Self.carbonModifiers(from: hotkey.modifiers)
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
 
@@ -63,7 +102,7 @@ final class HotkeyManager: @unchecked Sendable {
             ),
         ]
 
-        InstallEventHandler(
+        let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             carbonHotkeyCallback,
             2,
@@ -71,13 +110,16 @@ final class HotkeyManager: @unchecked Sendable {
             selfPtr,
             &eventHandlerRef
         )
+        guard handlerStatus == noErr else {
+            eventHandlerRef = nil
+            return .failure("无法注册该快捷键，可能已被系统占用。")
+        }
 
         let hotKeyID = EventHotKeyID(
             signature: Self.hotkeySignature,
             id: Self.hotkeyID
         )
-
-        RegisterEventHotKey(
+        let registerStatus = RegisterEventHotKey(
             UInt32(hotkey.keyCode ?? 0),
             carbonMods,
             hotKeyID,
@@ -85,6 +127,55 @@ final class HotkeyManager: @unchecked Sendable {
             OptionBits(0),
             &hotKeyRef
         )
+        guard registerStatus == noErr, hotKeyRef != nil else {
+            if let ref = eventHandlerRef {
+                RemoveEventHandler(ref)
+                eventHandlerRef = nil
+            }
+            hotKeyRef = nil
+            return .failure("无法注册该快捷键，可能已被系统占用。")
+        }
+
+        return .success
+    }
+
+    private func installSpecialHotkey(_ hotkey: HotkeyCombo) -> HotkeyRegistrationResult {
+        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            self?.handleSpecialFlagsChanged(event, hotkey: hotkey)
+        }
+        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            self?.handleSpecialFlagsChanged(event, hotkey: hotkey)
+            return event
+        }
+        guard globalFlagsMonitor != nil, localFlagsMonitor != nil else {
+            unregister()
+            return .failure("无法监听该修饰键组合。")
+        }
+        return .success
+    }
+
+    private func installPhysicalStandardHotkey(_ hotkey: HotkeyCombo) -> HotkeyRegistrationResult {
+        let keyMask: NSEvent.EventTypeMask = [.keyDown, .keyUp]
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: keyMask) { [weak self] event in
+            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
+        }
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: keyMask) { [weak self] event in
+            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
+            return event
+        }
+        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
+        }
+        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
+            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
+            return event
+        }
+        guard globalKeyMonitor != nil, localKeyMonitor != nil,
+              globalFlagsMonitor != nil, localFlagsMonitor != nil else {
+            unregister()
+            return .failure("无法监听该快捷键组合，请检查辅助功能权限。")
+        }
+        return .success
     }
 
     /// 注销当前注册的快捷键
@@ -157,34 +248,6 @@ final class HotkeyManager: @unchecked Sendable {
         if flags.contains(.control) { carbon |= UInt32(controlKey) }
         if flags.contains(.shift) { carbon |= UInt32(shiftKey) }
         return carbon
-    }
-
-    private func registerSpecialHotkey(_ hotkey: HotkeyCombo) {
-        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            self?.handleSpecialFlagsChanged(event, hotkey: hotkey)
-        }
-        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            self?.handleSpecialFlagsChanged(event, hotkey: hotkey)
-            return event
-        }
-    }
-
-    private func registerPhysicalStandardHotkey(_ hotkey: HotkeyCombo) {
-        let keyMask: NSEvent.EventTypeMask = [.keyDown, .keyUp]
-        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: keyMask) { [weak self] event in
-            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
-        }
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: keyMask) { [weak self] event in
-            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
-            return event
-        }
-        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
-        }
-        localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { [weak self] event in
-            self?.handlePhysicalStandardEvent(event, hotkey: hotkey)
-            return event
-        }
     }
 
     private func handleSpecialFlagsChanged(_ event: NSEvent, hotkey: HotkeyCombo) {

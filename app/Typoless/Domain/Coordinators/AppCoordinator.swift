@@ -159,9 +159,32 @@ final class AppCoordinator {
 
     /// 注册全局快捷键并绑定按下切换回调
     func setupHotkey() {
-        let hotkey = configStore.generalConfig.hotkey
-        hotkeyManager.register(hotkey: hotkey)
+        _ = hotkeyManager.replace(with: configStore.generalConfig.hotkey)
+        bindHotkeyCallbacks()
+    }
 
+    /// 尝试启用新快捷键；失败时保留原配置和原监听。
+    @discardableResult
+    func applyHotkey(_ hotkey: HotkeyCombo) -> HotkeyRegistrationResult {
+        let result = hotkeyManager.replace(with: hotkey)
+        guard case .success = result else { return result }
+
+        let config = GeneralConfig(
+            hotkey: hotkey,
+            interactionSoundEnabled: configStore.generalConfig.interactionSoundEnabled,
+            translationTargetLanguage: configStore.generalConfig.translationTargetLanguage,
+            launchAtLogin: configStore.generalConfig.launchAtLogin
+        )
+        do {
+            try configStore.saveGeneralConfig(config)
+        } catch {
+            return .failure("快捷键已生效，但保存配置失败。")
+        }
+        bindHotkeyCallbacks()
+        return .success
+    }
+
+    private func bindHotkeyCallbacks() {
         hotkeyManager.onKeyDown = { [weak self] in
             self?.handleHotkeyEvent()
         }
