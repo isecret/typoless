@@ -55,6 +55,7 @@ final class AppCoordinator {
     let hotkeyManager: HotkeyManager
     let hudFeedbackController: HUDFeedbackController
     let dictionaryStore: PersonalDictionaryStore
+    let llmModelListService: LLMModelListService
     let updateService: AppUpdateService
 
     var selectedSettingsTab: SettingsTab = .general {
@@ -85,6 +86,7 @@ final class AppCoordinator {
             dictionaryStore: dict
         )
         hotkeyManager = HotkeyManager()
+        llmModelListService = LLMModelListService()
         updateService = AppUpdateService(configStore: store)
 
         let hud = HUDFeedbackController()

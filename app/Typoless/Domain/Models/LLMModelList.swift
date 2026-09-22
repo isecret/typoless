@@ -24,10 +24,6 @@ struct LLMModelListInput: Equatable, Sendable {
             && !normalizedAPIKey.isEmpty
     }
 
-    var fingerprint: String {
-        "\(normalizedBaseURL)\n\(normalizedAPIKey)"
-    }
-
     func normalized() -> Self {
         Self(
             baseURL: normalizedBaseURL,

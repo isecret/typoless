@@ -3,12 +3,12 @@ import SwiftUI
 
 struct LLMSettingsView: View {
     let configStore: ConfigStore
+    let modelListService: LLMModelListService
 
     @State private var baseURL: String = ""
     @State private var apiKey: String = ""
     @State private var model: String = ""
     @State private var validationService: LLMValidationService?
-    @State private var modelListService: LLMModelListService?
     @State private var hasTriggeredValidation = false
     @State private var isLoaded = false
     @State private var saveTask: Task<Void, Never>?
@@ -52,7 +52,6 @@ struct LLMSettingsView: View {
         .onAppear {
             loadDraft()
             _ = ensureValidationService()
-            _ = ensureModelListService()
             isLoaded = true
             loadModelList()
         }
@@ -119,16 +118,6 @@ struct LLMSettingsView: View {
         return service
     }
 
-    private func ensureModelListService() -> LLMModelListService {
-        if let modelListService {
-            return modelListService
-        }
-
-        let service = LLMModelListService()
-        modelListService = service
-        return service
-    }
-
     private func currentValidationInput() -> LLMValidationInput {
         LLMValidationInput(
             baseURL: baseURL,
@@ -146,17 +135,13 @@ struct LLMSettingsView: View {
     }
 
     private func loadModelList(force: Bool = false) {
-        ensureModelListService().load(currentModelListInput(), force: force)
-    }
-
-    private var hasModelList: Bool {
-        !(modelListService?.models.isEmpty ?? true)
+        modelListService.load(currentModelListInput(), force: force)
     }
 
     @ViewBuilder
     private var modelListPickerButton: some View {
         ModelListPickerButton(
-            models: modelListService?.models ?? [],
+            models: modelListService.models,
             help: "选择模型",
             onSelect: { model = $0 }
         )
@@ -165,7 +150,7 @@ struct LLMSettingsView: View {
 
     @ViewBuilder
     private var modelListStatusView: some View {
-        switch modelListService?.status ?? .incomplete {
+        switch modelListService.status {
         case .incomplete:
             EmptyView()
         case .loading:

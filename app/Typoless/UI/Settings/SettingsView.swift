@@ -80,7 +80,10 @@ struct SettingsView: View {
             case .dictionary:
                 PersonalDictionarySettingsView(dictionaryStore: appCoordinator.dictionaryStore)
             case .ai:
-                LLMSettingsView(configStore: appCoordinator.configStore)
+                LLMSettingsView(
+                    configStore: appCoordinator.configStore,
+                    modelListService: appCoordinator.llmModelListService
+                )
             case .permissions:
                 PermissionsSettingsView(permissionsManager: appCoordinator.permissionsManager)
             }
