@@ -1,3 +1,9 @@
+> **项目已迁移，本仓库已归档。**
+>
+> 后续开发与维护已转移至 **[MemoEcho](https://github.com/isecret/MemoEcho)**，请前往新仓库获取最新代码、使用说明及提交反馈。
+>
+> Typoless 仓库仅保留历史代码与文档，不再更新或接受变更。以下内容仅供历史参考。
+
 <p align="center">
   <img src="./typoless.svg" alt="Typoless" width="160" />
 </p>
